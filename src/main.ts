@@ -408,6 +408,60 @@ async function initializeBehaviorSystem(
     getManualExpression: () => expressionManager.getManualExpression(),
   });
 
+  // ── 系統托盤事件 ──
+  await ipc.onTrayAction((actionId) => {
+    switch (actionId) {
+      case 'toggle_pause':
+        if (stateMachine.isPaused()) { stateMachine.resume(); } else { stateMachine.pause(); }
+        config.autonomousMovementPaused = stateMachine.isPaused();
+        ipc.writeConfig(config);
+        break;
+      case 'toggle_auto_expr': {
+        const newVal = !expressionManager.isAutoEnabled();
+        expressionManager.setAutoEnabled(newVal);
+        config.autoExpressionEnabled = newVal;
+        ipc.writeConfig(config);
+        break;
+      }
+      case 'toggle_loop':
+        if (animationManager) {
+          const v = !animationManager.isLoopEnabled();
+          animationManager.setLoopEnabled(v);
+          config.animationLoopEnabled = v;
+          ipc.writeConfig(config);
+        }
+        break;
+      case 'reset_camera':
+        sceneManager.resetCamera();
+        break;
+      case 'change_model':
+        ipc.pickVrmFile().then(async (p) => {
+          if (!p) return;
+          config.vrmModelPath = p;
+          await ipc.writeConfig(config);
+          window.location.reload();
+        });
+        break;
+      case 'change_anim':
+        ipc.pickAnimationFolder().then(async (p) => {
+          if (!p) return;
+          config.animationFolderPath = p;
+          await ipc.scanAnimations(p);
+          await ipc.writeConfig(config);
+          window.location.reload();
+        });
+        break;
+      case 'scale_50': sceneManager.setScale(0.5); config.scale = 0.5; ipc.writeConfig(config); break;
+      case 'scale_75': sceneManager.setScale(0.75); config.scale = 0.75; ipc.writeConfig(config); break;
+      case 'scale_100': sceneManager.setScale(1.0); config.scale = 1.0; ipc.writeConfig(config); break;
+      case 'scale_125': sceneManager.setScale(1.25); config.scale = 1.25; ipc.writeConfig(config); break;
+      case 'scale_150': sceneManager.setScale(1.5); config.scale = 1.5; ipc.writeConfig(config); break;
+      case 'scale_200': sceneManager.setScale(2.0); config.scale = 2.0; ipc.writeConfig(config); break;
+      default:
+        break;
+    }
+  });
+
   // 清理函式
   window.addEventListener('beforeunload', () => {
     dragHandler.dispose();

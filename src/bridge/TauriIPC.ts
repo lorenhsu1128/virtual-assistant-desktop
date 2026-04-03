@@ -278,6 +278,17 @@ class TauriIPC {
   }
 
   /**
+   * 監聽系統托盤選單動作
+   *
+   * 托盤選單項目點擊時觸發，payload 為動作 ID 字串。
+   */
+  async onTrayAction(callback: (actionId: string) => void): Promise<UnlistenFn> {
+    return listen<string>('tray_action', (event) => {
+      callback(event.payload);
+    });
+  }
+
+  /**
    * 將本機檔案路徑轉換為 Tauri asset URL
    *
    * Three.js 等前端 loader 無法直接讀取本機路徑（如 C:\...），
