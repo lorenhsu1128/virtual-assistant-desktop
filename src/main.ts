@@ -312,6 +312,7 @@ async function initializeBehaviorSystem(
 
   // ── Debug Overlay ──
   const debugOverlay = new DebugOverlay();
+  debugOverlay.setEnabled(true); // 預設開啟 debug mode
   sceneManager.setDebugOverlay(debugOverlay);
   sceneManager.setWindowListFetcher(() => ipc.getWindowList());
 

@@ -1,4 +1,7 @@
 import { BrowserWindow } from 'electron';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
 
 /** Rectangle for window region clipping */
 export interface Rect {
