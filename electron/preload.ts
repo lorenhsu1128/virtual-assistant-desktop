@@ -60,7 +60,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // or via a custom protocol registered in main.ts
   convertToAssetUrl: (filePath: string) => {
     // Normalize path separators and encode for URL
+    // Triple slash (:///) means no host — avoids drive letter being parsed as hostname
     const normalized = filePath.replace(/\\/g, '/');
-    return `local-file://${normalized}`;
+    return `local-file:///${normalized}`;
   },
 });

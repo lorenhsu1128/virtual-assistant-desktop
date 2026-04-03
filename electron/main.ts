@@ -3,7 +3,6 @@ import {
   BrowserWindow,
   protocol,
   net,
-  session,
 } from 'electron';
 import * as path from 'node:path';
 import * as url from 'node:url';
@@ -38,22 +37,22 @@ if (!gotTheLock) {
 }
 
 /**
- * Register custom protocol for loading local files.
- *
- * Converts local-file://C:/path/to/file.vrm to actual file reads.
- * This replaces Tauri's asset:// protocol.
+ * Register custom protocol scheme BEFORE app is ready.
+ * This is required for the protocol to work properly with fetch/XHR.
  */
-function registerLocalFileProtocol(): void {
-  protocol.handle('local-file', (request) => {
-    // Strip protocol prefix and decode
-    let filePath = decodeURIComponent(request.url.replace('local-file://', ''));
-    // Handle Windows paths (e.g., /C:/path → C:/path)
-    if (filePath.startsWith('/') && filePath[2] === ':') {
-      filePath = filePath.substring(1);
-    }
-    return net.fetch(url.pathToFileURL(filePath).toString());
-  });
-}
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'local-file',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      bypassCSP: true,
+      corsEnabled: true,
+      stream: true,
+    },
+  },
+]);
 
 /** Create the main transparent window */
 function createMainWindow(): BrowserWindow {
@@ -71,9 +70,16 @@ function createMainWindow(): BrowserWindow {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false, // Required for koffi native modules
+      sandbox: false,
+      // Allow loading local resources
+      webSecurity: false,
     },
   });
+
+  // Open DevTools in dev mode for debugging
+  if (isDev) {
+    win.webContents.openDevTools({ mode: 'detach' });
+  }
 
   // Load the frontend
   if (isDev) {
@@ -86,21 +92,18 @@ function createMainWindow(): BrowserWindow {
 }
 
 app.whenReady().then(() => {
-  // Register custom protocol before creating window
-  registerLocalFileProtocol();
-
-  // Allow loading local files via the custom protocol
-  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-    callback({
-      responseHeaders: {
-        ...details.responseHeaders,
-        'Content-Security-Policy': [
-          "default-src 'self' 'unsafe-inline' 'unsafe-eval' local-file: file:; " +
-          "img-src 'self' local-file: file: data: blob:; " +
-          "connect-src 'self' local-file: file: http://localhost:*",
-        ],
-      },
-    });
+  // Register protocol handler for local file access
+  // Converts local-file://C:/path/to/file.vrm to actual file reads
+  protocol.handle('local-file', (request) => {
+    // URL format: local-file:///C:/path/to/file
+    // new URL() parses this as pathname = /C:/path/to/file
+    const parsed = new URL(request.url);
+    let filePath = decodeURIComponent(parsed.pathname);
+    // Remove leading slash before drive letter on Windows (e.g., /C:/path → C:/path)
+    if (filePath.match(/^\/[A-Za-z]:\//)) {
+      filePath = filePath.substring(1);
+    }
+    return net.fetch(url.pathToFileURL(filePath).toString());
   });
 
   // Ensure config directory exists
