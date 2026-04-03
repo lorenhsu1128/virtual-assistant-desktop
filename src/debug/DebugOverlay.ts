@@ -14,6 +14,15 @@ export interface WindowDebugData {
   height: number;
 }
 
+/** 骨骼與視窗邊緣的接觸資料 */
+export interface ContactDebugData {
+  /** 接觸點在 overlay 上的位置（CSS 像素） */
+  x: number;
+  y: number;
+  /** 接觸的邊緣方向：水平線或垂直線 */
+  direction: 'horizontal' | 'vertical';
+}
+
 /** 骨骼標籤與顏色對應 */
 const BONE_STYLE: Record<string, { label: string; color: string }> = {
   leftFoot: { label: 'LF', color: '#3b82f6' },   // 藍
@@ -35,6 +44,7 @@ export class DebugOverlay {
   private panel: HTMLElement;
   private windowPanel: HTMLElement;
   private dots: Map<string, HTMLElement> = new Map();
+  private contactLines: HTMLElement[] = [];
   private enabled = false;
 
   constructor() {
@@ -158,9 +168,55 @@ export class DebugOverlay {
     this.windowPanel.textContent = lines.join('\n');
   }
 
+  /**
+   * 更新骨骼與視窗邊緣的接觸標示（綠色虛線）
+   */
+  updateContacts(contacts: ContactDebugData[]): void {
+    if (!this.enabled) return;
+
+    // 移除舊的接觸線
+    for (const line of this.contactLines) {
+      line.remove();
+    }
+    this.contactLines.length = 0;
+
+    // 建立新的接觸線
+    for (const c of contacts) {
+      const line = document.createElement('div');
+      if (c.direction === 'horizontal') {
+        line.style.cssText = `
+          position: absolute; left: 0; width: 100%; height: 0;
+          top: ${c.y}px;
+          border-top: 2px dashed rgba(34, 197, 94, 0.8);
+          pointer-events: none;
+        `;
+      } else {
+        line.style.cssText = `
+          position: absolute; top: 0; height: 100%; width: 0;
+          left: ${c.x}px;
+          border-left: 2px dashed rgba(34, 197, 94, 0.8);
+          pointer-events: none;
+        `;
+      }
+      // 接觸點圓點標記
+      const marker = document.createElement('div');
+      marker.style.cssText = `
+        position: absolute; width: 8px; height: 8px; border-radius: 50%;
+        background: rgba(34, 197, 94, 0.9);
+        transform: translate(-50%, -50%);
+        left: ${c.x}px; top: ${c.y}px;
+        box-shadow: 0 0 6px rgba(34, 197, 94, 0.6);
+      `;
+      this.container.appendChild(line);
+      this.container.appendChild(marker);
+      this.contactLines.push(line, marker);
+    }
+  }
+
   /** 銷毀 overlay */
   dispose(): void {
     this.container.remove();
     this.dots.clear();
+    this.contactLines.length = 0;
   }
 }

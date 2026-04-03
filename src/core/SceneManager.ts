@@ -6,7 +6,7 @@ import type { StateMachine } from '../behavior/StateMachine';
 import type { CollisionSystem } from '../behavior/CollisionSystem';
 import type { BehaviorAnimationBridge } from '../behavior/BehaviorAnimationBridge';
 import type { ExpressionManager } from '../expression/ExpressionManager';
-import type { DebugOverlay, BoneDebugData } from '../debug/DebugOverlay';
+import type { DebugOverlay, BoneDebugData, ContactDebugData } from '../debug/DebugOverlay';
 import type { Rect } from '../types/window';
 
 /** 幀率模式 */
@@ -54,6 +54,7 @@ export class SceneManager {
   private windowListFetcher: (() => Promise<Array<{ title: string; x: number; y: number; width: number; height: number }>>) | null = null;
   private lastWindowListUpdate = 0;
   private static readonly WINDOW_LIST_INTERVAL = 1000; // 1 秒更新一次
+  private static readonly CONTACT_THRESHOLD = 10; // 骨骼與視窗邊緣接觸判定閾值（像素）
 
   // 視窗位置管理
   private currentPosition = { x: 0, y: 0 };
@@ -402,6 +403,51 @@ export class SceneManager {
       }));
 
       this.debugOverlay.updateBones(boneData);
+
+      // 骨骼與視窗邊緣的接觸檢測
+      if (this.collisionSystem) {
+        const contacts: ContactDebugData[] = [];
+        const windowRects = this.collisionSystem.getWindowRects();
+        const threshold = SceneManager.CONTACT_THRESHOLD;
+
+        for (const bone of boneData) {
+          if (!bone.screen) continue;
+          // 骨骼在 canvas CSS 像素 → 轉為螢幕絕對座標
+          const boneScreenX = this.currentPosition.x + bone.screen.x;
+          const boneScreenY = this.currentPosition.y + bone.screen.y;
+
+          for (const wr of windowRects) {
+            const winLeft = wr.x;
+            const winRight = wr.x + wr.width;
+            const winTop = wr.y;
+            const winBottom = wr.y + wr.height;
+
+            // 骨骼是否在視窗的垂直範圍內（用於左右邊緣判定）
+            const inVertRange = boneScreenY >= winTop - threshold && boneScreenY <= winBottom + threshold;
+            // 骨骼是否在視窗的水平範圍內（用於上下邊緣判定）
+            const inHorzRange = boneScreenX >= winLeft - threshold && boneScreenX <= winRight + threshold;
+
+            // 左邊緣
+            if (inVertRange && Math.abs(boneScreenX - winLeft) <= threshold) {
+              contacts.push({ x: bone.screen.x, y: bone.screen.y, direction: 'vertical' });
+            }
+            // 右邊緣
+            if (inVertRange && Math.abs(boneScreenX - winRight) <= threshold) {
+              contacts.push({ x: bone.screen.x, y: bone.screen.y, direction: 'vertical' });
+            }
+            // 上邊緣
+            if (inHorzRange && Math.abs(boneScreenY - winTop) <= threshold) {
+              contacts.push({ x: bone.screen.x, y: bone.screen.y, direction: 'horizontal' });
+            }
+            // 下邊緣
+            if (inHorzRange && Math.abs(boneScreenY - winBottom) <= threshold) {
+              contacts.push({ x: bone.screen.x, y: bone.screen.y, direction: 'horizontal' });
+            }
+          }
+        }
+
+        this.debugOverlay.updateContacts(contacts);
+      }
 
       // 視窗清單（每秒更新一次）
       const now = performance.now();
