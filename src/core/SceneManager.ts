@@ -409,18 +409,22 @@ export class SceneManager {
         const contacts: ContactDebugData[] = [];
         const windowRects = this.collisionSystem.getWindowRects();
         const threshold = SceneManager.CONTACT_THRESHOLD;
+        // GetWindowRect 回傳物理像素，currentPosition + bone.screen 是邏輯像素
+        // 需要用 devicePixelRatio 轉換到同一座標系
+        const dpr = window.devicePixelRatio || 1;
 
         for (const bone of boneData) {
           if (!bone.screen) continue;
-          // 骨骼在 canvas CSS 像素 → 轉為螢幕絕對座標
+          // 骨骼在 canvas CSS 像素 → 轉為螢幕邏輯座標
           const boneScreenX = this.currentPosition.x + bone.screen.x;
           const boneScreenY = this.currentPosition.y + bone.screen.y;
 
           for (const wr of windowRects) {
-            const winLeft = wr.x;
-            const winRight = wr.x + wr.width;
-            const winTop = wr.y;
-            const winBottom = wr.y + wr.height;
+            // 物理像素 → 邏輯像素
+            const winLeft = wr.x / dpr;
+            const winRight = (wr.x + wr.width) / dpr;
+            const winTop = wr.y / dpr;
+            const winBottom = (wr.y + wr.height) / dpr;
 
             // 骨骼是否在視窗的垂直範圍內（用於左右邊緣判定）
             const inVertRange = boneScreenY >= winTop - threshold && boneScreenY <= winBottom + threshold;
