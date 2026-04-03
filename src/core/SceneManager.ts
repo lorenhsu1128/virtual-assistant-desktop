@@ -264,20 +264,20 @@ export class SceneManager {
       const collision = this.collisionSystem.check(characterBounds);
 
       // StateMachine 更新
-      const input = {
-        currentPosition: { ...this.currentPosition },
-        characterBounds,
-        screenBounds: this.collisionSystem.getScreenBounds(),
-        windowRects: this.collisionSystem.getWindowRects(),
-        scale: this.scale,
-        deltaTime,
-      };
-
-      const output = this.stateMachine.tick(input, collision);
+      const output = this.stateMachine.tick(
+        {
+          currentPosition: this.currentPosition,
+          characterBounds,
+          screenBounds: this.collisionSystem.getScreenBounds(),
+          windowRects: this.collisionSystem.getWindowRects(),
+          scale: this.scale,
+          deltaTime,
+        },
+        collision,
+      );
 
       // 套用目標位置
       if (output.targetPosition) {
-        // 夾限到螢幕範圍
         const clamped = this.collisionSystem.clampToScreen(
           output.targetPosition,
           this.windowSize.width,
@@ -291,17 +291,17 @@ export class SceneManager {
       if (this.behaviorBridge) {
         this.behaviorBridge.update(output);
       }
+    }
 
-      // 遮擋更新（throttle）
-      if (this.occlusionSetter && now - this.lastOcclusionUpdate > OCCLUSION_UPDATE_INTERVAL) {
-        const occlusionRects = this.collisionSystem.getOcclusionRects(this.getCharacterBounds());
-        const hash = JSON.stringify(occlusionRects);
-        if (hash !== this.lastOcclusionHash) {
-          this.lastOcclusionHash = hash;
-          this.occlusionSetter(occlusionRects);
-        }
-        this.lastOcclusionUpdate = now;
+    // 遮擋更新（獨立於 StateMachine 暫停狀態，拖曳時也需要更新）
+    if (this.collisionSystem && this.occlusionSetter && now - this.lastOcclusionUpdate > OCCLUSION_UPDATE_INTERVAL) {
+      const occlusionRects = this.collisionSystem.getOcclusionRects(this.getCharacterBounds());
+      const hash = this.hashOcclusionRects(occlusionRects);
+      if (hash !== this.lastOcclusionHash) {
+        this.lastOcclusionHash = hash;
+        this.occlusionSetter(occlusionRects);
       }
+      this.lastOcclusionUpdate = now;
     }
 
     // Step 3: Animation update
@@ -321,6 +321,19 @@ export class SceneManager {
     // Step 6: Render
     this.renderer.render(this.scene, this.camera);
   };
+
+  /** 遮擋矩形的簡易 hash（避免 JSON.stringify 的 GC 壓力） */
+  private hashOcclusionRects(rects: Rect[]): string {
+    if (rects.length === 0) return '0';
+    let hash = rects.length;
+    for (const r of rects) {
+      hash = ((hash << 5) - hash + r.x) | 0;
+      hash = ((hash << 5) - hash + r.y) | 0;
+      hash = ((hash << 5) - hash + r.width) | 0;
+      hash = ((hash << 5) - hash + r.height) | 0;
+    }
+    return String(hash);
+  }
 
   /** WebGL context lost 處理 */
   private onContextLost = (event: Event): void => {

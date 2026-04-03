@@ -56,6 +56,10 @@ pub fn run() {
                     }
                 }
 
+                if own_hwnd == 0 {
+                    log::warn!("[setup] Could not obtain main window HWND; window monitor will not filter self");
+                }
+
                 // 啟動視窗監控背景執行緒
                 let monitor = window_monitor::WindowMonitor::start(
                     app.handle().clone(),
@@ -67,5 +71,9 @@ pub fn run() {
             Ok(())
         })
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        // 進入點層級：Tauri 啟動失敗無法復原，只能記錄錯誤後退出
+        .unwrap_or_else(|e| {
+            log::error!("Failed to start Tauri application: {}", e);
+            std::process::exit(1);
+        });
 }

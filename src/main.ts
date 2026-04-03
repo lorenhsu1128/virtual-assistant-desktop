@@ -255,14 +255,17 @@ async function initializeApp(config: AppConfig): Promise<void> {
 
   // ── v0.2: 互動系統 ──
 
-  // DragHandler
-  new DragHandler(canvas, {
+  // DragHandler（保存引用以便 dispose）
+  const dragHandler = new DragHandler(canvas, {
     getWindowPosition: () => ipc.getWindowPosition(),
     setWindowPosition: (x, y) => ipc.setWindowPosition(x, y),
     getSnappableWindows: (bounds, threshold) =>
       collisionSystem.getSnappableWindows(bounds, threshold),
     clampToScreen: (pos, w, h) => collisionSystem.clampToScreen(pos, w, h),
-    getCharacterSize: () => initialSize,
+    getCharacterSize: () => {
+      const bounds = sceneManager.getCharacterBounds();
+      return { width: bounds.width, height: bounds.height };
+    },
     onDragStart: () => {
       stateMachine.forceState('drag');
     },
@@ -280,8 +283,8 @@ async function initializeApp(config: AppConfig): Promise<void> {
     },
   });
 
-  // ContextMenu
-  new ContextMenu(canvas, {
+  // ContextMenu（保存引用以便 dispose）
+  const contextMenu = new ContextMenu(canvas, {
     getActionAnimations: () =>
       animationManager?.getAnimationsByCategory('action') ?? [],
     getBlendShapes: () => vrmController.getBlendShapes(),
@@ -311,6 +314,13 @@ async function initializeApp(config: AppConfig): Promise<void> {
       // TODO v0.3: 開啟設定視窗
       console.log('[main] Settings window not yet implemented');
     },
+  });
+
+  // 清理函式（WebGL context lost 等場景可用）
+  window.addEventListener('beforeunload', () => {
+    dragHandler.dispose();
+    contextMenu.dispose();
+    sceneManager.dispose();
   });
 
   // 啟動 render loop

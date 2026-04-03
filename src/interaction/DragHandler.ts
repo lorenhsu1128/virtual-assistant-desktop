@@ -22,6 +22,7 @@ const SNAP_THRESHOLD = 20;
  */
 export class DragHandler {
   private isDragging = false;
+  private positionReady = false;
   private dragStartPos = { x: 0, y: 0 };
   private windowStartPos = { x: 0, y: 0 };
   private deps: DragHandlerDeps;
@@ -62,11 +63,13 @@ export class DragHandler {
     if (e.button !== 0) return;
 
     this.isDragging = true;
+    this.positionReady = false;
     this.dragStartPos = { x: e.screenX, y: e.screenY };
 
-    // 取得當前視窗位置
+    // 取得當前視窗位置（async，mousemove 在解析前會被跳過）
     this.deps.getWindowPosition().then((pos) => {
       this.windowStartPos = pos;
+      this.positionReady = true;
     });
 
     this.deps.onDragStart();
@@ -74,7 +77,7 @@ export class DragHandler {
   }
 
   private onMouseMove(e: MouseEvent): void {
-    if (!this.isDragging) return;
+    if (!this.isDragging || !this.positionReady) return;
 
     const dx = e.screenX - this.dragStartPos.x;
     const dy = e.screenY - this.dragStartPos.y;

@@ -118,6 +118,10 @@ fn enumerate_windows(own_hwnd: isize) -> Vec<WindowRect> {
 }
 
 /// EnumWindows 回呼的上下文
+///
+/// Safety: `windows` 是一個原始指標，指向 `enumerate_windows()` 中的局部變數。
+/// 這是安全的，因為 `EnumWindows` 同步呼叫回呼函式（不跨執行緒），
+/// 且 `enumerate_windows()` 在 `EnumWindows` 回傳前不會釋放該變數。
 struct EnumContext {
     own_hwnd: isize,
     windows: *mut Vec<WindowRect>,
