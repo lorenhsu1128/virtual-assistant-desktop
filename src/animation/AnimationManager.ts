@@ -141,6 +141,11 @@ export class AnimationManager {
     return (this.animationsByCategory.get(category) ?? []).map((a) => a.entry);
   }
 
+  /** 檢查是否有任何已載入的動畫 */
+  hasAnimations(): boolean {
+    return this.allAnimations.length > 0;
+  }
+
   /**
    * 更新動畫系統
    *
@@ -208,14 +213,19 @@ export class AnimationManager {
     this.resetIdleTimer();
   }
 
-  /** 播放下一個 idle 動畫 */
+  /** 播放下一個 idle 動畫（無 idle 分類時從所有動畫中選取） */
   private playNextIdle(): void {
-    const idleAnimations = this.animationsByCategory.get('idle');
-    if (!idleAnimations || idleAnimations.length === 0) return;
+    let pool = this.animationsByCategory.get('idle');
+    if (!pool || pool.length === 0) {
+      // fallback：沒有 idle 動畫時，從全部動畫中輪播
+      pool = this.allAnimations;
+    }
+    if (pool.length === 0) return;
 
-    const selected = this.selectByWeight(idleAnimations);
+    const selected = this.selectByWeight(pool);
     if (selected) {
-      this.playClip(selected.clip, selected.entry.loop, false);
+      // idle 輪播一律循環播放，避免 T-pose
+      this.playClip(selected.clip, true, false);
     }
   }
 

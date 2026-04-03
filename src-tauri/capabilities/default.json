@@ -1,5 +1,4 @@
 {
-  "$schema": "https://raw.githubusercontent.com/nicegui/nicegui-tauri/main/nicegui-tauri-v2/src-tauri/gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Default capabilities for main window",
   "windows": ["main"],

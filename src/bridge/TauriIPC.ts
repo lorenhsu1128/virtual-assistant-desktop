@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import type { AppConfig } from '../types/config';
 import type { AnimationMeta } from '../types/animation';
 
@@ -132,6 +132,16 @@ class TauriIPC {
       console.warn('[TauriIPC] pickAnimationFolder failed:', e);
       return null;
     }
+  }
+
+  /**
+   * 將本機檔案路徑轉換為 Tauri asset URL
+   *
+   * Three.js 等前端 loader 無法直接讀取本機路徑（如 C:\...），
+   * 必須透過 Tauri 的 asset protocol 轉換為可存取的 URL。
+   */
+  convertToAssetUrl(filePath: string): string {
+    return convertFileSrc(filePath);
   }
 }
 

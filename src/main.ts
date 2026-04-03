@@ -127,7 +127,8 @@ async function initializeApp(config: AppConfig): Promise<void> {
   }
 
   try {
-    await vrmController.loadModel(config.vrmModelPath);
+    const modelUrl = ipc.convertToAssetUrl(config.vrmModelPath);
+    await vrmController.loadModel(modelUrl);
   } catch (e) {
     console.error('[main] Failed to load VRM model:', e);
     // VRM 載入失敗：提示使用者重新選取
@@ -136,7 +137,8 @@ async function initializeApp(config: AppConfig): Promise<void> {
     config.vrmModelPath = newPath;
     await ipc.writeConfig(config);
     try {
-      await vrmController.loadModel(newPath);
+      const retryUrl = ipc.convertToAssetUrl(newPath);
+      await vrmController.loadModel(retryUrl);
     } catch (e2) {
       console.error('[main] Failed to load VRM model on retry:', e2);
       return;
@@ -153,7 +155,10 @@ async function initializeApp(config: AppConfig): Promise<void> {
   // 初始化動畫系統
   const mixer = vrmController.getAnimationMixer();
   if (mixer) {
-    const animationLoader = (url: string) => vrmController.loadVRMAnimation(url);
+    const animationLoader = (filePath: string) => {
+      const assetUrl = ipc.convertToAssetUrl(filePath);
+      return vrmController.loadVRMAnimation(assetUrl);
+    };
     const animationManager = new AnimationManager(mixer, animationLoader);
     sceneManager.setAnimationManager(animationManager);
 
@@ -163,12 +168,9 @@ async function initializeApp(config: AppConfig): Promise<void> {
       if (meta && meta.entries.length > 0) {
         await animationManager.loadAnimations(meta.entries, config.animationFolderPath);
 
-        // 有 idle 動畫 → 用 AnimationManager，無 → 用 fallback
-        if (animationManager.hasCategory('idle')) {
-          sceneManager.setUseFallback(false);
-        } else {
-          sceneManager.setUseFallback(true);
-        }
+        // 有任何動畫 → 用 AnimationManager（idle 輪播會自動 fallback 到全部動畫）
+        // 完全無動畫 → 用 fallback 呼吸/眨眼
+        sceneManager.setUseFallback(!animationManager.hasAnimations());
       } else {
         sceneManager.setUseFallback(true);
       }
