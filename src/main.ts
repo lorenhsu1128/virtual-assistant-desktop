@@ -347,6 +347,21 @@ async function initializeBehaviorSystem(
     },
     isPaused: () => stateMachine.isPaused(),
     isOrbitDragging: () => sceneManager.isOrbitDragging(),
+    changeModel: async () => {
+      const newPath = await ipc.pickVrmFile();
+      if (!newPath) return;
+      config.vrmModelPath = newPath;
+      await ipc.writeConfig(config);
+      window.location.reload();
+    },
+    changeAnimationFolder: async () => {
+      const folderPath = await ipc.pickAnimationFolder();
+      if (!folderPath) return;
+      config.animationFolderPath = folderPath;
+      await ipc.scanAnimations(folderPath);
+      await ipc.writeConfig(config);
+      window.location.reload();
+    },
     closeApp: () => {
       ipc.closeWindow();
     },

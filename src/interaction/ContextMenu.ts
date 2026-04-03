@@ -12,6 +12,8 @@ export interface ContextMenuDeps {
   isPaused: () => boolean;
   openSettings: () => void;
   isOrbitDragging: () => boolean;
+  changeModel: () => void;
+  changeAnimationFolder: () => void;
   closeApp: () => void;
 }
 
@@ -117,6 +119,13 @@ export class ContextMenu {
       () => this.deps.togglePause(),
     );
     menu.appendChild(pauseItem);
+
+    // 分隔線
+    menu.appendChild(this.createSeparator());
+
+    // 更換模型/動畫
+    menu.appendChild(this.createMenuItem('更換 VRM 模型', () => this.deps.changeModel()));
+    menu.appendChild(this.createMenuItem('更換動畫資料夾', () => this.deps.changeAnimationFolder()));
 
     // 分隔線
     menu.appendChild(this.createSeparator());
