@@ -1,6 +1,9 @@
 mod commands;
 mod file_manager;
+mod types;
+mod window_monitor;
 
+use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use tauri::Manager;
 
 /// 建立並設定 Tauri 應用程式
@@ -25,6 +28,9 @@ pub fn run() {
             commands::file_commands::pick_vrm_file,
             commands::file_commands::pick_animation_folder,
             commands::file_commands::get_config_exists,
+            commands::window_commands::get_window_list,
+            commands::window_commands::set_window_region,
+            commands::window_commands::get_display_info,
         ])
         .setup(|app| {
             // 確保設定目錄存在
@@ -35,9 +41,27 @@ pub fn run() {
             }
 
             // 設定透明視窗背景（Windows 需要移除陰影以支援透明）
+            // 同時取得 HWND 用於視窗監控過濾
             #[cfg(target_os = "windows")]
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.set_shadow(false);
+            {
+                let mut own_hwnd: isize = 0;
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.set_shadow(false);
+
+                    // 取得主視窗 HWND
+                    if let Ok(handle) = window.window_handle() {
+                        if let RawWindowHandle::Win32(win32) = handle.as_raw() {
+                            own_hwnd = win32.hwnd.get();
+                        }
+                    }
+                }
+
+                // 啟動視窗監控背景執行緒
+                let monitor = window_monitor::WindowMonitor::start(
+                    app.handle().clone(),
+                    own_hwnd,
+                );
+                app.manage(monitor);
             }
 
             Ok(())

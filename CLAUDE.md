@@ -32,10 +32,11 @@ src/                → TypeScript 前端（主視窗）
   behavior/         → 行為邏輯（StateMachine, CollisionSystem, BehaviorAnimationBridge）
   interaction/      → 使用者互動（DragHandler, ContextMenu）
   bridge/           → IPC 封裝（TauriIPC）
-  types/            → 共用型別（config.ts, animation.ts, window.ts）
+  types/            → 共用型別（config.ts, animation.ts, window.ts, behavior.ts, collision.ts）
 src-tauri/src/      → Rust 後端
-  commands/         → Tauri command handlers
-  window_monitor.rs → 視窗輪詢
+  commands/         → Tauri command handlers（file_commands, window_commands）
+  types.rs          → 共用 Rust 型別（WindowRect, Rect, DisplayInfo）
+  window_monitor.rs → 視窗輪詢（獨立執行緒 4Hz EnumWindows）
   file_manager.rs   → 檔案讀寫
   system_tray.rs    → 系統托盤
   single_instance.rs→ 單實例鎖定

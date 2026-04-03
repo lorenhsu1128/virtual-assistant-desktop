@@ -1,0 +1,90 @@
+import type { Rect, WindowRect } from './window';
+
+/** 行為狀態 */
+export type BehaviorState = 'idle' | 'walk' | 'sit' | 'peek' | 'fall' | 'drag';
+
+/**
+ * StateMachine.tick() 的輸出
+ *
+ * 純資料物件，不含任何 Three.js 或 Tauri 依賴。
+ * 由 SceneManager 消費：套用位置、由 BehaviorAnimationBridge 觸發動畫。
+ */
+export interface BehaviorOutput {
+  /** 當前狀態 */
+  currentState: BehaviorState;
+  /** 上一個狀態 */
+  previousState: BehaviorState;
+  /** 狀態是否在這一幀發生變化 */
+  stateChanged: boolean;
+  /** 目標螢幕位置（px），null 表示不移動 */
+  targetPosition: { x: number; y: number } | null;
+  /** 面朝方向：-1 = 左，1 = 右 */
+  facingDirection: number;
+  /** 吸附的視窗 handle（sit 狀態時） */
+  attachedWindowHwnd: number | null;
+  /** 這一幀是否發生碰撞（用於觸發 collide 動畫） */
+  collisionOccurred: boolean;
+}
+
+/**
+ * StateMachine.tick() 的輸入
+ *
+ * 由 SceneManager 在每幀組裝並注入。
+ */
+export interface BehaviorInput {
+  /** 當前視窗位置（px） */
+  currentPosition: { x: number; y: number };
+  /** 角色的 bounding box */
+  characterBounds: Rect;
+  /** 螢幕邊界 */
+  screenBounds: Rect;
+  /** 當前可見的視窗清單 */
+  windowRects: WindowRect[];
+  /** 角色縮放比例 */
+  scale: number;
+  /** 幀間隔時間（秒） */
+  deltaTime: number;
+}
+
+/**
+ * StateMachine 的行為參數
+ *
+ * v0.2 使用預設值，未來可開放使用者調整。
+ */
+export interface BehaviorConfig {
+  /** 移動速度（px/s，以 scale=1 為基準） */
+  moveSpeed: number;
+  /** idle 停留時間範圍（秒） */
+  idleDurationMin: number;
+  idleDurationMax: number;
+  /** sit 停留時間範圍（秒） */
+  sitDurationMin: number;
+  sitDurationMax: number;
+  /** peek 停留時間範圍（秒） */
+  peekDurationMin: number;
+  peekDurationMax: number;
+  /** 狀態轉移機率 */
+  transitionProbabilities: {
+    toWalk: number;
+    toSit: number;
+    toPeek: number;
+    toIdle: number;
+  };
+}
+
+/** 預設行為參數 */
+export const DEFAULT_BEHAVIOR_CONFIG: BehaviorConfig = {
+  moveSpeed: 60,
+  idleDurationMin: 5,
+  idleDurationMax: 20,
+  sitDurationMin: 10,
+  sitDurationMax: 30,
+  peekDurationMin: 3,
+  peekDurationMax: 8,
+  transitionProbabilities: {
+    toWalk: 0.6,
+    toSit: 0.2,
+    toPeek: 0.1,
+    toIdle: 0.1,
+  },
+};

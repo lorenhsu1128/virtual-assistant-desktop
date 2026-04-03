@@ -36,3 +36,9 @@ export interface Rect {
   width: number;
   height: number;
 }
+
+/** 視窗裁切區域（傳送至 Rust 端 SetWindowRgn） */
+export interface OcclusionRegion {
+  /** 要從桌寵視窗中排除的矩形（視窗本地座標） */
+  excludeRects: Rect[];
+}

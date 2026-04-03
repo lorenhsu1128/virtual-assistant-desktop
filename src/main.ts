@@ -3,6 +3,11 @@ import { SceneManager } from './core/SceneManager';
 import { VRMController } from './core/VRMController';
 import { AnimationManager } from './animation/AnimationManager';
 import { FallbackAnimation } from './animation/FallbackAnimation';
+import { StateMachine } from './behavior/StateMachine';
+import { CollisionSystem } from './behavior/CollisionSystem';
+import { BehaviorAnimationBridge } from './behavior/BehaviorAnimationBridge';
+import { DragHandler } from './interaction/DragHandler';
+import { ContextMenu } from './interaction/ContextMenu';
 import { DEFAULT_CONFIG, type AppConfig } from './types/config';
 
 /**
@@ -12,7 +17,7 @@ import { DEFAULT_CONFIG, type AppConfig } from './types/config';
  * 1. 檢測是否首次啟動
  * 2. 首次啟動 → 引導使用者選擇 VRM + 動畫資料夾
  * 3. 非首次啟動 → 直接讀取設定
- * 4. 載入模型 → 初始化動畫系統 → 啟動 render loop
+ * 4. 載入模型 → 初始化動畫系統 → 初始化行為系統 → 啟動 render loop
  */
 async function main(): Promise<void> {
   const configExists = await ipc.getConfigExists();
@@ -104,7 +109,7 @@ async function promptForModel(): Promise<string | null> {
 /**
  * 初始化應用程式
  *
- * 建立 SceneManager → VRMController → AnimationManager → 啟動 render loop
+ * 建立 SceneManager → VRMController → AnimationManager → 行為系統 → 互動系統 → 啟動 render loop
  */
 async function initializeApp(config: AppConfig): Promise<void> {
   // 建立 canvas
@@ -153,13 +158,14 @@ async function initializeApp(config: AppConfig): Promise<void> {
   sceneManager.setFallbackAnimation(fallbackAnimation);
 
   // 初始化動畫系統
+  let animationManager: AnimationManager | null = null;
   const mixer = vrmController.getAnimationMixer();
   if (mixer) {
     const animationLoader = (filePath: string) => {
       const assetUrl = ipc.convertToAssetUrl(filePath);
       return vrmController.loadVRMAnimation(assetUrl);
     };
-    const animationManager = new AnimationManager(mixer, animationLoader);
+    animationManager = new AnimationManager(mixer, animationLoader);
     sceneManager.setAnimationManager(animationManager);
 
     // 載入動畫
@@ -167,9 +173,6 @@ async function initializeApp(config: AppConfig): Promise<void> {
       const meta = await ipc.readAnimationMeta();
       if (meta && meta.entries.length > 0) {
         await animationManager.loadAnimations(meta.entries, config.animationFolderPath);
-
-        // 有任何動畫 → 用 AnimationManager（idle 輪播會自動 fallback 到全部動畫）
-        // 完全無動畫 → 用 fallback 呼吸/眨眼
         sceneManager.setUseFallback(!animationManager.hasAnimations());
       } else {
         sceneManager.setUseFallback(true);
@@ -180,6 +183,135 @@ async function initializeApp(config: AppConfig): Promise<void> {
   } else {
     sceneManager.setUseFallback(true);
   }
+
+  // ── v0.2: 行為系統 ──
+
+  // 取得視窗位置與大小
+  const initialPos = await ipc.getWindowPosition();
+  const initialSize = await ipc.getWindowSize();
+  sceneManager.setCurrentPosition(initialPos);
+  sceneManager.setWindowSize(initialSize);
+
+  // CollisionSystem
+  const collisionSystem = new CollisionSystem();
+  const initialWindows = await ipc.getWindowList();
+  collisionSystem.updateWindowRects(initialWindows);
+
+  // 螢幕邊界
+  const displays = await ipc.getDisplayInfo();
+  if (displays.length > 0) {
+    // 使用主螢幕（或角色所在螢幕）的邊界
+    const primaryDisplay = displays[0];
+    collisionSystem.updateScreenBounds({
+      x: primaryDisplay.x,
+      y: primaryDisplay.y,
+      width: primaryDisplay.width,
+      height: primaryDisplay.height,
+    });
+  } else {
+    collisionSystem.updateScreenBounds({
+      x: 0,
+      y: 0,
+      width: screen.width,
+      height: screen.height,
+    });
+  }
+
+  sceneManager.setCollisionSystem(collisionSystem);
+
+  // 監聽視窗佈局變化
+  await ipc.onWindowLayoutChanged((rects) => {
+    collisionSystem.updateWindowRects(rects);
+  });
+
+  // StateMachine
+  const stateMachine = new StateMachine();
+  if (config.autonomousMovementPaused) {
+    stateMachine.pause();
+  }
+  sceneManager.setStateMachine(stateMachine);
+
+  // BehaviorAnimationBridge
+  if (animationManager) {
+    const bridge = new BehaviorAnimationBridge(animationManager);
+    sceneManager.setBehaviorAnimationBridge(bridge);
+  }
+
+  // 位置更新 callback（fire-and-forget）
+  sceneManager.setPositionSetter((x, y) => {
+    ipc.setWindowPosition(x, y);
+  });
+
+  // 遮擋更新 callback
+  sceneManager.setOcclusionSetter((rects) => {
+    const mappedRects = rects.map((r) => ({
+      x: Math.round(r.x),
+      y: Math.round(r.y),
+      width: Math.round(r.width),
+      height: Math.round(r.height),
+    }));
+    ipc.setWindowRegion(mappedRects);
+  });
+
+  // ── v0.2: 互動系統 ──
+
+  // DragHandler
+  new DragHandler(canvas, {
+    getWindowPosition: () => ipc.getWindowPosition(),
+    setWindowPosition: (x, y) => ipc.setWindowPosition(x, y),
+    getSnappableWindows: (bounds, threshold) =>
+      collisionSystem.getSnappableWindows(bounds, threshold),
+    clampToScreen: (pos, w, h) => collisionSystem.clampToScreen(pos, w, h),
+    getCharacterSize: () => initialSize,
+    onDragStart: () => {
+      stateMachine.forceState('drag');
+    },
+    onDragEnd: (position, snappedWindow) => {
+      sceneManager.setCurrentPosition(position);
+      if (snappedWindow) {
+        stateMachine.setAttachedWindow(snappedWindow.hwnd, {
+          x: snappedWindow.x,
+          y: snappedWindow.y,
+        });
+        stateMachine.forceState('sit');
+      } else {
+        stateMachine.forceState('idle');
+      }
+    },
+  });
+
+  // ContextMenu
+  new ContextMenu(canvas, {
+    getActionAnimations: () =>
+      animationManager?.getAnimationsByCategory('action') ?? [],
+    getBlendShapes: () => vrmController.getBlendShapes(),
+    playAnimation: (name) => {
+      animationManager?.playByName(name);
+    },
+    setExpression: (name) => {
+      vrmController.setBlendShape(name, 1.0);
+    },
+    setScale: (s) => {
+      sceneManager.setScale(s);
+      config.scale = s;
+      ipc.writeConfig(config);
+    },
+    getCurrentScale: () => sceneManager.getScale(),
+    togglePause: () => {
+      if (stateMachine.isPaused()) {
+        stateMachine.resume();
+      } else {
+        stateMachine.pause();
+      }
+      config.autonomousMovementPaused = stateMachine.isPaused();
+      ipc.writeConfig(config);
+    },
+    isPaused: () => stateMachine.isPaused(),
+    openSettings: () => {
+      // TODO v0.3: 開啟設定視窗
+      console.log('[main] Settings window not yet implemented');
+    },
+  });
 
   // 啟動 render loop
   sceneManager.start();

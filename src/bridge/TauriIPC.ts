@@ -1,6 +1,10 @@
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import { LogicalPosition } from '@tauri-apps/api/dpi';
 import type { AppConfig } from '../types/config';
 import type { AnimationMeta } from '../types/animation';
+import type { WindowRect, Rect, DisplayInfo } from '../types/window';
 
 /**
  * Tauri IPC 橋接層
@@ -11,6 +15,9 @@ import type { AnimationMeta } from '../types/animation';
 class TauriIPC {
   /** 上一次讀取的設定快取（IPC 失敗時的 fallback） */
   private configCache: AppConfig | null = null;
+
+  /** 上一次取得的視窗列表快取 */
+  private windowListCache: WindowRect[] = [];
 
   /** 寫入設定的重試計數 */
   private writeRetryCount = 0;
@@ -131,6 +138,106 @@ class TauriIPC {
     } catch (e) {
       console.warn('[TauriIPC] pickAnimationFolder failed:', e);
       return null;
+    }
+  }
+
+  // ── 視窗監控 ──
+
+  /**
+   * 取得當前可見視窗清單
+   *
+   * 失敗時回傳快取資料，不中斷 render loop。
+   */
+  async getWindowList(): Promise<WindowRect[]> {
+    try {
+      const rects = await invoke<WindowRect[]>('get_window_list');
+      this.windowListCache = rects;
+      return rects;
+    } catch (e) {
+      console.warn('[TauriIPC] getWindowList failed, using cache:', e);
+      return this.windowListCache;
+    }
+  }
+
+  /**
+   * 監聽視窗佈局變化事件
+   *
+   * WindowMonitor 偵測到視窗佈局變化時觸發。
+   * 回傳 unlisten 函式，用於取消監聽。
+   */
+  async onWindowLayoutChanged(callback: (rects: WindowRect[]) => void): Promise<UnlistenFn> {
+    return listen<WindowRect[]>('window_layout_changed', (event) => {
+      this.windowListCache = event.payload;
+      callback(event.payload);
+    });
+  }
+
+  /**
+   * 設定桌寵視窗的裁切區域（遮擋效果）
+   *
+   * 傳入空陣列時重置為完整視窗。
+   */
+  async setWindowRegion(excludeRects: Rect[]): Promise<boolean> {
+    try {
+      await invoke('set_window_region', { excludeRects });
+      return true;
+    } catch (e) {
+      console.warn('[TauriIPC] setWindowRegion failed:', e);
+      return false;
+    }
+  }
+
+  /**
+   * 取得螢幕資訊
+   */
+  async getDisplayInfo(): Promise<DisplayInfo[]> {
+    try {
+      return await invoke<DisplayInfo[]>('get_display_info');
+    } catch (e) {
+      console.warn('[TauriIPC] getDisplayInfo failed:', e);
+      return [];
+    }
+  }
+
+  // ── 視窗位置控制 ──
+
+  /**
+   * 設定桌寵視窗位置（邏輯像素）
+   */
+  async setWindowPosition(x: number, y: number): Promise<void> {
+    try {
+      const window = getCurrentWindow();
+      await window.setPosition(new LogicalPosition(x, y));
+    } catch (e) {
+      console.warn('[TauriIPC] setWindowPosition failed:', e);
+    }
+  }
+
+  /**
+   * 取得桌寵視窗目前位置
+   */
+  async getWindowPosition(): Promise<{ x: number; y: number }> {
+    try {
+      const window = getCurrentWindow();
+      const pos = await window.outerPosition();
+      return { x: pos.x, y: pos.y };
+    } catch (e) {
+      console.warn('[TauriIPC] getWindowPosition failed:', e);
+      return { x: 0, y: 0 };
+    }
+  }
+
+  /**
+   * 取得桌寵視窗大小
+   */
+  async getWindowSize(): Promise<{ width: number; height: number }> {
+    try {
+      const window = getCurrentWindow();
+      const size = await window.outerSize();
+      return { width: size.width, height: size.height };
+    } catch (e) {
+      console.warn('[TauriIPC] getWindowSize failed:', e);
+      return { width: 400, height: 600 };
     }
   }
 

@@ -2,6 +2,10 @@ import * as THREE from 'three';
 import { VRMController } from './VRMController';
 import type { AnimationManager } from '../animation/AnimationManager';
 import type { FallbackAnimation } from '../animation/FallbackAnimation';
+import type { StateMachine } from '../behavior/StateMachine';
+import type { CollisionSystem } from '../behavior/CollisionSystem';
+import type { BehaviorAnimationBridge } from '../behavior/BehaviorAnimationBridge';
+import type { Rect } from '../types/window';
 
 /** 幀率模式 */
 type FpsMode = 'foreground' | 'background' | 'powerSave';
@@ -13,12 +17,14 @@ const FPS_MAP: Record<FpsMode, number> = {
   powerSave: 15,
 };
 
+/** 遮擋更新最小間隔（ms） */
+const OCCLUSION_UPDATE_INTERVAL = 100;
+
 /**
  * Three.js 場景的生命週期管理
  *
  * 擁有唯一的 requestAnimationFrame 主迴圈。
- * 每幀依序執行：AnimationManager → VRMController → renderer.render()
- * v0.2 將在此加入 StateMachine、CollisionSystem、ExpressionManager。
+ * 每幀依序執行：StateMachine → CollisionSystem → AnimationManager → VRMController → render
  */
 export class SceneManager {
   private scene: THREE.Scene;
@@ -30,6 +36,19 @@ export class SceneManager {
   private animationManager: AnimationManager | null = null;
   private fallbackAnimation: FallbackAnimation | null = null;
   private useFallback = false;
+
+  // v0.2 模組
+  private stateMachine: StateMachine | null = null;
+  private collisionSystem: CollisionSystem | null = null;
+  private behaviorBridge: BehaviorAnimationBridge | null = null;
+
+  // 視窗位置管理
+  private currentPosition = { x: 0, y: 0 };
+  private windowSize = { width: 400, height: 600 };
+  private positionSetter: ((x: number, y: number) => void) | null = null;
+  private occlusionSetter: ((rects: Rect[]) => void) | null = null;
+  private lastOcclusionUpdate = 0;
+  private lastOcclusionHash = '';
 
   private targetFps: number;
   private fpsMode: FpsMode = 'foreground';
@@ -89,6 +108,11 @@ export class SceneManager {
     return this.scene;
   }
 
+  /** 取得 canvas 元素 */
+  getCanvas(): HTMLCanvasElement {
+    return this.renderer.domElement;
+  }
+
   /** 設定 VRMController */
   setVRMController(controller: VRMController): void {
     this.vrmController = controller;
@@ -112,6 +136,51 @@ export class SceneManager {
     } else {
       this.fallbackAnimation?.stop();
     }
+  }
+
+  /** 設定 StateMachine (v0.2) */
+  setStateMachine(sm: StateMachine): void {
+    this.stateMachine = sm;
+  }
+
+  /** 設定 CollisionSystem (v0.2) */
+  setCollisionSystem(cs: CollisionSystem): void {
+    this.collisionSystem = cs;
+  }
+
+  /** 設定 BehaviorAnimationBridge (v0.2) */
+  setBehaviorAnimationBridge(bridge: BehaviorAnimationBridge): void {
+    this.behaviorBridge = bridge;
+  }
+
+  /** 設定位置更新 callback（fire-and-forget） */
+  setPositionSetter(setter: (x: number, y: number) => void): void {
+    this.positionSetter = setter;
+  }
+
+  /** 設定遮擋更新 callback */
+  setOcclusionSetter(setter: (rects: Rect[]) => void): void {
+    this.occlusionSetter = setter;
+  }
+
+  /** 更新當前視窗位置（由外部同步） */
+  setCurrentPosition(pos: { x: number; y: number }): void {
+    this.currentPosition = pos;
+  }
+
+  /** 設定視窗大小 */
+  setWindowSize(size: { width: number; height: number }): void {
+    this.windowSize = size;
+  }
+
+  /** 取得角色的螢幕 bounding box */
+  getCharacterBounds(): Rect {
+    return {
+      x: this.currentPosition.x,
+      y: this.currentPosition.y,
+      width: this.windowSize.width,
+      height: this.windowSize.height,
+    };
   }
 
   /** 設定角色縮放（0.5–2.0） */
@@ -167,8 +236,8 @@ export class SceneManager {
    *
    * 使用 rAF + deltaTime 跳幀控制幀率。
    * 每幀執行順序（ARCHITECTURE.md §2.2）：
-   * 1. (v0.2) StateMachine.tick
-   * 2. (v0.2) CollisionSystem.check
+   * 1. StateMachine.tick
+   * 2. CollisionSystem.check
    * 3. AnimationManager.update / FallbackAnimation.update
    * 4. (v0.3) ExpressionManager.resolve
    * 5. VRMController.update
@@ -187,8 +256,53 @@ export class SceneManager {
     this.lastFrameTime = now - (delta % targetInterval);
     const deltaTime = Math.min(delta / 1000, 0.1); // cap at 100ms to avoid spiral
 
-    // Step 1: (v0.2) StateMachine.tick(deltaTime)
-    // Step 2: (v0.2) CollisionSystem.check()
+    // Step 1 & 2: StateMachine + CollisionSystem
+    if (this.stateMachine && this.collisionSystem && !this.stateMachine.isPaused()) {
+      const characterBounds = this.getCharacterBounds();
+
+      // CollisionSystem 檢測
+      const collision = this.collisionSystem.check(characterBounds);
+
+      // StateMachine 更新
+      const input = {
+        currentPosition: { ...this.currentPosition },
+        characterBounds,
+        screenBounds: this.collisionSystem.getScreenBounds(),
+        windowRects: this.collisionSystem.getWindowRects(),
+        scale: this.scale,
+        deltaTime,
+      };
+
+      const output = this.stateMachine.tick(input, collision);
+
+      // 套用目標位置
+      if (output.targetPosition) {
+        // 夾限到螢幕範圍
+        const clamped = this.collisionSystem.clampToScreen(
+          output.targetPosition,
+          this.windowSize.width,
+          this.windowSize.height,
+        );
+        this.currentPosition = clamped;
+        this.positionSetter?.(clamped.x, clamped.y);
+      }
+
+      // BehaviorAnimationBridge 更新
+      if (this.behaviorBridge) {
+        this.behaviorBridge.update(output);
+      }
+
+      // 遮擋更新（throttle）
+      if (this.occlusionSetter && now - this.lastOcclusionUpdate > OCCLUSION_UPDATE_INTERVAL) {
+        const occlusionRects = this.collisionSystem.getOcclusionRects(this.getCharacterBounds());
+        const hash = JSON.stringify(occlusionRects);
+        if (hash !== this.lastOcclusionHash) {
+          this.lastOcclusionHash = hash;
+          this.occlusionSetter(occlusionRects);
+        }
+        this.lastOcclusionUpdate = now;
+      }
+    }
 
     // Step 3: Animation update
     if (this.useFallback && this.fallbackAnimation) {
