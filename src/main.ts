@@ -10,6 +10,7 @@ import { DragHandler } from './interaction/DragHandler';
 import { ContextMenu } from './interaction/ContextMenu';
 import { DEFAULT_CONFIG, type AppConfig } from './types/config';
 import { ExpressionManager } from './expression/ExpressionManager';
+import { DebugOverlay } from './debug/DebugOverlay';
 
 /**
  * 應用程式進入點
@@ -309,6 +310,10 @@ async function initializeBehaviorSystem(
   }
   sceneManager.setExpressionManager(expressionManager);
 
+  // ── Debug Overlay ──
+  const debugOverlay = new DebugOverlay();
+  sceneManager.setDebugOverlay(debugOverlay);
+
   // ── 互動系統 ──
 
   const dragHandler = new DragHandler(canvas, {
@@ -406,11 +411,18 @@ async function initializeBehaviorSystem(
     },
     isAutoExpressionEnabled: () => expressionManager.isAutoEnabled(),
     getManualExpression: () => expressionManager.getManualExpression(),
+    toggleDebug: () => {
+      debugOverlay.setEnabled(!debugOverlay.isEnabled());
+    },
+    isDebugEnabled: () => debugOverlay.isEnabled(),
   });
 
   // ── 系統托盤事件 ──
   await ipc.onTrayAction((actionId) => {
     switch (actionId) {
+      case 'toggle_debug':
+        debugOverlay.setEnabled(!debugOverlay.isEnabled());
+        break;
       case 'toggle_pause':
         if (stateMachine.isPaused()) { stateMachine.resume(); } else { stateMachine.pause(); }
         config.autonomousMovementPaused = stateMachine.isPaused();
@@ -466,6 +478,7 @@ async function initializeBehaviorSystem(
   window.addEventListener('beforeunload', () => {
     dragHandler.dispose();
     contextMenu.dispose();
+    debugOverlay.dispose();
     sceneManager.dispose();
   });
 }

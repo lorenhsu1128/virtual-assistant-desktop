@@ -21,6 +21,8 @@ export interface ContextMenuDeps {
   toggleAutoExpression: () => void;
   isAutoExpressionEnabled: () => boolean;
   getManualExpression: () => string | null;
+  toggleDebug: () => void;
+  isDebugEnabled: () => boolean;
 }
 
 /** 縮放選項 */
@@ -151,6 +153,12 @@ export class ContextMenu {
 
     // 分隔線
     menu.appendChild(this.createSeparator());
+
+    // Debug 模式
+    menu.appendChild(this.createMenuItem(
+      this.deps.isDebugEnabled() ? 'Debug 模式 ✓' : 'Debug 模式',
+      () => this.deps.toggleDebug(),
+    ));
 
     // 設定
     menu.appendChild(this.createMenuItem('設定', () => this.deps.openSettings()));

@@ -91,6 +91,64 @@ export class VRMController {
     return this.vrm.humanoid.getNormalizedBoneNode(boneName as never);
   }
 
+  /** 可重用的 Vector3，避免每幀 GC */
+  private static readonly _tempWorldPos = new THREE.Vector3();
+  private static readonly _tempScreenPos = new THREE.Vector3();
+
+  /** 可重用的 Map，避免每次呼叫重新分配 */
+  private readonly _boneScreenCache = new Map<string, { x: number; y: number }>();
+
+  /**
+   * 取得骨骼的 3D 世界座標
+   *
+   * @param boneName VRM 骨骼名稱
+   */
+  getBoneWorldPosition(boneName: string): { x: number; y: number; z: number } | null {
+    const bone = this.getBoneNode(boneName);
+    if (!bone) return null;
+    bone.getWorldPosition(VRMController._tempWorldPos);
+    return {
+      x: VRMController._tempWorldPos.x,
+      y: VRMController._tempWorldPos.y,
+      z: VRMController._tempWorldPos.z,
+    };
+  }
+
+  /**
+   * 取得多個骨骼的 canvas CSS 像素座標
+   *
+   * 將 3D 骨骼世界座標投影到 2D canvas 空間。
+   * 回傳的 Map 是內部快取，下次呼叫時會被清空覆寫。
+   *
+   * @param boneNames 要查詢的骨骼名稱陣列
+   * @param camera 用於投影的攝影機
+   * @param cssWidth canvas 的 CSS 寬度（clientWidth）
+   * @param cssHeight canvas 的 CSS 高度（clientHeight）
+   */
+  getBoneScreenPositions(
+    boneNames: string[],
+    camera: THREE.Camera,
+    cssWidth: number,
+    cssHeight: number,
+  ): Map<string, { x: number; y: number }> {
+    this._boneScreenCache.clear();
+
+    for (const name of boneNames) {
+      const bone = this.getBoneNode(name);
+      if (!bone) continue;
+
+      bone.getWorldPosition(VRMController._tempWorldPos);
+      VRMController._tempScreenPos.copy(VRMController._tempWorldPos).project(camera);
+
+      const x = (VRMController._tempScreenPos.x + 1) / 2 * cssWidth;
+      const y = (1 - VRMController._tempScreenPos.y) / 2 * cssHeight;
+
+      this._boneScreenCache.set(name, { x, y });
+    }
+
+    return this._boneScreenCache;
+  }
+
   /**
    * 取得 AnimationMixer（供 AnimationManager 使用）
    */

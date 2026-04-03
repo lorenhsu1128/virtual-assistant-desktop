@@ -49,6 +49,7 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), String> {
             &me("change_model", "更換 VRM 模型")?,
             &me("change_anim", "更換動畫資料夾")?,
             &sep()?,
+            &me("toggle_debug", "Debug 模式")?,
             &me("settings", "設定")?,
             &sep()?,
             &me("quit", "結束")?,

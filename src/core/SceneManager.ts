@@ -6,6 +6,7 @@ import type { StateMachine } from '../behavior/StateMachine';
 import type { CollisionSystem } from '../behavior/CollisionSystem';
 import type { BehaviorAnimationBridge } from '../behavior/BehaviorAnimationBridge';
 import type { ExpressionManager } from '../expression/ExpressionManager';
+import type { DebugOverlay, BoneDebugData } from '../debug/DebugOverlay';
 import type { Rect } from '../types/window';
 
 /** 幀率模式 */
@@ -46,6 +47,10 @@ export class SceneManager {
   // v0.3 模組
   private expressionManager: ExpressionManager | null = null;
   private lastAppliedExpression: string | null = null;
+
+  // Debug
+  private debugOverlay: DebugOverlay | null = null;
+  private static readonly DEBUG_BONES = ['head', 'leftHand', 'rightHand', 'hips', 'leftFoot', 'rightFoot'];
 
   // 視窗位置管理
   private currentPosition = { x: 0, y: 0 };
@@ -176,6 +181,11 @@ export class SceneManager {
   /** 設定 ExpressionManager (v0.3) */
   setExpressionManager(em: ExpressionManager): void {
     this.expressionManager = em;
+  }
+
+  /** 設定 Debug Overlay */
+  setDebugOverlay(overlay: DebugOverlay): void {
+    this.debugOverlay = overlay;
   }
 
   /** 設定位置更新 callback（fire-and-forget） */
@@ -365,6 +375,25 @@ export class SceneManager {
     // Step 5: VRM update (SpringBone etc.)
     if (this.vrmController) {
       this.vrmController.update(deltaTime);
+    }
+
+    // Debug overlay: 骨骼座標視覺化
+    if (this.debugOverlay?.isEnabled() && this.vrmController) {
+      const canvas = this.renderer.domElement;
+      const screenPositions = this.vrmController.getBoneScreenPositions(
+        SceneManager.DEBUG_BONES,
+        this.camera,
+        canvas.clientWidth,
+        canvas.clientHeight,
+      );
+
+      const boneData: BoneDebugData[] = SceneManager.DEBUG_BONES.map((name) => ({
+        boneName: name,
+        world: this.vrmController!.getBoneWorldPosition(name),
+        screen: screenPositions.get(name) ?? null,
+      }));
+
+      this.debugOverlay.updateBones(boneData);
     }
 
     // Step 6: Render
