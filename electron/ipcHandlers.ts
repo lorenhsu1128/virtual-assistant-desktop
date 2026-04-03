@@ -10,6 +10,7 @@ interface DisplayInfo {
   width: number;
   height: number;
   scaleFactor: number;
+  workArea: { x: number; y: number; width: number; height: number };
 }
 
 /**
@@ -91,6 +92,12 @@ export function registerIpcHandlers(
       width: display.bounds.width,
       height: display.bounds.height,
       scaleFactor: display.scaleFactor,
+      workArea: {
+        x: display.workArea.x,
+        y: display.workArea.y,
+        width: display.workArea.width,
+        height: display.workArea.height,
+      },
     }));
   });
 

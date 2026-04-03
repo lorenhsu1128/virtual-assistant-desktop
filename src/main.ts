@@ -11,6 +11,7 @@ import { ContextMenu } from './interaction/ContextMenu';
 import { DEFAULT_CONFIG, type AppConfig } from './types/config';
 import { ExpressionManager } from './expression/ExpressionManager';
 import { DebugOverlay } from './debug/DebugOverlay';
+import type { WindowRect } from './types/window';
 
 /**
  * 應用程式進入點
@@ -240,11 +241,10 @@ async function initializeBehaviorSystem(
 
   // CollisionSystem
   const collisionSystem = csRef.current;
-  const initialWindows = await ipc.getWindowList();
-  collisionSystem.updateWindowRects(initialWindows);
 
-  // 螢幕邊界
+  // 螢幕邊界 + 工作列偵測
   const displays = await ipc.getDisplayInfo();
+  let taskbarRect: WindowRect | null = null;
   if (displays.length > 0) {
     const primaryDisplay = displays[0];
     collisionSystem.updateScreenBounds({
@@ -253,6 +253,31 @@ async function initializeBehaviorSystem(
       width: primaryDisplay.width,
       height: primaryDisplay.height,
     });
+
+    // 從 bounds vs workArea 推算工作列位置
+    if (primaryDisplay.workArea) {
+      const b = primaryDisplay;
+      const w = primaryDisplay.workArea;
+      // DPI: workArea 是邏輯像素，但 WindowRect 是物理像素
+      const dpr = primaryDisplay.scaleFactor;
+      if (w.y > b.y) {
+        // 工作列在上方
+        taskbarRect = { hwnd: -1, title: 'Taskbar', x: Math.round(b.x * dpr), y: Math.round(b.y * dpr), width: Math.round(b.width * dpr), height: Math.round((w.y - b.y) * dpr), zOrder: -1 };
+      } else if (w.height < b.height) {
+        // 工作列在下方
+        const taskbarY = w.y + w.height;
+        const taskbarH = b.height - w.height;
+        taskbarRect = { hwnd: -1, title: 'Taskbar', x: Math.round(b.x * dpr), y: Math.round(taskbarY * dpr), width: Math.round(b.width * dpr), height: Math.round(taskbarH * dpr), zOrder: -1 };
+      } else if (w.x > b.x) {
+        // 工作列在左方
+        taskbarRect = { hwnd: -1, title: 'Taskbar', x: Math.round(b.x * dpr), y: Math.round(b.y * dpr), width: Math.round((w.x - b.x) * dpr), height: Math.round(b.height * dpr), zOrder: -1 };
+      } else if (w.width < b.width) {
+        // 工作列在右方
+        const taskbarX = w.x + w.width;
+        const taskbarW = b.width - w.width;
+        taskbarRect = { hwnd: -1, title: 'Taskbar', x: Math.round(taskbarX * dpr), y: Math.round(b.y * dpr), width: Math.round(taskbarW * dpr), height: Math.round(b.height * dpr), zOrder: -1 };
+      }
+    }
   } else {
     collisionSystem.updateScreenBounds({
       x: 0,
@@ -262,11 +287,17 @@ async function initializeBehaviorSystem(
     });
   }
 
+  // 初始視窗清單（含工作列）
+  const initialWindows = await ipc.getWindowList();
+  const initialAllWindows = taskbarRect ? [...initialWindows, taskbarRect] : initialWindows;
+  collisionSystem.updateWindowRects(initialAllWindows);
+
   sceneManager.setCollisionSystem(collisionSystem);
 
-  // 監聽視窗佈局變化
+  // 監聯視窗佈局變化（加入工作列虛擬視窗）
   await ipc.onWindowLayoutChanged((rects) => {
-    collisionSystem.updateWindowRects(rects);
+    const allRects = taskbarRect ? [...rects, taskbarRect] : rects;
+    collisionSystem.updateWindowRects(allRects);
   });
 
   // StateMachine

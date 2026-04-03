@@ -27,6 +27,8 @@ export interface DisplayInfo {
   height: number;
   /** DPI 縮放比例 */
   scaleFactor: number;
+  /** 工作區域（扣除工作列） */
+  workArea?: { x: number; y: number; width: number; height: number };
 }
 
 /** 矩形（通用） */
