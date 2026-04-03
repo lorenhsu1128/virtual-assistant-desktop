@@ -12,6 +12,7 @@ export interface WindowDebugData {
   y: number;
   width: number;
   height: number;
+  zOrder: number;
 }
 
 /** 骨骼與視窗邊緣的接觸資料 */
@@ -45,7 +46,9 @@ export class DebugOverlay {
   private windowPanel: HTMLElement;
   private dots: Map<string, HTMLElement> = new Map();
   private contactLines: HTMLElement[] = [];
+  private windowBoxes: HTMLElement[] = [];
   private enabled = false;
+  private dpr = 1;
 
   constructor() {
     this.container = document.createElement('div');
@@ -154,18 +157,74 @@ export class DebugOverlay {
   }
 
   /**
-   * 更新桌面視窗清單面板
+   * 更新桌面視窗清單面板 + 視覺化視窗邊框（含 Z-order）
+   *
+   * @param mascotPos 桌寵視窗的螢幕位置（邏輯像素），用於座標轉換
    */
-  updateWindowList(windows: WindowDebugData[]): void {
+  updateWindowList(windows: WindowDebugData[], mascotPos?: { x: number; y: number }): void {
     if (!this.enabled) return;
 
+    this.dpr = window.devicePixelRatio || 1;
+
+    // 更新面板文字（含 Z-order）
     const lines: string[] = [`=== Windows (${windows.length}) ===`];
     for (const w of windows) {
-      const title = w.title.length > 30 ? w.title.substring(0, 27) + '...' : w.title;
-      lines.push(`${title}`);
+      const title = w.title.length > 28 ? w.title.substring(0, 25) + '...' : w.title;
+      lines.push(`[Z${w.zOrder}] ${title}`);
       lines.push(`  x:${w.x} y:${w.y} w:${w.width} h:${w.height}`);
     }
     this.windowPanel.textContent = lines.join('\n');
+
+    // 移除舊的視窗邊框
+    for (const box of this.windowBoxes) {
+      box.remove();
+    }
+    this.windowBoxes.length = 0;
+
+    // 畫視窗邊框（轉換為桌寵視窗本地座標）
+    if (!mascotPos) return;
+
+    const maxZ = windows.length;
+    for (const w of windows) {
+      // 物理像素 → 邏輯像素 → 桌寵本地座標
+      const localX = w.x / this.dpr - mascotPos.x;
+      const localY = w.y / this.dpr - mascotPos.y;
+      const localW = w.width / this.dpr;
+      const localH = w.height / this.dpr;
+
+      // Z-order 顏色：最上層偏紅，下層偏藍
+      const t = maxZ > 1 ? w.zOrder / (maxZ - 1) : 0;
+      const r = Math.round(255 * (1 - t));
+      const g = Math.round(100 * (1 - t));
+      const b = Math.round(255 * t);
+      const color = `rgb(${r},${g},${b})`;
+
+      const box = document.createElement('div');
+      box.style.cssText = `
+        position: absolute;
+        left: ${localX}px; top: ${localY}px;
+        width: ${localW}px; height: ${localH}px;
+        border: 2px solid ${color};
+        opacity: 0.6;
+        pointer-events: none;
+        box-sizing: border-box;
+      `;
+
+      // Z-order 標籤
+      const label = document.createElement('div');
+      label.textContent = `Z${w.zOrder}`;
+      label.style.cssText = `
+        position: absolute; top: 2px; left: 4px;
+        font-family: 'Consolas',monospace; font-size: 10px; font-weight: bold;
+        color: ${color}; background: rgba(0,0,0,0.7);
+        padding: 1px 4px; border-radius: 3px;
+        text-shadow: 0 0 2px black;
+      `;
+      box.appendChild(label);
+
+      this.container.appendChild(box);
+      this.windowBoxes.push(box);
+    }
   }
 
   /**

@@ -51,7 +51,7 @@ export class SceneManager {
   // Debug
   private debugOverlay: DebugOverlay | null = null;
   private static readonly DEBUG_BONES = ['head', 'leftHand', 'rightHand', 'hips', 'leftFoot', 'rightFoot'];
-  private windowListFetcher: (() => Promise<Array<{ title: string; x: number; y: number; width: number; height: number }>>) | null = null;
+  private windowListFetcher: (() => Promise<Array<{ title: string; x: number; y: number; width: number; height: number; zOrder: number }>>) | null = null;
   private lastWindowListUpdate = 0;
   private static readonly WINDOW_LIST_INTERVAL = 1000; // 1 秒更新一次
   private static readonly CONTACT_THRESHOLD = 10; // 骨骼與視窗邊緣接觸判定閾值（像素）
@@ -193,7 +193,7 @@ export class SceneManager {
   }
 
   /** 設定視窗清單取得函式（供 debug overlay 使用） */
-  setWindowListFetcher(fetcher: () => Promise<Array<{ title: string; x: number; y: number; width: number; height: number }>>): void {
+  setWindowListFetcher(fetcher: () => Promise<Array<{ title: string; x: number; y: number; width: number; height: number; zOrder: number }>>): void {
     this.windowListFetcher = fetcher;
   }
 
@@ -457,8 +457,9 @@ export class SceneManager {
       const now = performance.now();
       if (this.windowListFetcher && now - this.lastWindowListUpdate > SceneManager.WINDOW_LIST_INTERVAL) {
         this.lastWindowListUpdate = now;
+        const pos = this.currentPosition;
         this.windowListFetcher().then((windows) => {
-          this.debugOverlay?.updateWindowList(windows);
+          this.debugOverlay?.updateWindowList(windows, pos);
         }).catch(() => { /* 忽略錯誤 */ });
       }
     }
