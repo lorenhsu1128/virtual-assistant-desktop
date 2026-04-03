@@ -26,6 +26,7 @@ export class StateMachine {
 
   // walk 狀態
   private walkTarget: { x: number; y: number } | null = null;
+  private walkStartCollidingWindows: Set<number> = new Set();
   private facingDirection = 1;
 
   // sit 狀態
@@ -74,6 +75,23 @@ export class StateMachine {
     }
 
     const stateChanged = this.state !== prevState;
+
+    // 進入 walk 時記錄已重疊的視窗（避免立即取消移動）
+    if (stateChanged && this.state === 'walk') {
+      this.walkStartCollidingWindows.clear();
+      if (collision.collidingWithWindow && collision.collidedWindowHwnd !== null) {
+        this.walkStartCollidingWindows.add(collision.collidedWindowHwnd);
+      }
+      // 也記錄所有與角色重疊的視窗
+      for (const wr of input.windowRects) {
+        const cb = input.characterBounds;
+        if (cb.x < wr.x + wr.width && cb.x + cb.width > wr.x &&
+            cb.y < wr.y + wr.height && cb.y + cb.height > wr.y) {
+          this.walkStartCollidingWindows.add(wr.hwnd);
+        }
+      }
+    }
+
     const targetPosition = this.getTargetPosition(input);
 
     return this.makeOutput(stateChanged, targetPosition, collisionOccurred);
@@ -104,6 +122,11 @@ export class StateMachine {
     return this.paused;
   }
 
+  /** Debug: 取得計時器資訊 */
+  getDebugTimers(): { timer: number; duration: number } {
+    return { timer: this.stateTimer, duration: this.stateDuration };
+  }
+
   /** 設定吸附的視窗（由 DragHandler 在吸附時呼叫） */
   setAttachedWindow(hwnd: number, position: { x: number; y: number }): void {
     this.attachedWindowHwnd = hwnd;
@@ -124,12 +147,21 @@ export class StateMachine {
       return false;
     }
 
-    // 碰撞處理
-    if (collision.collidingWithWindow || collision.atScreenEdge) {
-      // 碰撞時改變方向或停止
+    // 螢幕邊緣碰撞：改變方向
+    if (collision.atScreenEdge) {
       this.facingDirection *= -1;
       this.enterState('idle');
       return true;
+    }
+
+    // 視窗碰撞：只對「新進入」的碰撞反應（忽略已存在的重疊）
+    // 角色是 always-on-top 透明視窗，通常會與下方視窗重疊
+    if (collision.collidingWithWindow && collision.collidedWindowHwnd !== null) {
+      if (!this.walkStartCollidingWindows.has(collision.collidedWindowHwnd)) {
+        this.facingDirection *= -1;
+        this.enterState('idle');
+        return true;
+      }
     }
 
     // 移動
