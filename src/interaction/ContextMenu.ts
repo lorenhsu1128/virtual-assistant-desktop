@@ -15,6 +15,7 @@ export interface ContextMenuDeps {
   toggleLoop: () => void;
   isLoopEnabled: () => boolean;
   resetCamera: () => void;
+  resetPosition: () => void;
   changeModel: () => void;
   changeAnimationFolder: () => void;
   closeApp: () => void;
@@ -146,6 +147,7 @@ export class ContextMenu {
 
     // 重置鏡頭
     menu.appendChild(this.createMenuItem('重置鏡頭角度', () => this.deps.resetCamera()));
+    menu.appendChild(this.createMenuItem('重置回桌面正中央', () => this.deps.resetPosition()));
 
     // 更換模型/動畫
     menu.appendChild(this.createMenuItem('更換 VRM 模型', () => this.deps.changeModel()));

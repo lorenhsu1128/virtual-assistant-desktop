@@ -49,6 +49,7 @@ export class SystemTray {
       { label: '\u66ab\u505c/\u6062\u5fa9\u81ea\u52d5\u8868\u60c5', click: () => this.emitAction('toggle_auto_expr') },
       { label: '\u66ab\u505c/\u6062\u5fa9\u52d5\u756b\u5faa\u74b0', click: () => this.emitAction('toggle_loop') },
       { label: '\u91cd\u7f6e\u93e1\u982d\u89d2\u5ea6', click: () => this.emitAction('reset_camera') },
+      { label: '\u91cd\u7f6e\u56de\u684c\u9762\u6b63\u4e2d\u592e', click: () => this.emitAction('reset_position') },
       { type: 'separator' },
       { label: '\u66f4\u63db VRM \u6a21\u578b', click: () => this.emitAction('change_model') },
       { label: '\u66f4\u63db\u52d5\u756b\u8cc7\u6599\u593e', click: () => this.emitAction('change_anim') },

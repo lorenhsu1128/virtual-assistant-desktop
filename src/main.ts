@@ -419,6 +419,15 @@ async function initializeBehaviorSystem(
     },
     isLoopEnabled: () => animationManager?.isLoopEnabled() ?? true,
     resetCamera: () => sceneManager.resetCamera(),
+    resetPosition: async () => {
+      const displays = await ipc.getDisplayInfo();
+      const d = displays[0] ?? { x: 0, y: 0, width: screen.width, height: screen.height };
+      const wb = d.workArea ?? d;
+      const cx = wb.x + (wb.width - 400) / 2;
+      const cy = wb.y + (wb.height - 600) / 2;
+      sceneManager.setCurrentPosition({ x: cx, y: cy });
+      await ipc.setWindowPosition(cx, cy);
+    },
     changeModel: async () => {
       const newPath = await ipc.pickVrmFile();
       if (!newPath) return;
@@ -483,6 +492,16 @@ async function initializeBehaviorSystem(
         break;
       case 'reset_camera':
         sceneManager.resetCamera();
+        break;
+      case 'reset_position':
+        ipc.getDisplayInfo().then((displays) => {
+          const d = displays[0] ?? { x: 0, y: 0, width: screen.width, height: screen.height };
+          const wb = d.workArea ?? d;
+          const cx = wb.x + (wb.width - 400) / 2;
+          const cy = wb.y + (wb.height - 600) / 2;
+          sceneManager.setCurrentPosition({ x: cx, y: cy });
+          ipc.setWindowPosition(cx, cy);
+        });
         break;
       case 'change_model':
         ipc.pickVrmFile().then(async (p) => {
