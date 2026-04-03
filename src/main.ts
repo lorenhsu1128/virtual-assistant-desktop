@@ -313,6 +313,7 @@ async function initializeBehaviorSystem(
   // ── Debug Overlay ──
   const debugOverlay = new DebugOverlay();
   sceneManager.setDebugOverlay(debugOverlay);
+  sceneManager.setWindowListFetcher(() => ipc.getWindowList());
 
   // ── 互動系統 ──
 

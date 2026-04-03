@@ -5,6 +5,15 @@ export interface BoneDebugData {
   screen: { x: number; y: number } | null;
 }
 
+/** 視窗 debug 資料（純資料，不 import window.ts） */
+export interface WindowDebugData {
+  title: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 /** 骨骼標籤與顏色對應 */
 const BONE_STYLE: Record<string, { label: string; color: string }> = {
   leftFoot: { label: 'LF', color: '#3b82f6' },   // 藍
@@ -24,6 +33,7 @@ const BONE_STYLE: Record<string, { label: string; color: string }> = {
 export class DebugOverlay {
   private container: HTMLElement;
   private panel: HTMLElement;
+  private windowPanel: HTMLElement;
   private dots: Map<string, HTMLElement> = new Map();
   private enabled = false;
 
@@ -47,6 +57,19 @@ export class DebugOverlay {
       min-width: 260px;
     `;
     this.container.appendChild(this.panel);
+
+    // 視窗清單面板（右上角）
+    this.windowPanel = document.createElement('div');
+    this.windowPanel.style.cssText = `
+      position: absolute; top: 8px; right: 8px;
+      background: rgba(0,0,0,0.8); color: #e0e0e0;
+      font-family: 'Consolas','Courier New',monospace; font-size: 9px;
+      line-height: 1.5; padding: 8px 12px; border-radius: 6px;
+      border: 1px solid rgba(255,255,255,0.15); white-space: pre;
+      max-height: 80vh; overflow-y: auto; min-width: 300px;
+      max-width: 420px;
+    `;
+    this.container.appendChild(this.windowPanel);
 
     // 建立骨骼圓點
     for (const [boneName, style] of Object.entries(BONE_STYLE)) {
@@ -118,6 +141,21 @@ export class DebugOverlay {
         dot.style.display = 'none';
       }
     }
+  }
+
+  /**
+   * 更新桌面視窗清單面板
+   */
+  updateWindowList(windows: WindowDebugData[]): void {
+    if (!this.enabled) return;
+
+    const lines: string[] = [`=== Windows (${windows.length}) ===`];
+    for (const w of windows) {
+      const title = w.title.length > 30 ? w.title.substring(0, 27) + '...' : w.title;
+      lines.push(`${title}`);
+      lines.push(`  x:${w.x} y:${w.y} w:${w.width} h:${w.height}`);
+    }
+    this.windowPanel.textContent = lines.join('\n');
   }
 
   /** 銷毀 overlay */

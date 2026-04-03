@@ -51,6 +51,9 @@ export class SceneManager {
   // Debug
   private debugOverlay: DebugOverlay | null = null;
   private static readonly DEBUG_BONES = ['head', 'leftHand', 'rightHand', 'hips', 'leftFoot', 'rightFoot'];
+  private windowListFetcher: (() => Promise<Array<{ title: string; x: number; y: number; width: number; height: number }>>) | null = null;
+  private lastWindowListUpdate = 0;
+  private static readonly WINDOW_LIST_INTERVAL = 1000; // 1 秒更新一次
 
   // 視窗位置管理
   private currentPosition = { x: 0, y: 0 };
@@ -186,6 +189,11 @@ export class SceneManager {
   /** 設定 Debug Overlay */
   setDebugOverlay(overlay: DebugOverlay): void {
     this.debugOverlay = overlay;
+  }
+
+  /** 設定視窗清單取得函式（供 debug overlay 使用） */
+  setWindowListFetcher(fetcher: () => Promise<Array<{ title: string; x: number; y: number; width: number; height: number }>>): void {
+    this.windowListFetcher = fetcher;
   }
 
   /** 設定位置更新 callback（fire-and-forget） */
@@ -394,6 +402,15 @@ export class SceneManager {
       }));
 
       this.debugOverlay.updateBones(boneData);
+
+      // 視窗清單（每秒更新一次）
+      const now = performance.now();
+      if (this.windowListFetcher && now - this.lastWindowListUpdate > SceneManager.WINDOW_LIST_INTERVAL) {
+        this.lastWindowListUpdate = now;
+        this.windowListFetcher().then((windows) => {
+          this.debugOverlay?.updateWindowList(windows);
+        }).catch(() => { /* 忽略錯誤 */ });
+      }
     }
 
     // Step 6: Render
