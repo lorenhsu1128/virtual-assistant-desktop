@@ -45,6 +45,7 @@ export class SceneManager {
 
   // v0.3 模組
   private expressionManager: ExpressionManager | null = null;
+  private lastAppliedExpression: string | null = null;
 
   // 視窗位置管理
   private currentPosition = { x: 0, y: 0 };
@@ -346,9 +347,18 @@ export class SceneManager {
       const actionPlaying = this.animationManager?.isActionPlaying() ?? false;
       if (!actionPlaying) {
         const expr = this.expressionManager.resolve();
+        const newName = expr?.name ?? null;
+
+        // 清除舊表情（如果換了不同的）
+        if (this.lastAppliedExpression && this.lastAppliedExpression !== newName) {
+          this.vrmController.setBlendShape(this.lastAppliedExpression, 0);
+        }
+
+        // 套用新表情
         if (expr) {
           this.vrmController.setBlendShape(expr.name, expr.value);
         }
+        this.lastAppliedExpression = newName;
       }
     }
 
