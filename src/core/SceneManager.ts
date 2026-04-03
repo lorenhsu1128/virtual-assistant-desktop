@@ -404,48 +404,65 @@ export class SceneManager {
 
       this.debugOverlay.updateBones(boneData);
 
-      // 骨骼與視窗邊緣的接觸檢測
+      // 骨骼與視窗邊緣的接觸檢測（Z-order 遮擋感知）
       if (this.collisionSystem) {
         const contacts: ContactDebugData[] = [];
         const windowRects = this.collisionSystem.getWindowRects();
         const threshold = SceneManager.CONTACT_THRESHOLD;
-        // GetWindowRect 回傳物理像素，currentPosition + bone.screen 是邏輯像素
-        // 需要用 devicePixelRatio 轉換到同一座標系
         const dpr = window.devicePixelRatio || 1;
+
+        // 預先計算所有視窗的邏輯座標（避免重複計算）
+        const logicalWindows = windowRects.map((wr) => ({
+          left: wr.x / dpr,
+          right: (wr.x + wr.width) / dpr,
+          top: wr.y / dpr,
+          bottom: (wr.y + wr.height) / dpr,
+          zOrder: wr.zOrder,
+        }));
+
+        /** 檢查螢幕座標點是否被更高 Z-order 的視窗遮擋 */
+        const isOccludedByHigherZ = (sx: number, sy: number, currentZ: number): boolean => {
+          for (const hw of logicalWindows) {
+            if (hw.zOrder >= currentZ) continue; // 只看更高層（zOrder 越小越上層）
+            if (sx >= hw.left && sx <= hw.right && sy >= hw.top && sy <= hw.bottom) {
+              return true;
+            }
+          }
+          return false;
+        };
 
         for (const bone of boneData) {
           if (!bone.screen) continue;
-          // 骨骼在 canvas CSS 像素 → 轉為螢幕邏輯座標
           const boneScreenX = this.currentPosition.x + bone.screen.x;
           const boneScreenY = this.currentPosition.y + bone.screen.y;
 
-          for (const wr of windowRects) {
-            // 物理像素 → 邏輯像素
-            const winLeft = wr.x / dpr;
-            const winRight = (wr.x + wr.width) / dpr;
-            const winTop = wr.y / dpr;
-            const winBottom = (wr.y + wr.height) / dpr;
-
-            // 骨骼是否在視窗的垂直範圍內（用於左右邊緣判定）
-            const inVertRange = boneScreenY >= winTop - threshold && boneScreenY <= winBottom + threshold;
-            // 骨骼是否在視窗的水平範圍內（用於上下邊緣判定）
-            const inHorzRange = boneScreenX >= winLeft - threshold && boneScreenX <= winRight + threshold;
+          for (const lw of logicalWindows) {
+            const inVertRange = boneScreenY >= lw.top - threshold && boneScreenY <= lw.bottom + threshold;
+            const inHorzRange = boneScreenX >= lw.left - threshold && boneScreenX <= lw.right + threshold;
 
             // 左邊緣
-            if (inVertRange && Math.abs(boneScreenX - winLeft) <= threshold) {
-              contacts.push({ x: bone.screen.x, y: bone.screen.y, direction: 'vertical' });
+            if (inVertRange && Math.abs(boneScreenX - lw.left) <= threshold) {
+              if (!isOccludedByHigherZ(boneScreenX, boneScreenY, lw.zOrder)) {
+                contacts.push({ x: bone.screen.x, y: bone.screen.y, direction: 'vertical' });
+              }
             }
             // 右邊緣
-            if (inVertRange && Math.abs(boneScreenX - winRight) <= threshold) {
-              contacts.push({ x: bone.screen.x, y: bone.screen.y, direction: 'vertical' });
+            if (inVertRange && Math.abs(boneScreenX - lw.right) <= threshold) {
+              if (!isOccludedByHigherZ(boneScreenX, boneScreenY, lw.zOrder)) {
+                contacts.push({ x: bone.screen.x, y: bone.screen.y, direction: 'vertical' });
+              }
             }
             // 上邊緣
-            if (inHorzRange && Math.abs(boneScreenY - winTop) <= threshold) {
-              contacts.push({ x: bone.screen.x, y: bone.screen.y, direction: 'horizontal' });
+            if (inHorzRange && Math.abs(boneScreenY - lw.top) <= threshold) {
+              if (!isOccludedByHigherZ(boneScreenX, boneScreenY, lw.zOrder)) {
+                contacts.push({ x: bone.screen.x, y: bone.screen.y, direction: 'horizontal' });
+              }
             }
             // 下邊緣
-            if (inHorzRange && Math.abs(boneScreenY - winBottom) <= threshold) {
-              contacts.push({ x: bone.screen.x, y: bone.screen.y, direction: 'horizontal' });
+            if (inHorzRange && Math.abs(boneScreenY - lw.bottom) <= threshold) {
+              if (!isOccludedByHigherZ(boneScreenX, boneScreenY, lw.zOrder)) {
+                contacts.push({ x: bone.screen.x, y: bone.screen.y, direction: 'horizontal' });
+              }
             }
           }
         }
