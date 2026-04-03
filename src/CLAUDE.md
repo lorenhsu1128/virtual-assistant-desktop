@@ -11,7 +11,8 @@ SceneManager 擁有唯一的 render loop，每幀依以下順序執行：
 3. AnimationManager.update(deltaTime) → 動畫混合與播放推進（或 FallbackAnimation）
 4. ExpressionManager.resolve()        → 表情優先級仲裁
 5. VRMController.update(deltaTime)    → SpringBone 物理 + mixer 更新
-   ※ Debug overlay 骨骼更新在此之後
+   ※ Debug overlay：骨骼座標 + 視窗接觸偵測（Z-order 遮擋感知）+ 視窗清單
+   ※ 腳底 groundY 約束（workArea 下緣限制）
 6. renderer.render(scene, camera)     → 渲染輸出
 ```
 

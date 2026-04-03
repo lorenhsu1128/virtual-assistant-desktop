@@ -21,37 +21,23 @@
 
 ## IPC 通訊
 
-### [範例] 2026-04-03 — 直接使用 invoke() 繞過 TauriIPC
+### [2026-04-03] — 直接使用 IPC API 繞過橋接層
 
-- **錯誤**：在 `DragHandler.ts` 中直接 `import { invoke } from '@tauri-apps/api/core'`
-- **正確做法**：所有 IPC 呼叫必須透過 `bridge/TauriIPC.ts`，由 TauriIPC 統一處理錯誤和 fallback
-- **受影響檔案**：`src/interaction/DragHandler.ts`
-- **根因**：直接 invoke 會繞過統一的錯誤處理策略，IPC 失敗時可能中斷 render loop
+- **錯誤**：直接使用 `window.electronAPI`（或舊版的 `invoke()`）繞過 ElectronIPC
+- **正確做法**：所有 IPC 呼叫必須透過 `bridge/ElectronIPC.ts`，統一處理錯誤和 fallback
+- **受影響檔案**：所有 `src/` 下的檔案
+- **根因**：直接呼叫會繞過統一的錯誤處理策略，IPC 失敗時可能中斷 render loop
 
 ---
 
-## Rust 後端
+## Rust 後端（已棄用 — 遷移至 Electron）
 
-### [2026-04-03] — EnumWindows callback 導致 access violation crash
+### [2026-04-03] — EnumWindows 在 Tauri/Rust 中持續 crash
 
-- **錯誤**：使用 `EnumWindows` + `unsafe extern "system" fn` callback 列舉視窗，在背景執行緒中運行。程式啟動後立即 crash（exit code -1 / 4294967295），`catch_unwind` 無法捕捉（不是 Rust panic）
-- **正確做法**：避免 `EnumWindows` callback。改用 `GetDesktopWindow()` + `GetWindow(GW_CHILD)` + `GetWindow(GW_HWNDNEXT)` 逐一遍歷視窗鏈（safe API，無 callback）
-- **受影響檔案**：`src-tauri/src/window_monitor.rs`
-- **根因**：`EnumWindows` 的 callback 在某些系統/視窗組合下會觸發 access violation。raw pointer 傳遞 context 可能在特定條件下失效
-
-### [2026-04-03] — WindowMonitor 背景執行緒導致啟動 crash
-
-- **錯誤**：在 Tauri `setup` 中啟動 `WindowMonitor::start()` 背景執行緒，即使改用 safe GetWindow API，程式仍然 crash（exit code 1）
-- **正確做法**：⚠️ **尚未解決**。目前使用 `new_inactive()` 停用視窗監控。可能的替代方案：前端定時 IPC 呼叫 `get_window_list`，Rust 側同步列舉（不用背景執行緒）——但此方案也曾導致 crash，需進一步調查
-- **受影響檔案**：`src-tauri/src/lib.rs`, `src-tauri/src/window_monitor.rs`
-- **根因**：不確定。可能是執行緒與 Tauri 事件系統的交互問題，或 Windows API 在特定時機呼叫不安全
-
-### [2026-04-03] — windows-rs 0.61 API 回傳 Result 而非裸值
-
-- **錯誤**：假設 `GetWindow()` 回傳 `HWND`，但 windows-rs 0.61 改為回傳 `Result<HWND>`。`SetWindowRgn` 從 `WindowsAndMessaging` 移到 `Graphics::Gdi`。`BOOL` 從 `Win32::Foundation` 移到 `windows::core::BOOL`
-- **正確做法**：所有 windows-rs API 呼叫都要檢查回傳型別，使用 `match` 或 `?` 處理 Result
-- **受影響檔案**：`src-tauri/src/commands/window_commands.rs`, `src-tauri/src/window_monitor.rs`
-- **根因**：windows-rs 版本升級時 API signature 會變動，不能假設跟文件範例一致
+- **錯誤**：多次嘗試在 Tauri/Rust 中使用 EnumWindows（callback 方式和 GetWindow 遍歷方式）列舉桌面視窗，全部 crash
+- **最終解決**：遷移至 Electron，用 koffi FFI 的 GetWindow 遍歷（無 callback）成功運作
+- **受影響檔案**：整個 src-tauri/ → electron/
+- **根因**：Rust FFI + Tauri WebView2 + Windows API 在特定環境下不穩定
 
 ---
 
@@ -71,12 +57,12 @@
 - **受影響檔案**：`src/behavior/StateMachine.ts`, `src/core/SceneManager.ts`
 - **根因**：兩個系統同時控制視窗位置
 
-### [2026-04-03] — DPI 座標不匹配
+### [2026-04-03] — DPI 座標不匹配（Electron + koffi）
 
-- **錯誤**：`outerPosition()` 回傳物理像素，但 `setPosition(LogicalPosition)` 期望邏輯座標
-- **正確做法**：使用 `PhysicalPosition` 設定視窗位置
-- **受影響檔案**：`src/bridge/TauriIPC.ts`
-- **根因**：Tauri 的座標 API 混合使用物理/邏輯座標
+- **錯誤**：`GetWindowRect`（koffi FFI）回傳物理像素，但 Electron `getPosition()`/bone screen 座標使用邏輯像素，骨骼接觸偵測座標不匹配
+- **正確做法**：視窗座標除以 `window.devicePixelRatio` 轉為邏輯像素後再比較
+- **受影響檔案**：`src/core/SceneManager.ts`（骨骼接觸偵測 + Z-order 視覺化）
+- **根因**：Windows API 回傳物理像素，Electron 使用 DIP（device-independent pixels）
 
 ---
 
@@ -95,10 +81,31 @@
 
 ### [2026-04-03] — Tauri → Electron 遷移原因
 
-- **錯誤**：在 Tauri/Rust 中使用 EnumWindows、GetWindow 等 Windows API 列舉桌面視窗，多次嘗試皆 crash（access violation 或 exit code 1）
-- **正確做法**：改用 Electron + PowerShell 子程序。EnumWindows 在獨立 PowerShell 程序中執行，crash 不影響主程序。koffi FFI 用於 SetWindowRgn
+- **錯誤**：在 Tauri/Rust 中使用 EnumWindows、GetWindow 等 Windows API 列舉桌面視窗，多次嘗試皆 crash
+- **正確做法**：改用 Electron + koffi FFI。GetWindow 遍歷（無 callback）成功運作。SetWindowRgn 也用 koffi
 - **受影響檔案**：整個 src-tauri/ → electron/
-- **根因**：Rust FFI + Tauri WebView2 + Windows API callback 在特定環境下不穩定。分離程序是最可靠的隔離方式
+- **根因**：Rust FFI + Tauri WebView2 + Windows API 在特定環境下不穩定
+
+### [2026-04-03] — koffi FFI 注意事項
+
+- **錯誤**：koffi 的 `void *` 指標回傳 opaque 物件，無法用 `Number()` 轉換；`struct()` 回傳值不能用 `new` 建構；ESM 模組中 `require` 不存在
+- **正確做法**：HWND 用 `intptr_t` 宣告（回傳 plain number）；struct 用 plain object `{ left: 0, ... }`；用 `createRequire(import.meta.url)` 載入 koffi
+- **受影響檔案**：`electron/windowMonitor.ts`, `electron/windowRegion.ts`
+- **根因**：koffi 的型別系統與 JavaScript 原生型別不完全對應
+
+### [2026-04-03] — 自主移動被視窗碰撞阻擋
+
+- **錯誤**：Electron 遷移後 WindowMonitor 正常運作，但桌寵是 always-on-top 透明視窗，自然與下方視窗重疊。碰撞系統誤判為「撞到視窗」，walk 狀態立即被取消
+- **正確做法**：進入 walk 時記錄已重疊的視窗 HWND，只對「新進入」的碰撞反應
+- **受影響檔案**：`src/behavior/StateMachine.ts`
+- **根因**：always-on-top 視窗必然與下方視窗重疊，不能把重疊當碰撞
+
+### [2026-04-03] — Windows 11 系統 UI 被誤列為桌面視窗
+
+- **錯誤**：IsWindowVisible 對 Windows 11 的「搜尋」「開始」「Windows 輸入體驗」等系統 UI 回傳 true，但它們不是真正的桌面視窗
+- **正確做法**：用 `DwmGetWindowAttribute(DWMWA_CLOAKED)` 過濾隱藏的 UWP 系統 UI + WS_EX_TOOLWINDOW/NOACTIVATE 樣式過濾
+- **受影響檔案**：`electron/windowMonitor.ts`
+- **根因**：Windows 11 的系統 UI 元素技術上 visible 但被 DWM cloaked
 
 ### [2026-04-03] — Electron IPC 三層同步
 

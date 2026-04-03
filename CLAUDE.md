@@ -9,8 +9,8 @@
 
 - 後端：Node.js (Electron main process) — 視窗感知、檔案系統、系統托盤
 - 前端：TypeScript (Vanilla) — Three.js + @pixiv/three-vrm (Electron renderer)
-- Windows API：koffi (FFI) — SetWindowRgn 視窗裁切
-- 視窗列舉：PowerShell 子程序 — EnumWindows（隔離 crash 風險）
+- Windows API：koffi (FFI) — SetWindowRgn 視窗裁切 + GetWindow 視窗列舉
+- 視窗列舉：koffi GetWindow 遍歷（無 callback，直接 FFI）
 - 設定視窗：Svelte（獨立 BrowserWindow，尚未實作）
 - 建置：Vite + pnpm (Corepack) + electron-builder
 - 測試：Vitest
@@ -34,12 +34,23 @@
 | v0.4+ | 未開始 | — |
 
 ### 已實作的右鍵選單功能
-動畫 ▸ | 表情 ▸ | 縮放 ▸ | 暫停自主移動 | 暫停/恢復自動表情 | 暫停/恢復動畫循環 | 重置鏡頭角度 | 更換 VRM 模型 | 更換動畫資料夾 | Debug 模式 | 設定(TODO) | 關閉
+動畫 ▸ | 表情 ▸ | 縮放 ▸ | 暫停自主移動 | 暫停/恢復自動表情 | 暫停/恢復動畫循環 | 重置鏡頭角度 | 重置回桌面正中央 | 更換 VRM 模型 | 更換動畫資料夾 | Debug 模式 | 設定(TODO) | 關閉
+
+### Debug overlay 功能
+- 骨骼座標面板（3D 世界座標 + 2D 螢幕座標）
+- 骨骼末端彩色圓點（頭/手/臀/腳）
+- 桌面視窗清單面板（title, x, y, w, h, zOrder）
+- 視窗 Z-order 視覺化邊框（紅=最上層，藍=最下層）
+- 骨骼與視窗邊緣接觸偵測（綠色虛線，10px 閾值）
+- Z-order 遮擋感知（被上層視窗蓋住的邊緣不觸發）
+- 工作列偵測（從 workArea 推算位置）
+- 腳底不超過 workArea 下緣（groundY 約束）
 
 ### Electron 遷移（從 Tauri）
 - 遷移原因：Tauri/Rust 的 EnumWindows 持續 crash，無法實現視窗感知功能
-- 視窗列舉改用 PowerShell 子程序，完全隔離 crash 風險
+- 視窗列舉改用 koffi GetWindow 遍歷（無 callback，直接 FFI）
 - 視窗裁切（SetWindowRgn）改用 koffi FFI
+- DwmGetWindowAttribute(DWMWA_CLOAKED) 過濾 Windows 11 系統 UI
 - src-tauri/ 保留作參考，不再編譯
 
 ## 關鍵目錄結構
@@ -59,7 +70,7 @@ electron/           → Electron 主程序（main process）
   preload.ts        → contextBridge 暴露 IPC API
   ipcHandlers.ts    → 所有 ipcMain.handle() 註冊
   fileManager.ts    → config.json / animations.json 管理
-  windowMonitor.ts  → PowerShell 子程序視窗列舉
+  windowMonitor.ts  → koffi GetWindow 遍歷視窗列舉
   windowRegion.ts   → koffi FFI 視窗裁切（SetWindowRgn）
   systemTray.ts     → 系統托盤選單
 src-tauri/          → [已棄用] 舊 Rust 後端（保留作參考）
