@@ -59,6 +59,8 @@ export class SceneManager {
   // 視窗位置管理
   private currentPosition = { x: 0, y: 0 };
   private windowSize = { width: 400, height: 600 };
+  /** workArea 下緣（邏輯像素），用於限制腳底不超出 */
+  private groundY: number | null = null;
   private positionSetter: ((x: number, y: number) => void) | null = null;
   private occlusionSetter: ((rects: Rect[]) => void) | null = null;
   private lastOcclusionUpdate = 0;
@@ -217,6 +219,11 @@ export class SceneManager {
     this.windowSize = size;
   }
 
+  /** 設定地面 Y 座標（workArea 下緣，邏輯像素） */
+  setGroundY(y: number): void {
+    this.groundY = y;
+  }
+
   /** 取得角色的螢幕 bounding box */
   getCharacterBounds(): Rect {
     return {
@@ -330,6 +337,24 @@ export class SceneManager {
           this.windowSize.width,
           this.windowSize.height,
         );
+
+        // 腳底不超過 groundY（workArea 下緣）
+        if (this.groundY !== null && this.vrmController) {
+          const canvas = this.renderer.domElement;
+          const footPositions = this.vrmController.getBoneScreenPositions(
+            ['leftFoot', 'rightFoot'], this.camera, canvas.clientWidth, canvas.clientHeight,
+          );
+          let maxFootY = 0;
+          for (const [, pos] of footPositions) {
+            if (pos.y > maxFootY) maxFootY = pos.y;
+          }
+          // 腳底螢幕 Y = 視窗 Y + 骨骼 canvas Y
+          const footScreenY = clamped.y + maxFootY;
+          if (footScreenY > this.groundY) {
+            clamped.y -= footScreenY - this.groundY;
+          }
+        }
+
         this.currentPosition = clamped;
         this.positionSetter?.(clamped.x, clamped.y);
       }

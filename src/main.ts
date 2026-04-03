@@ -248,7 +248,6 @@ async function initializeBehaviorSystem(
   if (displays.length > 0) {
     const primaryDisplay = displays[0];
     // 使用 workArea 作為螢幕邊界（扣除工作列）
-    // 確保角色腳底不超過工作列上緣
     const effectiveBounds = primaryDisplay.workArea ?? primaryDisplay;
     collisionSystem.updateScreenBounds({
       x: effectiveBounds.x,
@@ -256,6 +255,9 @@ async function initializeBehaviorSystem(
       width: effectiveBounds.width,
       height: effectiveBounds.height,
     });
+
+    // 設定 groundY（workArea 下緣），腳底骨骼不可超過此值
+    sceneManager.setGroundY(effectiveBounds.y + effectiveBounds.height);
 
     // 從 bounds vs workArea 推算工作列位置
     if (primaryDisplay.workArea) {
