@@ -196,6 +196,11 @@ async function initializeApp(config: AppConfig): Promise<void> {
     sceneManager.setUseFallback(true);
   }
 
+  // 套用已儲存的動畫循環設定
+  if (animationManager && config.animationLoopEnabled === false) {
+    animationManager.setLoopEnabled(false);
+  }
+
   // 先啟動 render loop（確保角色先渲染出來）
   debugLog('starting render loop');
   sceneManager.start();
@@ -347,6 +352,16 @@ async function initializeBehaviorSystem(
     },
     isPaused: () => stateMachine.isPaused(),
     isOrbitDragging: () => sceneManager.isOrbitDragging(),
+    toggleLoop: () => {
+      if (animationManager) {
+        const newVal = !animationManager.isLoopEnabled();
+        animationManager.setLoopEnabled(newVal);
+        config.animationLoopEnabled = newVal;
+        ipc.writeConfig(config);
+      }
+    },
+    isLoopEnabled: () => animationManager?.isLoopEnabled() ?? true,
+    resetCamera: () => sceneManager.resetCamera(),
     changeModel: async () => {
       const newPath = await ipc.pickVrmFile();
       if (!newPath) return;

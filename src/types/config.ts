@@ -20,6 +20,8 @@ export interface AppConfig {
   powerSaveMode: boolean;
   /** 自主移動暫停 */
   autonomousMovementPaused: boolean;
+  /** 動畫循環開關 */
+  animationLoopEnabled: boolean;
 }
 
 /** 2D 位置 */
@@ -46,4 +48,5 @@ export const DEFAULT_CONFIG: AppConfig = {
   targetFps: 30,
   powerSaveMode: false,
   autonomousMovementPaused: false,
+  animationLoopEnabled: true,
 };

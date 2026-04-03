@@ -12,6 +12,9 @@ export interface ContextMenuDeps {
   isPaused: () => boolean;
   openSettings: () => void;
   isOrbitDragging: () => boolean;
+  toggleLoop: () => void;
+  isLoopEnabled: () => boolean;
+  resetCamera: () => void;
   changeModel: () => void;
   changeAnimationFolder: () => void;
   closeApp: () => void;
@@ -122,6 +125,15 @@ export class ContextMenu {
 
     // 分隔線
     menu.appendChild(this.createSeparator());
+
+    // 動畫循環開關
+    menu.appendChild(this.createMenuItem(
+      this.deps.isLoopEnabled() ? '暫停動畫循環' : '恢復動畫循環',
+      () => this.deps.toggleLoop(),
+    ));
+
+    // 重置鏡頭
+    menu.appendChild(this.createMenuItem('重置鏡頭角度', () => this.deps.resetCamera()));
 
     // 更換模型/動畫
     menu.appendChild(this.createMenuItem('更換 VRM 模型', () => this.deps.changeModel()));

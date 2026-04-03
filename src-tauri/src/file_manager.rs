@@ -16,6 +16,12 @@ pub struct AppConfig {
     pub target_fps: u32,
     pub power_save_mode: bool,
     pub autonomous_movement_paused: bool,
+    #[serde(default = "default_true")]
+    pub animation_loop_enabled: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,6 +71,7 @@ impl Default for AppConfig {
             target_fps: 30,
             power_save_mode: false,
             autonomous_movement_paused: false,
+            animation_loop_enabled: true,
         }
     }
 }

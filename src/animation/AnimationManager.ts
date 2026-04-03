@@ -44,6 +44,7 @@ export class AnimationManager {
   private idleTimer = 0;
   private idleWaitTime = 0;
   private isPlayingAction = false;
+  private loopEnabled = true;
 
   constructor(mixer: THREE.AnimationMixer, loadAnimation: AnimationLoader) {
     this.mixer = mixer;
@@ -146,6 +147,16 @@ export class AnimationManager {
     return this.allAnimations.length > 0;
   }
 
+  /** 設定動畫循環開關 */
+  setLoopEnabled(enabled: boolean): void {
+    this.loopEnabled = enabled;
+  }
+
+  /** 取得動畫循環狀態 */
+  isLoopEnabled(): boolean {
+    return this.loopEnabled;
+  }
+
   /**
    * 更新動畫系統
    *
@@ -155,6 +166,7 @@ export class AnimationManager {
    */
   update(deltaTime: number): void {
     if (this.isPlayingAction) return;
+    if (!this.loopEnabled) return;
 
     // idle 輪播計時
     this.idleTimer += deltaTime;
