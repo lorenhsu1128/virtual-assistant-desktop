@@ -1,0 +1,31 @@
+[package]
+name = "virtual-assistant-desktop"
+version = "0.1.0"
+edition = "2021"
+description = "Desktop virtual assistant mascot"
+
+[lib]
+name = "virtual_assistant_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-single-instance = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dirs = "6"
+log = "0.4"
+env_logger = "0.11"
+windows = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_Graphics_Gdi",
+] }
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]

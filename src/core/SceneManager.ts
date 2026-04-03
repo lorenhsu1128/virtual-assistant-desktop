@@ -1,0 +1,246 @@
+import * as THREE from 'three';
+import { VRMController } from './VRMController';
+import type { AnimationManager } from '../animation/AnimationManager';
+import type { FallbackAnimation } from '../animation/FallbackAnimation';
+
+/** 幀率模式 */
+type FpsMode = 'foreground' | 'background' | 'powerSave';
+
+/** 幀率模式對應的目標 fps */
+const FPS_MAP: Record<FpsMode, number> = {
+  foreground: 30,
+  background: 10,
+  powerSave: 15,
+};
+
+/**
+ * Three.js 場景的生命週期管理
+ *
+ * 擁有唯一的 requestAnimationFrame 主迴圈。
+ * 每幀依序執行：AnimationManager → VRMController → renderer.render()
+ * v0.2 將在此加入 StateMachine、CollisionSystem、ExpressionManager。
+ */
+export class SceneManager {
+  private scene: THREE.Scene;
+  private camera: THREE.PerspectiveCamera;
+  private renderer: THREE.WebGLRenderer;
+  private clock: THREE.Clock;
+
+  private vrmController: VRMController | null = null;
+  private animationManager: AnimationManager | null = null;
+  private fallbackAnimation: FallbackAnimation | null = null;
+  private useFallback = false;
+
+  private targetFps: number;
+  private fpsMode: FpsMode = 'foreground';
+  private lastFrameTime = 0;
+  private animationFrameId = 0;
+  private running = false;
+
+  private scale = 1.0;
+
+  constructor(canvas: HTMLCanvasElement, targetFps = 30) {
+    this.targetFps = targetFps;
+
+    // Scene
+    this.scene = new THREE.Scene();
+
+    // Camera
+    this.camera = new THREE.PerspectiveCamera(30, canvas.width / canvas.height, 0.1, 20);
+    this.camera.position.set(0, 0.8, 3.5);
+    this.camera.lookAt(0, 0.8, 0);
+
+    // Renderer — 透明背景
+    this.renderer = new THREE.WebGLRenderer({
+      canvas,
+      alpha: true,
+      antialias: true,
+      premultipliedAlpha: false,
+    });
+    this.renderer.setSize(canvas.width, canvas.height);
+    this.renderer.setPixelRatio(window.devicePixelRatio);
+    this.renderer.setClearColor(0x000000, 0);
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+
+    // 燈光
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 1.0);
+    directionalLight.position.set(1.0, 1.0, 1.0).normalize();
+    this.scene.add(directionalLight);
+
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    this.scene.add(ambientLight);
+
+    this.clock = new THREE.Clock();
+
+    // WebGL context lost/restored 監聽
+    canvas.addEventListener('webglcontextlost', this.onContextLost);
+    canvas.addEventListener('webglcontextrestored', this.onContextRestored);
+
+    // 視窗 resize
+    window.addEventListener('resize', this.onResize);
+
+    // 視窗可見性變化 → 切換幀率模式
+    document.addEventListener('visibilitychange', this.onVisibilityChange);
+  }
+
+  /** 取得 Three.js scene（僅供 VRMController 使用） */
+  getScene(): THREE.Scene {
+    return this.scene;
+  }
+
+  /** 設定 VRMController */
+  setVRMController(controller: VRMController): void {
+    this.vrmController = controller;
+  }
+
+  /** 設定 AnimationManager */
+  setAnimationManager(manager: AnimationManager): void {
+    this.animationManager = manager;
+  }
+
+  /** 設定 FallbackAnimation */
+  setFallbackAnimation(fallback: FallbackAnimation): void {
+    this.fallbackAnimation = fallback;
+  }
+
+  /** 設定是否使用 fallback 動畫 */
+  setUseFallback(useFallback: boolean): void {
+    this.useFallback = useFallback;
+    if (useFallback) {
+      this.fallbackAnimation?.start();
+    } else {
+      this.fallbackAnimation?.stop();
+    }
+  }
+
+  /** 設定角色縮放（0.5–2.0） */
+  setScale(scale: number): void {
+    this.scale = Math.max(0.5, Math.min(2.0, scale));
+    if (this.vrmController) {
+      this.vrmController.setModelScale(this.scale);
+    }
+  }
+
+  /** 取得角色縮放 */
+  getScale(): number {
+    return this.scale;
+  }
+
+  /** 設定目標幀率 */
+  setTargetFps(fps: number): void {
+    this.targetFps = Math.max(1, Math.min(60, fps));
+  }
+
+  /** 啟動 render loop */
+  start(): void {
+    if (this.running) return;
+    this.running = true;
+    this.clock.start();
+    this.lastFrameTime = performance.now();
+    this.animationFrameId = requestAnimationFrame(this.loop);
+  }
+
+  /** 停止 render loop */
+  stop(): void {
+    this.running = false;
+    if (this.animationFrameId) {
+      cancelAnimationFrame(this.animationFrameId);
+      this.animationFrameId = 0;
+    }
+  }
+
+  /** 銷毀場景並釋放資源 */
+  dispose(): void {
+    this.stop();
+    this.renderer.dispose();
+    this.scene.clear();
+    window.removeEventListener('resize', this.onResize);
+    document.removeEventListener('visibilitychange', this.onVisibilityChange);
+    const canvas = this.renderer.domElement;
+    canvas.removeEventListener('webglcontextlost', this.onContextLost);
+    canvas.removeEventListener('webglcontextrestored', this.onContextRestored);
+  }
+
+  /**
+   * 主渲染迴圈
+   *
+   * 使用 rAF + deltaTime 跳幀控制幀率。
+   * 每幀執行順序（ARCHITECTURE.md §2.2）：
+   * 1. (v0.2) StateMachine.tick
+   * 2. (v0.2) CollisionSystem.check
+   * 3. AnimationManager.update / FallbackAnimation.update
+   * 4. (v0.3) ExpressionManager.resolve
+   * 5. VRMController.update
+   * 6. renderer.render
+   */
+  private loop = (now: number): void => {
+    if (!this.running) return;
+    this.animationFrameId = requestAnimationFrame(this.loop);
+
+    const currentTargetFps = FPS_MAP[this.fpsMode] ?? this.targetFps;
+    const targetInterval = 1000 / currentTargetFps;
+    const delta = now - this.lastFrameTime;
+
+    if (delta < targetInterval) return; // 跳幀
+
+    this.lastFrameTime = now - (delta % targetInterval);
+    const deltaTime = Math.min(delta / 1000, 0.1); // cap at 100ms to avoid spiral
+
+    // Step 1: (v0.2) StateMachine.tick(deltaTime)
+    // Step 2: (v0.2) CollisionSystem.check()
+
+    // Step 3: Animation update
+    if (this.useFallback && this.fallbackAnimation) {
+      this.fallbackAnimation.update(deltaTime);
+    } else if (this.animationManager) {
+      this.animationManager.update(deltaTime);
+    }
+
+    // Step 4: (v0.3) ExpressionManager.resolve()
+
+    // Step 5: VRM update (SpringBone etc.)
+    if (this.vrmController) {
+      this.vrmController.update(deltaTime);
+    }
+
+    // Step 6: Render
+    this.renderer.render(this.scene, this.camera);
+  };
+
+  /** WebGL context lost 處理 */
+  private onContextLost = (event: Event): void => {
+    event.preventDefault();
+    console.warn('[SceneManager] WebGL context lost. Stopping render loop.');
+    this.stop();
+  };
+
+  /** WebGL context restored 處理 — 重建渲染器 */
+  private onContextRestored = (): void => {
+    console.warn('[SceneManager] WebGL context restored. Restarting render loop.');
+    this.renderer.setSize(
+      this.renderer.domElement.width,
+      this.renderer.domElement.height,
+    );
+    this.renderer.setClearColor(0x000000, 0);
+    this.start();
+  };
+
+  /** 視窗 resize */
+  private onResize = (): void => {
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+    this.camera.aspect = width / height;
+    this.camera.updateProjectionMatrix();
+    this.renderer.setSize(width, height);
+  };
+
+  /** 視窗可見性變化 → 切換幀率模式 */
+  private onVisibilityChange = (): void => {
+    if (document.hidden) {
+      this.fpsMode = 'background';
+    } else {
+      this.fpsMode = 'foreground';
+    }
+  };
+}

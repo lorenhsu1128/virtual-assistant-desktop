@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Virtual Assistant Desktop</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html, body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: transparent;
+      }
+      canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+      #first-run-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(30, 30, 46, 0.95);
+        color: #cdd6f4;
+        font-family: 'Segoe UI', sans-serif;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+        gap: 16px;
+      }
+      #first-run-overlay.visible {
+        display: flex;
+      }
+      #first-run-overlay h1 {
+        font-size: 24px;
+        font-weight: 600;
+        color: #cba6f7;
+      }
+      #first-run-overlay p {
+        font-size: 14px;
+        max-width: 400px;
+        text-align: center;
+        line-height: 1.6;
+      }
+      #first-run-overlay button {
+        margin-top: 12px;
+        padding: 10px 28px;
+        font-size: 14px;
+        border: none;
+        border-radius: 8px;
+        background: #cba6f7;
+        color: #1e1e2e;
+        cursor: pointer;
+        font-weight: 600;
+      }
+      #first-run-overlay button:hover {
+        background: #b4befe;
+      }
+      #first-run-overlay .step {
+        display: none;
+      }
+      #first-run-overlay .step.active {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+      }
+      #first-run-overlay .skip-btn {
+        background: transparent;
+        color: #6c7086;
+        font-size: 12px;
+        padding: 6px 16px;
+        margin-top: 0;
+      }
+      #first-run-overlay .skip-btn:hover {
+        color: #cdd6f4;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="first-run-overlay">
+      <div id="step-welcome" class="step active">
+        <h1>Virtual Assistant Desktop</h1>
+        <p>歡迎使用桌面虛擬陪伴軟體！<br/>請先選擇一個 VRM 模型來開始。</p>
+        <button id="btn-start">開始設定</button>
+      </div>
+      <div id="step-model" class="step">
+        <h1>選擇 VRM 模型</h1>
+        <p>請選擇一個 .vrm 格式的 3D 模型檔案。</p>
+        <button id="btn-pick-model">選擇模型檔案</button>
+      </div>
+      <div id="step-animation" class="step">
+        <h1>選擇動畫資料夾（可選）</h1>
+        <p>指定包含 .vrma 動畫檔案的資料夾。<br/>跳過的話，角色將使用內建的基礎動畫。</p>
+        <button id="btn-pick-animation">選擇動畫資料夾</button>
+        <button id="btn-skip-animation" class="skip-btn">跳過此步驟</button>
+      </div>
+      <div id="step-done" class="step">
+        <h1>設定完成！</h1>
+        <p>角色即將出現在您的桌面上。</p>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,38 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicegui/nicegui-tauri/main/nicegui-tauri-v2/src-tauri/gen/schemas/desktop-schema.json",
+  "productName": "Virtual Assistant Desktop",
+  "version": "0.1.0",
+  "identifier": "com.virtual-assistant-desktop",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "pnpm dev",
+    "beforeBuildCommand": "pnpm build"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Virtual Assistant Desktop",
+        "width": 400,
+        "height": 600,
+        "resizable": false,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "center": true
+      }
+    ]
+  },
+  "plugins": {
+    "dialog": {},
+    "fs": {
+      "scope": {
+        "allow": ["$HOME/.virtual-assistant-desktop/**", "$RESOURCE/**"],
+        "deny": []
+      }
+    }
+  }
+}
