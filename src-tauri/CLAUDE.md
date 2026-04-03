@@ -2,14 +2,13 @@
 
 ## 模組職責
 
-| 模組 | 職責 | 執行緒 |
-|------|------|--------|
-| commands/ | Tauri command handlers，參數轉換 + 呼叫下層邏輯 | 主執行緒 |
-| window_monitor.rs | EnumWindows 輪詢，差異比對，推送 event | 獨立執行緒 |
-| file_manager.rs | config.json / animations.json 讀寫與損毀處理 | 主執行緒 |
-| system_tray.rs | 托盤圖示與右鍵選單，透過 event 通知前端 | 主執行緒 |
-| audio_capture.rs | 麥克風擷取（v0.4 預留） | 獨立執行緒 |
-| single_instance.rs | Named mutex 單實例鎖定 | 啟動時 |
+| 模組 | 職責 | 狀態 |
+|------|------|------|
+| commands/file_commands.rs | 檔案讀寫、掃描、選擇器 command handlers | ✅ 正常 |
+| commands/window_commands.rs | get_window_list, set_window_region, get_display_info | ⚠️ get_window_list 依賴停用的 WindowMonitor，回傳空陣列 |
+| window_monitor.rs | EnumWindows 輪詢（⚠️ **停用中** — crash 問題未解決） | ❌ new_inactive() |
+| file_manager.rs | config.json / animations.json 讀寫與損毀處理 | ✅ 正常 |
+| types.rs | WindowRect, Rect, DisplayInfo 共用型別 | ✅ 正常 |
 
 ## Command 實作模板
 
@@ -34,10 +33,12 @@ pub async fn get_window_list() -> Result<Vec<WindowRect>, String> {
 
 ## Windows API 使用
 
-- 使用 `windows-rs` crate，避免直接 unsafe FFI
-- EnumWindows + GetWindowRect + GetWindowInfo 取得視窗資訊
-- SetWindowRgn 做視窗裁切（遮擋效果）
+- 使用 `windows-rs` 0.61 crate（注意：API 回傳 `Result<T>` 而非裸值）
+- ⚠️ **禁止 EnumWindows callback** — 會導致 access violation crash（見 LESSONS.md）
+- 推薦使用 `GetDesktopWindow()` + `GetWindow(GW_CHILD/GW_HWNDNEXT)` 遍歷視窗
+- SetWindowRgn 做視窗裁切（遮擋效果），位於 `Graphics::Gdi` 而非 `WindowsAndMessaging`
 - Per-Monitor DPI Aware v2 模式
+- `BOOL` 使用 `windows::core::BOOL` 而非 `Win32::Foundation::BOOL`
 
 ## 檔案管理
 

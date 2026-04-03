@@ -5,6 +5,7 @@ import type { FallbackAnimation } from '../animation/FallbackAnimation';
 import type { StateMachine } from '../behavior/StateMachine';
 import type { CollisionSystem } from '../behavior/CollisionSystem';
 import type { BehaviorAnimationBridge } from '../behavior/BehaviorAnimationBridge';
+import type { ExpressionManager } from '../expression/ExpressionManager';
 import type { Rect } from '../types/window';
 
 /** 幀率模式 */
@@ -41,6 +42,9 @@ export class SceneManager {
   private stateMachine: StateMachine | null = null;
   private collisionSystem: CollisionSystem | null = null;
   private behaviorBridge: BehaviorAnimationBridge | null = null;
+
+  // v0.3 模組
+  private expressionManager: ExpressionManager | null = null;
 
   // 視窗位置管理
   private currentPosition = { x: 0, y: 0 };
@@ -166,6 +170,11 @@ export class SceneManager {
   /** 設定 BehaviorAnimationBridge (v0.2) */
   setBehaviorAnimationBridge(bridge: BehaviorAnimationBridge): void {
     this.behaviorBridge = bridge;
+  }
+
+  /** 設定 ExpressionManager (v0.3) */
+  setExpressionManager(em: ExpressionManager): void {
+    this.expressionManager = em;
   }
 
   /** 設定位置更新 callback（fire-and-forget） */
@@ -329,7 +338,19 @@ export class SceneManager {
       this.animationManager.update(deltaTime);
     }
 
-    // Step 4: (v0.3) ExpressionManager.resolve()
+    // Step 4: ExpressionManager
+    if (this.expressionManager && this.vrmController) {
+      this.expressionManager.update(deltaTime);
+
+      // 動畫播放中（含表情軌道）時跳過表情仲裁
+      const actionPlaying = this.animationManager?.isActionPlaying() ?? false;
+      if (!actionPlaying) {
+        const expr = this.expressionManager.resolve();
+        if (expr) {
+          this.vrmController.setBlendShape(expr.name, expr.value);
+        }
+      }
+    }
 
     // Step 5: VRM update (SpringBone etc.)
     if (this.vrmController) {

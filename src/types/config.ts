@@ -22,6 +22,10 @@ export interface AppConfig {
   autonomousMovementPaused: boolean;
   /** 動畫循環開關 */
   animationLoopEnabled: boolean;
+  /** 自動表情開關 */
+  autoExpressionEnabled: boolean;
+  /** 允許自動播放的表情名稱（空陣列 = 全部允許） */
+  allowedAutoExpressions: string[];
 }
 
 /** 2D 位置 */
@@ -49,4 +53,6 @@ export const DEFAULT_CONFIG: AppConfig = {
   powerSaveMode: false,
   autonomousMovementPaused: false,
   animationLoopEnabled: true,
+  autoExpressionEnabled: true,
+  allowedAutoExpressions: [],
 };

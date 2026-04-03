@@ -1,3 +1,6 @@
+// WindowMonitor 目前停用（new_inactive），待 crash 問題解決後啟用
+#![allow(dead_code)]
+
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicBool, Ordering};

@@ -147,6 +147,11 @@ export class AnimationManager {
     return this.allAnimations.length > 0;
   }
 
+  /** 檢查是否正在播放 action 動畫（表情優先級用） */
+  isActionPlaying(): boolean {
+    return this.isPlayingAction;
+  }
+
   /** 設定動畫循環開關 */
   setLoopEnabled(enabled: boolean): void {
     this.loopEnabled = enabled;

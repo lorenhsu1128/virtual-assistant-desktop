@@ -5,15 +5,19 @@
 SceneManager 擁有唯一的 render loop，每幀依以下順序執行：
 
 ```
-1. StateMachine.tick(deltaTime)       → 計算行為狀態與目標位置
-2. CollisionSystem.check()            → 碰撞檢測與回饋
-3. AnimationManager.update(deltaTime) → 動畫混合與播放推進
-4. ExpressionManager.resolve()        → 表情優先級仲裁
-5. VRMController.applyState()         → 將結果套用到 VRM 模型
+1. StateMachine.tick(deltaTime)       → 計算行為狀態與目標位置（僅未暫停時）
+2. CollisionSystem.check()            → 碰撞檢測與回饋（僅未暫停時）
+   ※ 遮擋更新獨立於暫停狀態，每 100ms 節流
+3. AnimationManager.update(deltaTime) → 動畫混合與播放推進（或 FallbackAnimation）
+4. (v0.3) ExpressionManager.resolve() → 表情優先級仲裁（尚未實作）
+5. VRMController.update(deltaTime)    → SpringBone 物理 + mixer 更新
 6. renderer.render(scene, camera)     → 渲染輸出
 ```
 
 此順序至關重要：後面的步驟依賴前面的結果。新增模組時，必須確認插入位置。
+
+### 重要初始化順序
+`sceneManager.start()` 必須在行為系統初始化之前呼叫。行為系統初始化用 try/catch 包裝，失敗不影響基本渲染。
 
 ## 模組邊界（嚴格執行）
 

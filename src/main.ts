@@ -9,6 +9,7 @@ import { BehaviorAnimationBridge } from './behavior/BehaviorAnimationBridge';
 import { DragHandler } from './interaction/DragHandler';
 import { ContextMenu } from './interaction/ContextMenu';
 import { DEFAULT_CONFIG, type AppConfig } from './types/config';
+import { ExpressionManager } from './expression/ExpressionManager';
 
 /**
  * 應用程式進入點
@@ -296,6 +297,18 @@ async function initializeBehaviorSystem(
     ipc.setWindowRegion(mappedRects);
   });
 
+  // ── v0.3: 表情系統 ──
+  const expressionManager = new ExpressionManager();
+  const blendShapes = vrmController.getBlendShapes();
+  expressionManager.setAvailableExpressions(blendShapes);
+  if (config.autoExpressionEnabled === false) {
+    expressionManager.setAutoEnabled(false);
+  }
+  if (config.allowedAutoExpressions && config.allowedAutoExpressions.length > 0) {
+    expressionManager.setAllowedAutoExpressions(config.allowedAutoExpressions);
+  }
+  sceneManager.setExpressionManager(expressionManager);
+
   // ── 互動系統 ──
 
   const dragHandler = new DragHandler(canvas, {
@@ -333,6 +346,7 @@ async function initializeBehaviorSystem(
       animationManager?.playByName(name);
     },
     setExpression: (name) => {
+      expressionManager.setManualExpression(name);
       vrmController.setBlendShape(name, 1.0);
     },
     setScale: (s) => {
@@ -381,9 +395,17 @@ async function initializeBehaviorSystem(
       ipc.closeWindow();
     },
     openSettings: () => {
-      // TODO v0.3: 開啟設定視窗
+      // TODO: 開啟設定視窗
       console.log('[main] Settings window not yet implemented');
     },
+    toggleAutoExpression: () => {
+      const newVal = !expressionManager.isAutoEnabled();
+      expressionManager.setAutoEnabled(newVal);
+      config.autoExpressionEnabled = newVal;
+      ipc.writeConfig(config);
+    },
+    isAutoExpressionEnabled: () => expressionManager.isAutoEnabled(),
+    getManualExpression: () => expressionManager.getManualExpression(),
   });
 
   // 清理函式

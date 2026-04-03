@@ -22,13 +22,26 @@
 
 違反此原則的程式碼不得合併。
 
+## 目前開發狀態
+
+| 版本 | 狀態 | 說明 |
+|------|------|------|
+| v0.1 | ✅ 完成 | 透明視窗 + VRM 模型載入渲染 + .vrma 動畫系統 |
+| v0.2 | ⚠️ 部分完成 | 自主移動狀態機 + 拖曳 + 右鍵選單 + 軌道攝影機。**視窗碰撞/吸附/遮擋已有程式碼但 WindowMonitor 停用（crash），實際無法偵測桌面視窗** |
+| v0.3+ | 未開始 | — |
+
+### 已實作的右鍵選單功能
+動畫 ▸ | 表情 ▸ | 縮放 ▸ | 暫停自主移動 | 暫停/恢復動畫循環 | 重置鏡頭角度 | 更換 VRM 模型 | 更換動畫資料夾 | 設定(TODO) | 關閉
+
+### 已知重大問題
+- **WindowMonitor 停用**：`EnumWindows` callback 導致 access violation crash，safe `GetWindow` 替代方案也導致 exit code 1。目前 `new_inactive()` 不輪詢，`windowRects` 永遠為空。碰撞/吸附/遮擋功能因此無法運作。
+
 ## 關鍵目錄結構
 
 ```
 src/                → TypeScript 前端（主視窗）
   core/             → 渲染核心（SceneManager, VRMController）
   animation/        → 動畫系統（AnimationManager, FallbackAnimation）
-  expression/       → 表情系統（ExpressionManager）
   behavior/         → 行為邏輯（StateMachine, CollisionSystem, BehaviorAnimationBridge）
   interaction/      → 使用者互動（DragHandler, ContextMenu）
   bridge/           → IPC 封裝（TauriIPC）
@@ -36,12 +49,10 @@ src/                → TypeScript 前端（主視窗）
 src-tauri/src/      → Rust 後端
   commands/         → Tauri command handlers（file_commands, window_commands）
   types.rs          → 共用 Rust 型別（WindowRect, Rect, DisplayInfo）
-  window_monitor.rs → 視窗輪詢（獨立執行緒 4Hz EnumWindows）
+  window_monitor.rs → 視窗輪詢（⚠️ 目前停用，new_inactive）
   file_manager.rs   → 檔案讀寫
-  system_tray.rs    → 系統托盤
-  single_instance.rs→ 單實例鎖定
-src-settings/       → Svelte 設定視窗
-tests/              → Vitest 測試（unit/ + integration/）
+src-settings/       → Svelte 設定視窗（尚未實作）
+tests/              → Vitest 測試（unit/）
 ```
 
 ## 程式碼規範

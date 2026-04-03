@@ -18,6 +18,9 @@ export interface ContextMenuDeps {
   changeModel: () => void;
   changeAnimationFolder: () => void;
   closeApp: () => void;
+  toggleAutoExpression: () => void;
+  isAutoExpressionEnabled: () => boolean;
+  getManualExpression: () => string | null;
 }
 
 /** 縮放選項 */
@@ -98,8 +101,9 @@ export class ContextMenu {
     // 表情子選單
     const blendShapes = this.deps.getBlendShapes();
     if (blendShapes.length > 0) {
+      const currentManual = this.deps.getManualExpression();
       menu.appendChild(this.createSubmenuItem('表情', blendShapes.map((name) => ({
-        label: name,
+        label: `${name}${name === currentManual ? ' ✓' : ''}`,
         onClick: () => this.deps.setExpression(name),
       }))));
     }
@@ -122,6 +126,12 @@ export class ContextMenu {
       () => this.deps.togglePause(),
     );
     menu.appendChild(pauseItem);
+
+    // 自動表情開關
+    menu.appendChild(this.createMenuItem(
+      this.deps.isAutoExpressionEnabled() ? '暫停自動表情' : '恢復自動表情',
+      () => this.deps.toggleAutoExpression(),
+    ));
 
     // 分隔線
     menu.appendChild(this.createSeparator());

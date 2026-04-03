@@ -18,6 +18,10 @@ pub struct AppConfig {
     pub autonomous_movement_paused: bool,
     #[serde(default = "default_true")]
     pub animation_loop_enabled: bool,
+    #[serde(default = "default_true")]
+    pub auto_expression_enabled: bool,
+    #[serde(default)]
+    pub allowed_auto_expressions: Vec<String>,
 }
 
 fn default_true() -> bool {
@@ -72,6 +76,8 @@ impl Default for AppConfig {
             power_save_mode: false,
             autonomous_movement_paused: false,
             animation_loop_enabled: true,
+            auto_expression_enabled: true,
+            allowed_auto_expressions: Vec::new(),
         }
     }
 }

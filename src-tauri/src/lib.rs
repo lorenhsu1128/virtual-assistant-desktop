@@ -1,5 +1,6 @@
 mod commands;
 mod file_manager;
+mod system_tray;
 mod types;
 mod window_monitor;
 
@@ -65,6 +66,9 @@ pub fn run() {
                 app.manage(monitor);
                 log::info!("[setup] WindowMonitor created (inactive for debugging)");
             }
+
+            // 系統托盤
+            system_tray::setup_tray(app.handle())?;
 
             Ok(())
         })
