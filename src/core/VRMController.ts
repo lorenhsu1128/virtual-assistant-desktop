@@ -114,6 +114,40 @@ export class VRMController {
     };
   }
 
+  /** 末端骨骼對應：優先使用末端骨骼，不存在則 fallback + Y 偏移 */
+  private static readonly EXTREMITY_MAP: Record<string, { bones: string[]; offsetY: number }> = {
+    head: { bones: ['head'], offsetY: 0.15 },
+    leftHand: { bones: ['leftMiddleDistal', 'leftIndexDistal', 'leftHand'], offsetY: 0 },
+    rightHand: { bones: ['rightMiddleDistal', 'rightIndexDistal', 'rightHand'], offsetY: 0 },
+    hips: { bones: ['hips'], offsetY: 0 },
+    leftFoot: { bones: ['leftToes', 'leftFoot'], offsetY: -0.02 },
+    rightFoot: { bones: ['rightToes', 'rightFoot'], offsetY: -0.02 },
+  };
+
+  /**
+   * 取得骨骼末端頂點的 3D 世界座標
+   *
+   * 對頭/手/腳使用更接近末端的骨骼（指尖、腳趾、頭頂），
+   * 若模型不支援則 fallback 到主骨骼 + Y 偏移。
+   */
+  getBoneExtremityWorldPosition(extremityName: string): { x: number; y: number; z: number } | null {
+    const mapping = VRMController.EXTREMITY_MAP[extremityName];
+    if (!mapping) return this.getBoneWorldPosition(extremityName);
+
+    for (const boneName of mapping.bones) {
+      const bone = this.getBoneNode(boneName);
+      if (bone) {
+        bone.getWorldPosition(VRMController._tempWorldPos);
+        return {
+          x: VRMController._tempWorldPos.x,
+          y: VRMController._tempWorldPos.y + mapping.offsetY,
+          z: VRMController._tempWorldPos.z,
+        };
+      }
+    }
+    return null;
+  }
+
   /**
    * 取得多個骨骼的 canvas CSS 像素座標
    *
@@ -134,11 +168,10 @@ export class VRMController {
     this._boneScreenCache.clear();
 
     for (const name of boneNames) {
-      const bone = this.getBoneNode(name);
-      if (!bone) continue;
+      const worldPos = this.getBoneExtremityWorldPosition(name);
+      if (!worldPos) continue;
 
-      bone.getWorldPosition(VRMController._tempWorldPos);
-      VRMController._tempScreenPos.copy(VRMController._tempWorldPos).project(camera);
+      VRMController._tempScreenPos.set(worldPos.x, worldPos.y, worldPos.z).project(camera);
 
       const x = (VRMController._tempScreenPos.x + 1) / 2 * cssWidth;
       const y = (1 - VRMController._tempScreenPos.y) / 2 * cssHeight;

@@ -389,7 +389,7 @@ export class SceneManager {
 
       const boneData: BoneDebugData[] = SceneManager.DEBUG_BONES.map((name) => ({
         boneName: name,
-        world: this.vrmController!.getBoneWorldPosition(name),
+        world: this.vrmController!.getBoneExtremityWorldPosition(name),
         screen: screenPositions.get(name) ?? null,
       }));
 
