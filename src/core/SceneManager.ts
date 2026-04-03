@@ -101,6 +101,7 @@ export class SceneManager {
       alpha: true,
       antialias: true,
       premultipliedAlpha: false,
+      preserveDrawingBuffer: true,
     });
     this.renderer.setSize(canvas.width, canvas.height);
     this.renderer.setPixelRatio(window.devicePixelRatio);
@@ -142,6 +143,11 @@ export class SceneManager {
   /** 取得 canvas 元素 */
   getCanvas(): HTMLCanvasElement {
     return this.renderer.domElement;
+  }
+
+  /** 取得 WebGLRenderer（供 HitTestManager 讀取像素用） */
+  getRenderer(): THREE.WebGLRenderer {
+    return this.renderer;
   }
 
   /** 設定 VRMController */

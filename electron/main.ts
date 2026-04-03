@@ -13,6 +13,10 @@ import { ensureConfigDir } from './fileManager.js';
 
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 
+// Suppress EPIPE errors from console.log when parent pipe is broken (dev mode)
+process.stdout?.on('error', () => {});
+process.stderr?.on('error', () => {});
+
 /** Whether we're running in development mode */
 const isDev = process.env.NODE_ENV !== 'production' && !app.isPackaged;
 

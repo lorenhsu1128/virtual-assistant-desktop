@@ -7,6 +7,7 @@ import { StateMachine } from './behavior/StateMachine';
 import { CollisionSystem } from './behavior/CollisionSystem';
 import { BehaviorAnimationBridge } from './behavior/BehaviorAnimationBridge';
 import { DragHandler } from './interaction/DragHandler';
+import { HitTestManager } from './interaction/HitTestManager';
 import { ContextMenu } from './interaction/ContextMenu';
 import { DEFAULT_CONFIG, type AppConfig } from './types/config';
 import { ExpressionManager } from './expression/ExpressionManager';
@@ -352,6 +353,11 @@ async function initializeBehaviorSystem(
   sceneManager.setDebugOverlay(debugOverlay);
   sceneManager.setWindowListFetcher(() => ipc.getWindowList());
 
+  // ── Hit-Test 滑鼠穿透 ──
+  const hitTestManager = new HitTestManager(canvas, sceneManager.getRenderer(), {
+    setIgnoreCursorEvents: (ignore) => ipc.setIgnoreCursorEvents(ignore),
+  });
+
   // ── 互動系統 ──
 
   const dragHandler = new DragHandler(canvas, {
@@ -364,6 +370,8 @@ async function initializeBehaviorSystem(
       const bounds = sceneManager.getCharacterBounds();
       return { width: bounds.width, height: bounds.height };
     },
+    onDragLock: () => hitTestManager.lockForDrag(),
+    onDragUnlock: () => hitTestManager.unlockDrag(),
     onDragStart: () => {
       stateMachine.forceState('drag');
     },
@@ -533,6 +541,7 @@ async function initializeBehaviorSystem(
 
   // 清理函式
   window.addEventListener('beforeunload', () => {
+    hitTestManager.dispose();
     dragHandler.dispose();
     contextMenu.dispose();
     debugOverlay.dispose();

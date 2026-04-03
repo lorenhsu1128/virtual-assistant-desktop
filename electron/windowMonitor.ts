@@ -100,13 +100,10 @@ function enumerateWindows(ownHwnd: number): WindowRect[] {
 
   const results: WindowRect[] = [];
   let zOrder = 0;
-  let debugLogCount = 0;
 
   try {
     const desktop = GetDesktopWindow!();
-    console.log(`[WindowMonitor] desktop hwnd = ${desktop}`);
     let hwnd = GetWindowFn!(desktop, GW_CHILD);
-    console.log(`[WindowMonitor] first child hwnd = ${hwnd}`);
 
     let iterations = 0;
     const MAX_ITERATIONS = 2000;
@@ -118,22 +115,6 @@ function enumerateWindows(ownHwnd: number): WindowRect[] {
         try {
           const visible = IsWindowVisible!(hwnd) !== 0;
           const iconic = IsIconic!(hwnd) !== 0;
-
-          // Debug: log windows with titles to find visible ones
-          if (debugLogCount < 20) {
-            const tLen = GetWindowTextLengthW!(hwnd);
-            if (tLen > 0) {
-              const tBuf = Buffer.alloc((tLen + 1) * 2);
-              const tActual = GetWindowTextW!(hwnd, tBuf, tLen + 1);
-              if (tActual > 0) {
-                const tTitle = tBuf.toString('utf16le', 0, tActual * 2);
-                if (tTitle && !tTitle.includes('Default IME') && !tTitle.includes('MSCTFIME')) {
-                  console.log(`[WindowMonitor] #${iterations} hwnd=${hwnd} visible=${IsWindowVisible!(hwnd)} iconic=${IsIconic!(hwnd)} title="${tTitle}"`);
-                  debugLogCount++;
-                }
-              }
-            }
-          }
 
           if (visible && !iconic) {
             // Alt+Tab style filter: skip system UI, tool windows, non-activatable windows
@@ -151,55 +132,44 @@ function enumerateWindows(ownHwnd: number): WindowRect[] {
 
             // Skip: cloaked, tool windows (unless APPWINDOW), non-activatable, owned without APPWINDOW
             const skip = isCloaked || (isToolWindow && !isAppWindow) || isNoActivate || (hasOwner && !isAppWindow);
-            if (skip) {
-              // fall through to next window — don't process further
-            } else {
-            const rect = { left: 0, top: 0, right: 0, bottom: 0 };
-            const grResult = GetWindowRectFn!(hwnd, rect);
-            if (debugLogCount <= 20) {
-              console.log(`[WindowMonitor]   rect: grResult=${grResult} l=${rect.left} t=${rect.top} r=${rect.right} b=${rect.bottom}`);
-            }
-            if (grResult !== 0) {
-              const w = rect.right - rect.left;
-              const h = rect.bottom - rect.top;
+            if (!skip) {
+              const rect = { left: 0, top: 0, right: 0, bottom: 0 };
+              const grResult = GetWindowRectFn!(hwnd, rect);
+              if (grResult !== 0) {
+                const w = rect.right - rect.left;
+                const h = rect.bottom - rect.top;
 
-              if (w > 0 && h > 0 && w <= 8000 && h <= 8000) {
-                const titleLen = GetWindowTextLengthW!(hwnd);
-                if (titleLen > 0) {
-                  const bufSize = titleLen + 1;
-                  const titleBuf = Buffer.alloc(bufSize * 2);
-                  const actualLen = GetWindowTextW!(hwnd, titleBuf, bufSize);
-                  if (actualLen > 0) {
-                    const title = titleBuf.toString('utf16le', 0, actualLen * 2);
-                    if (title) {
-                      results.push({
-                        hwnd,
-                        title,
-                        x: rect.left,
-                        y: rect.top,
-                        width: w,
-                        height: h,
-                        zOrder: zOrder++,
-                      });
+                if (w > 0 && h > 0 && w <= 8000 && h <= 8000) {
+                  const titleLen = GetWindowTextLengthW!(hwnd);
+                  if (titleLen > 0) {
+                    const bufSize = titleLen + 1;
+                    const titleBuf = Buffer.alloc(bufSize * 2);
+                    const actualLen = GetWindowTextW!(hwnd, titleBuf, bufSize);
+                    if (actualLen > 0) {
+                      const title = titleBuf.toString('utf16le', 0, actualLen * 2);
+                      if (title) {
+                        results.push({
+                          hwnd,
+                          title,
+                          x: rect.left,
+                          y: rect.top,
+                          width: w,
+                          height: h,
+                          zOrder: zOrder++,
+                        });
+                      }
                     }
                   }
                 }
               }
             }
-            } // end else (not skip)
           }
-        } catch (winErr) {
-          if (debugLogCount <= 25) {
-            console.error(`[WindowMonitor] Error on hwnd=${hwnd} iter=${iterations}:`, winErr);
-          }
+        } catch {
+          // Skip individual window errors silently
         }
       }
 
       hwnd = GetWindowFn!(hwnd, GW_HWNDNEXT);
-    }
-
-    if (iterations > 0) {
-      console.log(`[WindowMonitor] Traversed ${iterations} windows, found ${results.length} visible`);
     }
   } catch (e) {
     console.error('[WindowMonitor] GetWindow traversal failed:', e);

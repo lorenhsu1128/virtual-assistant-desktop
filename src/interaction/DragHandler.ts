@@ -9,6 +9,8 @@ export interface DragHandlerDeps {
   getCharacterSize: () => { width: number; height: number };
   onDragStart: () => void;
   onDragEnd: (position: { x: number; y: number }, snappedWindow: WindowRect | null) => void;
+  onDragLock?: () => void;
+  onDragUnlock?: () => void;
 }
 
 /** 吸附判定閾值（px） */
@@ -72,6 +74,7 @@ export class DragHandler {
       this.positionReady = true;
     });
 
+    this.deps.onDragLock?.();
     this.deps.onDragStart();
     e.preventDefault();
   }
@@ -98,6 +101,7 @@ export class DragHandler {
   private onMouseUp(e: MouseEvent): void {
     if (!this.isDragging) return;
     this.isDragging = false;
+    this.deps.onDragUnlock?.();
 
     const dx = e.screenX - this.dragStartPos.x;
     const dy = e.screenY - this.dragStartPos.y;
