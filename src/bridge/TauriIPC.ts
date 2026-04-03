@@ -1,7 +1,7 @@
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { LogicalPosition } from '@tauri-apps/api/dpi';
+import { PhysicalPosition, PhysicalSize } from '@tauri-apps/api/dpi';
 import type { AppConfig } from '../types/config';
 import type { AnimationMeta } from '../types/animation';
 import type { WindowRect, Rect, DisplayInfo } from '../types/window';
@@ -207,7 +207,7 @@ class TauriIPC {
   async setWindowPosition(x: number, y: number): Promise<void> {
     try {
       const window = getCurrentWindow();
-      await window.setPosition(new LogicalPosition(x, y));
+      await window.setPosition(new PhysicalPosition(Math.round(x), Math.round(y)));
     } catch (e) {
       console.warn('[TauriIPC] setWindowPosition failed:', e);
     }
@@ -238,6 +238,42 @@ class TauriIPC {
     } catch (e) {
       console.warn('[TauriIPC] getWindowSize failed:', e);
       return { width: 400, height: 600 };
+    }
+  }
+
+  /**
+   * 設定桌寵視窗大小（物理像素）
+   */
+  async setWindowSize(width: number, height: number): Promise<void> {
+    try {
+      const window = getCurrentWindow();
+      await window.setSize(new PhysicalSize(Math.round(width), Math.round(height)));
+    } catch (e) {
+      console.warn('[TauriIPC] setWindowSize failed:', e);
+    }
+  }
+
+  /**
+   * 設定滑鼠穿透（透明區域不攔截滑鼠事件）
+   */
+  async setIgnoreCursorEvents(ignore: boolean): Promise<void> {
+    try {
+      const window = getCurrentWindow();
+      await window.setIgnoreCursorEvents(ignore);
+    } catch (e) {
+      console.warn('[TauriIPC] setIgnoreCursorEvents failed:', e);
+    }
+  }
+
+  /**
+   * 關閉應用程式
+   */
+  async closeWindow(): Promise<void> {
+    try {
+      const window = getCurrentWindow();
+      await window.close();
+    } catch (e) {
+      console.warn('[TauriIPC] closeWindow failed:', e);
     }
   }
 

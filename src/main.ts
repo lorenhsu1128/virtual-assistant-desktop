@@ -19,8 +19,14 @@ import { DEFAULT_CONFIG, type AppConfig } from './types/config';
  * 3. 非首次啟動 → 直接讀取設定
  * 4. 載入模型 → 初始化動畫系統 → 初始化行為系統 → 啟動 render loop
  */
+function debugLog(msg: string): void {
+  console.log('[main]', msg);
+}
+
 async function main(): Promise<void> {
+  debugLog('main() started');
   const configExists = await ipc.getConfigExists();
+  debugLog(`configExists=${configExists}`);
 
   let config: AppConfig;
 
@@ -30,6 +36,7 @@ async function main(): Promise<void> {
     if (!result) return; // 使用者中途放棄
     config = result;
   } else {
+    debugLog('reading existing config...');
     // 讀取既有設定
     const loaded = await ipc.readConfig();
     config = loaded ?? { ...DEFAULT_CONFIG };
@@ -44,7 +51,9 @@ async function main(): Promise<void> {
   }
 
   // 初始化渲染系統
+  debugLog(`calling initializeApp, vrmPath=${config.vrmModelPath?.substring(0, 50)}`);
   await initializeApp(config);
+  debugLog('initializeApp completed');
 }
 
 /**
@@ -133,8 +142,11 @@ async function initializeApp(config: AppConfig): Promise<void> {
 
   try {
     const modelUrl = ipc.convertToAssetUrl(config.vrmModelPath);
+    debugLog(`loading model: ${modelUrl.substring(0, 80)}`);
     await vrmController.loadModel(modelUrl);
+    debugLog('model loaded OK');
   } catch (e) {
+    debugLog(`model FAILED: ${e}`);
     console.error('[main] Failed to load VRM model:', e);
     // VRM 載入失敗：提示使用者重新選取
     const newPath = await promptForModel();
@@ -184,8 +196,35 @@ async function initializeApp(config: AppConfig): Promise<void> {
     sceneManager.setUseFallback(true);
   }
 
-  // ── v0.2: 行為系統 ──
+  // 先啟動 render loop（確保角色先渲染出來）
+  debugLog('starting render loop');
+  sceneManager.start();
+  debugLog('render loop started, character should be visible');
 
+  // ── v0.2: 行為系統（非阻塞，初始化失敗不影響基本渲染） ──
+  try {
+    await initializeBehaviorSystem(config, sceneManager, vrmController, animationManager, canvas, collisionSystemRef);
+  } catch (e) {
+    console.warn('[main] v0.2 behavior system initialization failed, basic rendering continues:', e);
+  }
+}
+
+/** v0.2 行為系統參照（供 cleanup 使用） */
+const collisionSystemRef = { current: new CollisionSystem() };
+
+/**
+ * 初始化 v0.2 行為與互動系統
+ *
+ * 獨立函式，失敗時不影響基本渲染。
+ */
+async function initializeBehaviorSystem(
+  config: AppConfig,
+  sceneManager: SceneManager,
+  vrmController: VRMController,
+  animationManager: AnimationManager | null,
+  canvas: HTMLCanvasElement,
+  csRef: { current: CollisionSystem },
+): Promise<void> {
   // 取得視窗位置與大小
   const initialPos = await ipc.getWindowPosition();
   const initialSize = await ipc.getWindowSize();
@@ -193,14 +232,13 @@ async function initializeApp(config: AppConfig): Promise<void> {
   sceneManager.setWindowSize(initialSize);
 
   // CollisionSystem
-  const collisionSystem = new CollisionSystem();
+  const collisionSystem = csRef.current;
   const initialWindows = await ipc.getWindowList();
   collisionSystem.updateWindowRects(initialWindows);
 
   // 螢幕邊界
   const displays = await ipc.getDisplayInfo();
   if (displays.length > 0) {
-    // 使用主螢幕（或角色所在螢幕）的邊界
     const primaryDisplay = displays[0];
     collisionSystem.updateScreenBounds({
       x: primaryDisplay.x,
@@ -253,9 +291,8 @@ async function initializeApp(config: AppConfig): Promise<void> {
     ipc.setWindowRegion(mappedRects);
   });
 
-  // ── v0.2: 互動系統 ──
+  // ── 互動系統 ──
 
-  // DragHandler（保存引用以便 dispose）
   const dragHandler = new DragHandler(canvas, {
     getWindowPosition: () => ipc.getWindowPosition(),
     setWindowPosition: (x, y) => ipc.setWindowPosition(x, y),
@@ -283,7 +320,6 @@ async function initializeApp(config: AppConfig): Promise<void> {
     },
   });
 
-  // ContextMenu（保存引用以便 dispose）
   const contextMenu = new ContextMenu(canvas, {
     getActionAnimations: () =>
       animationManager?.getAnimationsByCategory('action') ?? [],
@@ -310,21 +346,22 @@ async function initializeApp(config: AppConfig): Promise<void> {
       ipc.writeConfig(config);
     },
     isPaused: () => stateMachine.isPaused(),
+    isOrbitDragging: () => sceneManager.isOrbitDragging(),
+    closeApp: () => {
+      ipc.closeWindow();
+    },
     openSettings: () => {
       // TODO v0.3: 開啟設定視窗
       console.log('[main] Settings window not yet implemented');
     },
   });
 
-  // 清理函式（WebGL context lost 等場景可用）
+  // 清理函式
   window.addEventListener('beforeunload', () => {
     dragHandler.dispose();
     contextMenu.dispose();
     sceneManager.dispose();
   });
-
-  // 啟動 render loop
-  sceneManager.start();
 }
 
 // ── Utility functions ──
@@ -352,4 +389,7 @@ function delay(ms: number): Promise<void> {
 }
 
 // 啟動
-main().catch((e) => console.error('[main] Unhandled error:', e));
+main().catch((e) => {
+  debugLog(`FATAL: ${e}`);
+  console.error('[main] Unhandled error:', e);
+});

@@ -50,7 +50,7 @@ export class StateMachine {
     let collisionOccurred = false;
 
     if (this.paused || this.state === 'drag') {
-      return this.makeOutput(false, input.currentPosition, false);
+      return this.makeOutput(false, null, false);
     }
 
     this.stateTimer += input.deltaTime;

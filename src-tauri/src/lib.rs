@@ -60,12 +60,10 @@ pub fn run() {
                     log::warn!("[setup] Could not obtain main window HWND; window monitor will not filter self");
                 }
 
-                // 啟動視窗監控背景執行緒
-                let monitor = window_monitor::WindowMonitor::start(
-                    app.handle().clone(),
-                    own_hwnd,
-                );
+                // 暫時建立空的 WindowMonitor（除錯用，不啟動輪詢）
+                let monitor = window_monitor::WindowMonitor::new_inactive();
                 app.manage(monitor);
+                log::info!("[setup] WindowMonitor created (inactive for debugging)");
             }
 
             Ok(())

@@ -11,6 +11,8 @@ export interface ContextMenuDeps {
   togglePause: () => void;
   isPaused: () => boolean;
   openSettings: () => void;
+  isOrbitDragging: () => boolean;
+  closeApp: () => void;
 }
 
 /** 縮放選項 */
@@ -62,6 +64,8 @@ export class ContextMenu {
 
   private onContextMenu(e: MouseEvent): void {
     e.preventDefault();
+    // 右鍵拖曳旋轉攝影機時不開選單
+    if (this.deps.isOrbitDragging()) return;
     this.showMenu(e.clientX, e.clientY);
   }
 
@@ -119,6 +123,12 @@ export class ContextMenu {
 
     // 設定
     menu.appendChild(this.createMenuItem('設定', () => this.deps.openSettings()));
+
+    // 分隔線
+    menu.appendChild(this.createSeparator());
+
+    // 關閉
+    menu.appendChild(this.createMenuItem('關閉', () => this.deps.closeApp()));
 
     // 定位
     menu.style.left = `${x}px`;

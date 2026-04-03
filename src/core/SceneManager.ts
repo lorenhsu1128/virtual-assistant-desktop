@@ -58,6 +58,16 @@ export class SceneManager {
 
   private scale = 1.0;
 
+  // Orbit camera（右鍵拖曳旋轉）
+  private orbitTheta = 0; // 水平角（弧度）
+  private orbitPhi = Math.PI / 2; // 垂直角（弧度），π/2 = 正面
+  private orbitRadius = 3.5;
+  private orbitTarget = { x: 0, y: 0.8, z: 0 };
+  private isOrbiting = false;
+  private orbitStartX = 0;
+  private orbitStartY = 0;
+  private orbitMoved = false;
+
   constructor(canvas: HTMLCanvasElement, targetFps = 30) {
     this.targetFps = targetFps;
 
@@ -101,6 +111,11 @@ export class SceneManager {
 
     // 視窗可見性變化 → 切換幀率模式
     document.addEventListener('visibilitychange', this.onVisibilityChange);
+
+    // Orbit camera 事件
+    canvas.addEventListener('mousedown', this.onOrbitMouseDown);
+    window.addEventListener('mousemove', this.onOrbitMouseMove);
+    window.addEventListener('mouseup', this.onOrbitMouseUp);
   }
 
   /** 取得 Three.js scene（僅供 VRMController 使用） */
@@ -226,9 +241,12 @@ export class SceneManager {
     this.scene.clear();
     window.removeEventListener('resize', this.onResize);
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
+    window.removeEventListener('mousemove', this.onOrbitMouseMove);
+    window.removeEventListener('mouseup', this.onOrbitMouseUp);
     const canvas = this.renderer.domElement;
     canvas.removeEventListener('webglcontextlost', this.onContextLost);
     canvas.removeEventListener('webglcontextrestored', this.onContextRestored);
+    canvas.removeEventListener('mousedown', this.onOrbitMouseDown);
   }
 
   /**
@@ -334,6 +352,69 @@ export class SceneManager {
     }
     return String(hash);
   }
+
+  /** 重置攝影機到預設視角 */
+  resetCamera(): void {
+    this.orbitTheta = 0;
+    this.orbitPhi = Math.PI / 2;
+    this.updateCameraFromOrbit();
+  }
+
+  /** 是否正在 orbit 旋轉（供 ContextMenu 判斷） */
+  isOrbitDragging(): boolean {
+    return this.orbitMoved;
+  }
+
+  /** 從球座標更新攝影機位置 */
+  private updateCameraFromOrbit(): void {
+    const t = this.orbitTarget;
+    const x = t.x + this.orbitRadius * Math.sin(this.orbitPhi) * Math.sin(this.orbitTheta);
+    const y = t.y + this.orbitRadius * Math.cos(this.orbitPhi);
+    const z = t.z + this.orbitRadius * Math.sin(this.orbitPhi) * Math.cos(this.orbitTheta);
+    this.camera.position.set(x, y, z);
+    this.camera.lookAt(t.x, t.y, t.z);
+  }
+
+  private onOrbitMouseDown = (e: MouseEvent): void => {
+    if (e.button !== 2) return; // 僅右鍵
+    this.isOrbiting = true;
+    this.orbitMoved = false;
+    this.orbitStartX = e.clientX;
+    this.orbitStartY = e.clientY;
+  };
+
+  private onOrbitMouseMove = (e: MouseEvent): void => {
+    if (!this.isOrbiting) return;
+
+    const dx = e.clientX - this.orbitStartX;
+    const dy = e.clientY - this.orbitStartY;
+
+    // 超過 5px 判定為拖曳
+    if (!this.orbitMoved && Math.abs(dx) + Math.abs(dy) > 5) {
+      this.orbitMoved = true;
+    }
+
+    if (!this.orbitMoved) return;
+
+    const sensitivity = 0.005;
+    this.orbitTheta -= dx * sensitivity;
+    this.orbitPhi -= dy * sensitivity;
+
+    // 垂直角限制（避免翻轉）：10° ~ 170°
+    const minPhi = Math.PI * (10 / 180);
+    const maxPhi = Math.PI * (170 / 180);
+    this.orbitPhi = Math.max(minPhi, Math.min(maxPhi, this.orbitPhi));
+
+    this.orbitStartX = e.clientX;
+    this.orbitStartY = e.clientY;
+
+    this.updateCameraFromOrbit();
+  };
+
+  private onOrbitMouseUp = (e: MouseEvent): void => {
+    if (e.button !== 2) return;
+    this.isOrbiting = false;
+  };
 
   /** WebGL context lost 處理 */
   private onContextLost = (event: Event): void => {

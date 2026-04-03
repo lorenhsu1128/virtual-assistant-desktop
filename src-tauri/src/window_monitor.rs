@@ -26,6 +26,14 @@ pub struct WindowMonitor {
 }
 
 impl WindowMonitor {
+    /// 建立不活動的 WindowMonitor（除錯用）
+    pub fn new_inactive() -> Self {
+        Self {
+            latest_rects: Arc::new(Mutex::new(Vec::new())),
+            running: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
     /// 啟動視窗監控
     ///
     /// - `app_handle`: 用於 emit event 至前端
