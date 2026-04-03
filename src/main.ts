@@ -1,4 +1,4 @@
-import { ipc } from './bridge/TauriIPC';
+import { ipc } from './bridge/ElectronIPC';
 import { SceneManager } from './core/SceneManager';
 import { VRMController } from './core/VRMController';
 import { AnimationManager } from './animation/AnimationManager';

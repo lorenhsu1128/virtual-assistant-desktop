@@ -2,23 +2,25 @@
 
 ## 專案概述
 
-桌面虛擬陪伴軟體（Desktop Mascot），Tauri 2.x + TypeScript + Three.js。
+桌面虛擬陪伴軟體（Desktop Mascot），Electron + TypeScript + Three.js。
 目標平台：Windows 10 (1903+) / Windows 11。
 
 ## 技術棧
 
-- 後端：Rust (Tauri 2.x) — 視窗感知、檔案系統、系統托盤
-- 前端：TypeScript (Vanilla) — Three.js + @pixiv/three-vrm
-- 設定視窗：Svelte（獨立 WebView）
-- 建置：Vite + pnpm (Corepack)
+- 後端：Node.js (Electron main process) — 視窗感知、檔案系統、系統托盤
+- 前端：TypeScript (Vanilla) — Three.js + @pixiv/three-vrm (Electron renderer)
+- Windows API：koffi (FFI) — SetWindowRgn 視窗裁切
+- 視窗列舉：PowerShell 子程序 — EnumWindows（隔離 crash 風險）
+- 設定視窗：Svelte（獨立 BrowserWindow，尚未實作）
+- 建置：Vite + pnpm (Corepack) + electron-builder
 - 測試：Vitest
 - Lint：ESLint + Prettier
 
 ## 架構三層原則（絕對遵守）
 
-1. **Rust 層**：只做系統權限操作，不碰 3D 渲染
-2. **TypeScript 層**：只做視覺與互動，不直接呼叫系統 API
-3. **IPC 橋接層**（TauriIPC）：兩層唯一溝通管道
+1. **Node.js 主程序層**（electron/）：只做系統權限操作，不碰 3D 渲染
+2. **TypeScript 渲染層**（src/）：只做視覺與互動，不直接呼叫系統 API
+3. **IPC 橋接層**（ElectronIPC）：兩層唯一溝通管道
 
 違反此原則的程式碼不得合併。
 
@@ -27,42 +29,51 @@
 | 版本 | 狀態 | 說明 |
 |------|------|------|
 | v0.1 | ✅ 完成 | 透明視窗 + VRM 模型載入渲染 + .vrma 動畫系統 |
-| v0.2 | ⚠️ 部分完成 | 自主移動狀態機 + 拖曳 + 右鍵選單 + 軌道攝影機。**視窗碰撞/吸附/遮擋已有程式碼但 WindowMonitor 停用（crash），實際無法偵測桌面視窗** |
-| v0.3+ | 未開始 | — |
+| v0.2 | ✅ 完成 | 自主移動狀態機 + 拖曳 + 右鍵選單 + 軌道攝影機 + 視窗碰撞/吸附/遮擋 |
+| v0.3 | ✅ 完成 | 表情系統（自動+手動）+ 系統托盤 + Debug overlay |
+| v0.4+ | 未開始 | — |
 
 ### 已實作的右鍵選單功能
-動畫 ▸ | 表情 ▸ | 縮放 ▸ | 暫停自主移動 | 暫停/恢復動畫循環 | 重置鏡頭角度 | 更換 VRM 模型 | 更換動畫資料夾 | 設定(TODO) | 關閉
+動畫 ▸ | 表情 ▸ | 縮放 ▸ | 暫停自主移動 | 暫停/恢復自動表情 | 暫停/恢復動畫循環 | 重置鏡頭角度 | 更換 VRM 模型 | 更換動畫資料夾 | Debug 模式 | 設定(TODO) | 關閉
 
-### 已知重大問題
-- **WindowMonitor 停用**：`EnumWindows` callback 導致 access violation crash，safe `GetWindow` 替代方案也導致 exit code 1。目前 `new_inactive()` 不輪詢，`windowRects` 永遠為空。碰撞/吸附/遮擋功能因此無法運作。
+### Electron 遷移（從 Tauri）
+- 遷移原因：Tauri/Rust 的 EnumWindows 持續 crash，無法實現視窗感知功能
+- 視窗列舉改用 PowerShell 子程序，完全隔離 crash 風險
+- 視窗裁切（SetWindowRgn）改用 koffi FFI
+- src-tauri/ 保留作參考，不再編譯
 
 ## 關鍵目錄結構
 
 ```
-src/                → TypeScript 前端（主視窗）
+src/                → TypeScript 前端（renderer process）
   core/             → 渲染核心（SceneManager, VRMController）
   animation/        → 動畫系統（AnimationManager, FallbackAnimation）
   behavior/         → 行為邏輯（StateMachine, CollisionSystem, BehaviorAnimationBridge）
+  expression/       → 表情系統（ExpressionManager）
   interaction/      → 使用者互動（DragHandler, ContextMenu）
-  bridge/           → IPC 封裝（TauriIPC）
+  bridge/           → IPC 封裝（ElectronIPC）
+  debug/            → Debug overlay（DebugOverlay）
   types/            → 共用型別（config.ts, animation.ts, window.ts, behavior.ts, collision.ts）
-src-tauri/src/      → Rust 後端
-  commands/         → Tauri command handlers（file_commands, window_commands）
-  types.rs          → 共用 Rust 型別（WindowRect, Rect, DisplayInfo）
-  window_monitor.rs → 視窗輪詢（⚠️ 目前停用，new_inactive）
-  file_manager.rs   → 檔案讀寫
+electron/           → Electron 主程序（main process）
+  main.ts           → 應用程式入口、BrowserWindow 建立
+  preload.ts        → contextBridge 暴露 IPC API
+  ipcHandlers.ts    → 所有 ipcMain.handle() 註冊
+  fileManager.ts    → config.json / animations.json 管理
+  windowMonitor.ts  → PowerShell 子程序視窗列舉
+  windowRegion.ts   → koffi FFI 視窗裁切（SetWindowRgn）
+  systemTray.ts     → 系統托盤選單
+src-tauri/          → [已棄用] 舊 Rust 後端（保留作參考）
 src-settings/       → Svelte 設定視窗（尚未實作）
 tests/              → Vitest 測試（unit/）
 ```
 
 ## 程式碼規範
 
-- TypeScript 嚴格模式，不允許 `any`
-- Rust 使用 `clippy` 最嚴格等級，不允許 `unwrap()`
-- 所有公開介面必須有 JSDoc / rustdoc 註解
+- TypeScript 嚴格模式，不允許 `any`（electron/windowRegion.ts 因 koffi FFI 除外）
+- 所有公開介面必須有 JSDoc 註解
 - 模組間通訊只透過定義好的介面，禁止直接存取內部結構
 - VRM 操作只能透過 VRMController
-- IPC 呼叫只能透過 bridge/TauriIPC.ts，禁止直接呼叫 `invoke()` 或 `listen()`
+- IPC 呼叫只能透過 bridge/ElectronIPC.ts，禁止直接使用 window.electronAPI
 
 ## 命名慣例
 
@@ -70,25 +81,22 @@ tests/              → Vitest 測試（unit/）
 |------|------|------|
 | TS 類別/介面 | PascalCase | `AnimationManager`, `WindowRect` |
 | TS 函式/變數 | camelCase | `playByCategory`, `targetFps` |
-| TS 檔案名 | PascalCase.ts | `SceneManager.ts` |
-| Rust 函式/變數 | snake_case | `get_window_list` |
-| Rust 結構體/列舉 | PascalCase | `WindowRect`, `AnimationCategory` |
-| Rust 檔案名 | snake_case.rs | `window_monitor.rs` |
-| IPC Command | snake_case | `scan_animations` |
-| IPC Event | snake_case | `window_layout_changed` |
+| TS 檔案名 | PascalCase.ts (前端) / camelCase.ts (Electron) | `SceneManager.ts` / `fileManager.ts` |
+| IPC Channel | snake_case | `scan_animations`, `window_layout_changed` |
 
 ## 效能預算
 
 | 指標 | 目標值 |
 |------|--------|
-| CPU 待機 | < 2% |
-| 記憶體 | < 200 MB |
-| 執行檔體積 | < 30 MB |
+| CPU 待機 | < 3% |
+| 記憶體 | < 350 MB（含 Chromium） |
+| 執行檔體積 | < 150 MB（Electron 打包） |
 | 前景 fps | 30 (可調) |
 | 失焦 fps | 10 |
 | 省電 fps | 15 |
 
 幀率控制使用 `requestAnimationFrame` + deltaTime 跳幀，禁止 `setInterval`。
+（WindowMonitor 的 setInterval 是唯一例外，因為它在 main process）
 
 ## Git 規範
 
@@ -105,7 +113,7 @@ tests/              → Vitest 測試（unit/）
 |------|------|
 | v0.1 | 透明視窗 + VRM 模型載入渲染 + .vrma 動畫系統 |
 | v0.2 | 視窗互動（碰撞/吸附/遮擋）+ 自主移動狀態機 + 拖曳 |
-| v0.3 | 表情系統（自動+手動）+ 系統托盤 |
+| v0.3 | 表情系統（自動+手動）+ 系統托盤 + Debug overlay |
 | v0.4 | 麥克風唇形同步 + SpringBone 物理運算 |
 | v0.5 | 攝影機臉部追蹤 + 進階設定介面 + 自動更新 |
 

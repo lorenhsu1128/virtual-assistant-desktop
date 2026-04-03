@@ -1,0 +1,66 @@
+import { contextBridge, ipcRenderer } from 'electron';
+
+/**
+ * Electron preload script.
+ *
+ * Exposes a typed API to the renderer process via contextBridge.
+ * This is the Electron equivalent of Tauri's invoke/listen mechanism.
+ */
+contextBridge.exposeInMainWorld('electronAPI', {
+  // ── Config ──
+  getConfigExists: () => ipcRenderer.invoke('get_config_exists'),
+  readConfig: () => ipcRenderer.invoke('read_config'),
+  writeConfig: (config: unknown) => ipcRenderer.invoke('write_config', config),
+
+  // ── Animation Meta ──
+  readAnimationMeta: () => ipcRenderer.invoke('read_animation_meta'),
+  writeAnimationMeta: (meta: unknown) => ipcRenderer.invoke('write_animation_meta', meta),
+  scanAnimations: (folderPath: string) => ipcRenderer.invoke('scan_animations', folderPath),
+
+  // ── File Pickers ──
+  pickVrmFile: () => ipcRenderer.invoke('pick_vrm_file'),
+  pickAnimationFolder: () => ipcRenderer.invoke('pick_animation_folder'),
+
+  // ── Window Monitor ──
+  getWindowList: () => ipcRenderer.invoke('get_window_list'),
+
+  // ── Window Region ──
+  setWindowRegion: (excludeRects: unknown) => ipcRenderer.invoke('set_window_region', excludeRects),
+
+  // ── Display Info ──
+  getDisplayInfo: () => ipcRenderer.invoke('get_display_info'),
+
+  // ── Window Position / Size ──
+  setWindowPosition: (x: number, y: number) => ipcRenderer.invoke('set_window_position', x, y),
+  getWindowPosition: () => ipcRenderer.invoke('get_window_position'),
+  setWindowSize: (width: number, height: number) => ipcRenderer.invoke('set_window_size', width, height),
+  getWindowSize: () => ipcRenderer.invoke('get_window_size'),
+
+  // ── Mouse Passthrough ──
+  setIgnoreCursorEvents: (ignore: boolean) => ipcRenderer.invoke('set_ignore_cursor_events', ignore),
+
+  // ── App Control ──
+  closeWindow: () => ipcRenderer.invoke('close_window'),
+
+  // ── Event Listeners ──
+  onWindowLayoutChanged: (callback: (rects: unknown) => void) => {
+    const handler = (_event: unknown, rects: unknown) => callback(rects);
+    ipcRenderer.on('window_layout_changed', handler);
+    return () => ipcRenderer.removeListener('window_layout_changed', handler);
+  },
+
+  onTrayAction: (callback: (actionId: string) => void) => {
+    const handler = (_event: unknown, actionId: string) => callback(actionId);
+    ipcRenderer.on('tray_action', handler);
+    return () => ipcRenderer.removeListener('tray_action', handler);
+  },
+
+  // ── Asset URL Conversion ──
+  // In Electron, local files can be loaded via file:// protocol
+  // or via a custom protocol registered in main.ts
+  convertToAssetUrl: (filePath: string) => {
+    // Normalize path separators and encode for URL
+    const normalized = filePath.replace(/\\/g, '/');
+    return `local-file://${normalized}`;
+  },
+});

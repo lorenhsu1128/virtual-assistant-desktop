@@ -9,8 +9,9 @@ SceneManager 擁有唯一的 render loop，每幀依以下順序執行：
 2. CollisionSystem.check()            → 碰撞檢測與回饋（僅未暫停時）
    ※ 遮擋更新獨立於暫停狀態，每 100ms 節流
 3. AnimationManager.update(deltaTime) → 動畫混合與播放推進（或 FallbackAnimation）
-4. (v0.3) ExpressionManager.resolve() → 表情優先級仲裁（尚未實作）
+4. ExpressionManager.resolve()        → 表情優先級仲裁
 5. VRMController.update(deltaTime)    → SpringBone 物理 + mixer 更新
+   ※ Debug overlay 骨骼更新在此之後
 6. renderer.render(scene, camera)     → 渲染輸出
 ```
 
@@ -28,7 +29,7 @@ SceneManager 擁有唯一的 render loop，每幀依以下順序執行：
 | AnimationManager 透過注入取得 mixer | 使用 VRMController.getAnimationMixer() |
 | StateMachine 是純邏輯 | 不得 import 'three' 的任何模組 |
 | BehaviorAnimationBridge 做狀態→動畫映射 | StateMachine 不直接呼叫 AnimationManager |
-| TauriIPC 獨佔 IPC | 其他模組不得直接呼叫 invoke() 或 listen() |
+| ElectronIPC 獨佔 IPC | 其他模組不得直接使用 window.electronAPI |
 
 ## 錯誤處理策略
 
@@ -44,9 +45,9 @@ SceneManager 擁有唯一的 render loop，每幀依以下順序執行：
 
 ## 禁止清單
 
-- ❌ `import { invoke } from '@tauri-apps/api'` — 必須透過 TauriIPC
+- ❌ 直接使用 `window.electronAPI` — 必須透過 ElectronIPC
 - ❌ 在 StateMachine 中 `import * from 'three'` — 純邏輯模組
 - ❌ 在非 VRMController 中存取 `vrm.scene` / `vrm.humanoid` / `vrm.expressionManager`
 - ❌ 使用 `setInterval` 做幀率控制
 - ❌ 使用 TypeScript `any` 型別
-- ❌ 在 canvas 內移動 3D 模型位置（應移動 Tauri 視窗）
+- ❌ 在 canvas 內移動 3D 模型位置（應移動 Electron 視窗）

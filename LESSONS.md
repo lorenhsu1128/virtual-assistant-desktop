@@ -91,6 +91,24 @@
 
 ---
 
+## Electron 遷移
+
+### [2026-04-03] — Tauri → Electron 遷移原因
+
+- **錯誤**：在 Tauri/Rust 中使用 EnumWindows、GetWindow 等 Windows API 列舉桌面視窗，多次嘗試皆 crash（access violation 或 exit code 1）
+- **正確做法**：改用 Electron + PowerShell 子程序。EnumWindows 在獨立 PowerShell 程序中執行，crash 不影響主程序。koffi FFI 用於 SetWindowRgn
+- **受影響檔案**：整個 src-tauri/ → electron/
+- **根因**：Rust FFI + Tauri WebView2 + Windows API callback 在特定環境下不穩定。分離程序是最可靠的隔離方式
+
+### [2026-04-03] — Electron IPC 三層同步
+
+- **錯誤**：新增 IPC 方法時只更新部分檔案，導致 runtime error
+- **正確做法**：新增 IPC 呼叫必須同時更新三個檔案：(1) electron/ipcHandlers.ts — ipcMain.handle() (2) electron/preload.ts — contextBridge (3) src/bridge/ElectronIPC.ts — 前端包裝
+- **受影響檔案**：electron/ipcHandlers.ts, electron/preload.ts, src/bridge/ElectronIPC.ts
+- **根因**：Electron 的 context isolation 設計需要三層接口保持同步
+
+---
+
 ## 如何新增教訓
 
 當你修正了 Claude Code 的錯誤後，請執行：

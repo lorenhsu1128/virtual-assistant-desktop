@@ -1,0 +1,19 @@
+appId: com.virtual-assistant-desktop
+productName: Virtual Assistant Desktop
+directories:
+  output: release
+files:
+  - dist/**/*
+  - dist-electron/**/*
+  - node_modules/**/*
+win:
+  target:
+    - nsis
+  icon: build/icon.ico
+nsis:
+  oneClick: true
+  perMachine: false
+  allowToChangeInstallationDirectory: false
+asar: true
+extraMetadata:
+  main: dist-electron/main.js
