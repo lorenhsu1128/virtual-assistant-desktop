@@ -247,11 +247,14 @@ async function initializeBehaviorSystem(
   let taskbarRect: WindowRect | null = null;
   if (displays.length > 0) {
     const primaryDisplay = displays[0];
+    // 使用 workArea 作為螢幕邊界（扣除工作列）
+    // 確保角色腳底不超過工作列上緣
+    const effectiveBounds = primaryDisplay.workArea ?? primaryDisplay;
     collisionSystem.updateScreenBounds({
-      x: primaryDisplay.x,
-      y: primaryDisplay.y,
-      width: primaryDisplay.width,
-      height: primaryDisplay.height,
+      x: effectiveBounds.x,
+      y: effectiveBounds.y,
+      width: effectiveBounds.width,
+      height: effectiveBounds.height,
     });
 
     // 從 bounds vs workArea 推算工作列位置
