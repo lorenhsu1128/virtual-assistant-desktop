@@ -27,6 +27,7 @@ export class StateMachine {
   // walk 狀態
   private walkTarget: { x: number; y: number } | null = null;
   private walkStartCollidingWindows: Set<number> = new Set();
+  private traversingWindowHwnd: number | null = null;
   private facingDirection = 1;
 
   // sit 狀態
@@ -117,6 +118,11 @@ export class StateMachine {
     return this.state;
   }
 
+  /** 取得正在穿越的視窗 handle */
+  getTraversingWindowHwnd(): number | null {
+    return this.traversingWindowHwnd;
+  }
+
   /** 是否已暫停 */
   isPaused(): boolean {
     return this.paused;
@@ -158,6 +164,29 @@ export class StateMachine {
     // 角色是 always-on-top 透明視窗，通常會與下方視窗重疊
     if (collision.collidingWithWindow && collision.collidedWindowHwnd !== null) {
       if (!this.walkStartCollidingWindows.has(collision.collidedWindowHwnd)) {
+        // 碰到視窗左/右邊緣時，決定穿越或反彈
+        // 前景視窗（mouse focus）→ 必定穿越；其他視窗 → 依機率
+        const isLeftRight = collision.collidingSides.left || collision.collidingSides.right;
+        const collidedWindow = input.windowRects.find(w => w.hwnd === collision.collidedWindowHwnd);
+        const isForeground = collidedWindow?.isForeground ?? false;
+        const shouldTraverse = isForeground || Math.random() < this.config.traverseProbability;
+        if (isLeftRight && collision.collidedWindowRect && shouldTraverse) {
+          // 穿越：設定 walkTarget 為視窗另一側，忽略此視窗的碰撞
+          const wr = collision.collidedWindowRect;
+          const charWidth = input.characterBounds.width;
+          if (collision.collidingSides.left) {
+            // 從左側碰到 → 穿過到右側出來
+            this.walkTarget = { x: wr.x + wr.width + charWidth * 0.5, y: input.currentPosition.y };
+          } else {
+            // 從右側碰到 → 穿過到左側出來
+            this.walkTarget = { x: wr.x - charWidth * 1.5, y: input.currentPosition.y };
+          }
+          this.walkStartCollidingWindows.add(collision.collidedWindowHwnd);
+          this.traversingWindowHwnd = collision.collidedWindowHwnd;
+          return false; // 不算碰撞，繼續走
+        }
+
+        // 反彈（原有邏輯）
         this.facingDirection *= -1;
         this.enterState('idle');
         return true;
@@ -323,6 +352,10 @@ export class StateMachine {
     this.previousState = this.state;
     this.state = state;
     this.stateTimer = 0;
+    // 離開 walk 時清除穿越狀態
+    if (state !== 'walk') {
+      this.traversingWindowHwnd = null;
+    }
 
     switch (state) {
       case 'idle':
@@ -412,6 +445,7 @@ export class StateMachine {
       targetPosition,
       facingDirection: this.facingDirection,
       attachedWindowHwnd: this.attachedWindowHwnd,
+      traversingWindowHwnd: this.traversingWindowHwnd,
       collisionOccurred,
     };
   }

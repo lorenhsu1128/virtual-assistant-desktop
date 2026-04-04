@@ -69,6 +69,7 @@ export class CollisionSystem {
       if (this.rectsOverlap(characterBounds, wr)) {
         result.collidingWithWindow = true;
         result.collidedWindowHwnd = windowRect.hwnd;
+        result.collidedWindowRect = wr;
         result.collidingSides = this.getCollisionSides(characterBounds, wr);
         break; // 只回報第一個碰撞的視窗
       }
@@ -139,6 +140,29 @@ export class CollisionSystem {
       }
     }
 
+    return result;
+  }
+
+  /**
+   * 計算特定視窗的遮擋矩形
+   *
+   * 只回傳指定 hwnd 視窗與角色重疊的部分（角色視窗本地座標）。
+   */
+  getOcclusionRectsForWindow(characterBounds: Rect, hwnd: number): Rect[] {
+    const result: Rect[] = [];
+    for (const windowRect of this.windowRects) {
+      if (windowRect.hwnd !== hwnd) continue;
+      const wr: Rect = { x: windowRect.x, y: windowRect.y, width: windowRect.width, height: windowRect.height };
+      const intersection = this.getIntersection(characterBounds, wr);
+      if (intersection) {
+        result.push({
+          x: intersection.x - characterBounds.x,
+          y: intersection.y - characterBounds.y,
+          width: intersection.width,
+          height: intersection.height,
+        });
+      }
+    }
     return result;
   }
 

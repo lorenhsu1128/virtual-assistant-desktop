@@ -14,6 +14,8 @@ export interface WindowRect {
   height: number;
   /** Z-order（數值越小越上層） */
   zOrder: number;
+  /** 是否為前景視窗（滑鼠焦點） */
+  isForeground?: boolean;
 }
 
 /** 螢幕資訊 */

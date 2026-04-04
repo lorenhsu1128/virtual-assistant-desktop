@@ -10,6 +10,8 @@ export interface CollisionResult {
   collidingWithWindow: boolean;
   /** 碰撞的視窗 handle（null = 無碰撞） */
   collidedWindowHwnd: number | null;
+  /** 碰撞的視窗完整矩形資訊（用於穿越計算） */
+  collidedWindowRect: { x: number; y: number; width: number; height: number } | null;
   /** 碰撞面 */
   collidingSides: CollisionSides;
   /** 是否到達螢幕邊緣 */
@@ -36,6 +38,7 @@ export interface CollisionSides {
 export const NO_COLLISION: CollisionResult = {
   collidingWithWindow: false,
   collidedWindowHwnd: null,
+  collidedWindowRect: null,
   collidingSides: { left: false, right: false, top: false, bottom: false },
   atScreenEdge: false,
   screenEdgeSides: { left: false, right: false, top: false, bottom: false },

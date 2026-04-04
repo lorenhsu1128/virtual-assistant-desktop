@@ -15,11 +15,11 @@ export interface Rect {
 let koffiLoaded = false;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let koffiModule: any = null;
-let SetWindowRgn: ((hWnd: unknown, hRgn: unknown, bRedraw: number) => number) | null = null;
-let CreateRectRgn: ((x1: number, y1: number, x2: number, y2: number) => unknown) | null = null;
-let CombineRgn: ((dest: unknown, src1: unknown, src2: unknown, mode: number) => number) | null = null;
-let DeleteObject: ((hObject: unknown) => number) | null = null;
-let GetWindowRect: ((hWnd: unknown, lpRect: unknown) => number) | null = null;
+let SetWindowRgn: ((hWnd: number, hRgn: number | null, bRedraw: number) => number) | null = null;
+let CreateRectRgn: ((x1: number, y1: number, x2: number, y2: number) => number) | null = null;
+let CombineRgn: ((dest: number, src1: number, src2: number, mode: number) => number) | null = null;
+let DeleteObject: ((hObject: number) => number) | null = null;
+let GetWindowRectFn: ((hWnd: number, lpRect: unknown) => number) | null = null;
 
 // RGN_DIFF constant
 const RGN_DIFF = 4;
@@ -38,19 +38,20 @@ function ensureKoffi(): boolean {
     const user32 = koffiModule.load('user32.dll');
     const gdi32 = koffiModule.load('gdi32.dll');
 
-    // Define RECT struct for GetWindowRect (used by koffi via type name 'RECT')
-    koffiModule.struct('RECT', {
+    // Define RECT struct (plain JS object pattern, not new StructType())
+    koffiModule.struct('WINRECT_RGN', {
       left: 'int',
       top: 'int',
       right: 'int',
       bottom: 'int',
     });
 
-    SetWindowRgn = user32.func('int SetWindowRgn(void *hWnd, void *hRgn, int bRedraw)');
-    GetWindowRect = user32.func('int GetWindowRect(void *hWnd, _Out_ RECT *lpRect)');
-    CreateRectRgn = gdi32.func('void *CreateRectRgn(int x1, int y1, int x2, int y2)');
-    CombineRgn = gdi32.func('int CombineRgn(void *hrgnDest, void *hrgnSrc1, void *hrgnSrc2, int iMode)');
-    DeleteObject = gdi32.func('int DeleteObject(void *hObject)');
+    // Use intptr_t for HWND and HRGN — returns plain numbers, no opaque pointers
+    SetWindowRgn = user32.func('int SetWindowRgn(intptr_t hWnd, intptr_t hRgn, int bRedraw)');
+    GetWindowRectFn = user32.func('int GetWindowRect(intptr_t hWnd, _Out_ WINRECT_RGN *lpRect)');
+    CreateRectRgn = gdi32.func('intptr_t CreateRectRgn(int x1, int y1, int x2, int y2)');
+    CombineRgn = gdi32.func('int CombineRgn(intptr_t hrgnDest, intptr_t hrgnSrc1, intptr_t hrgnSrc2, int iMode)');
+    DeleteObject = gdi32.func('int DeleteObject(intptr_t hObject)');
 
     koffiLoaded = true;
     return true;
@@ -70,27 +71,22 @@ export function setWindowRegion(mainWindow: BrowserWindow, excludeRects: Rect[])
   if (!ensureKoffi()) return;
 
   const handle = mainWindow.getNativeWindowHandle();
-  // Convert Buffer to pointer value for koffi
-  let hwndPtr: unknown;
-  if (handle.length >= 8) {
-    hwndPtr = Number(handle.readBigInt64LE(0));
-  } else {
-    hwndPtr = handle.readInt32LE(0);
-  }
+  const hwnd = handle.length >= 8 ? Number(handle.readBigInt64LE(0)) : handle.readInt32LE(0);
 
   if (excludeRects.length === 0) {
     // Reset to full window (remove region restriction)
-    SetWindowRgn!(hwndPtr, null, 1);
+    SetWindowRgn!(hwnd, 0, 1);
     return;
   }
 
-  // Get window size to create full region
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
-  const rect = new (koffiModule.struct('RECT'))();
-  GetWindowRect!(hwndPtr, rect);
+  // Get window size using plain JS object (not new StructType())
+  const rect = { left: 0, top: 0, right: 0, bottom: 0 };
+  GetWindowRectFn!(hwnd, rect);
 
   const w = rect.right - rect.left;
   const h = rect.bottom - rect.top;
+
+  if (w <= 0 || h <= 0) return;
 
   // Create full window region
   const fullRegion = CreateRectRgn!(0, 0, w, h);
@@ -103,5 +99,5 @@ export function setWindowRegion(mainWindow: BrowserWindow, excludeRects: Rect[])
   }
 
   // Apply region (SetWindowRgn takes ownership, no need to delete)
-  SetWindowRgn!(hwndPtr, fullRegion, 1);
+  SetWindowRgn!(hwnd, fullRegion, 1);
 }

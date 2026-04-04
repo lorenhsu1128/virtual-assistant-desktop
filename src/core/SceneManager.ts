@@ -373,9 +373,13 @@ export class SceneManager {
       }
     }
 
-    // 遮擋更新（獨立於 StateMachine 暫停狀態，拖曳時也需要更新）
+    // 遮擋更新：只在穿越視窗時啟用（角色是 always-on-top，正常不需遮擋）
     if (this.collisionSystem && this.occlusionSetter && now - this.lastOcclusionUpdate > OCCLUSION_UPDATE_INTERVAL) {
-      const occlusionRects = this.collisionSystem.getOcclusionRects(this.getCharacterBounds());
+      const traversingHwnd = this.stateMachine?.getTraversingWindowHwnd() ?? null;
+      const occlusionRects = traversingHwnd !== null
+        ? this.collisionSystem.getOcclusionRectsForWindow(this.getCharacterBounds(), traversingHwnd)
+        : [];
+
       const hash = this.hashOcclusionRects(occlusionRects);
       if (hash !== this.lastOcclusionHash) {
         this.lastOcclusionHash = hash;

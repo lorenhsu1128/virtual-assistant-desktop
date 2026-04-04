@@ -22,6 +22,8 @@ export interface BehaviorOutput {
   facingDirection: number;
   /** 吸附的視窗 handle（sit 狀態時） */
   attachedWindowHwnd: number | null;
+  /** 正在穿越的視窗 handle（walk traverse 時） */
+  traversingWindowHwnd: number | null;
   /** 這一幀是否發生碰撞（用於觸發 collide 動畫） */
   collisionOccurred: boolean;
 }
@@ -70,6 +72,8 @@ export interface BehaviorConfig {
     toPeek: number;
     toIdle: number;
   };
+  /** 碰到視窗邊緣時穿越（而非反彈）的機率 */
+  traverseProbability: number;
 }
 
 /** 預設行為參數 */
@@ -87,4 +91,5 @@ export const DEFAULT_BEHAVIOR_CONFIG: BehaviorConfig = {
     toPeek: 0.1,
     toIdle: 0.1,
   },
+  traverseProbability: 0.7,
 };
