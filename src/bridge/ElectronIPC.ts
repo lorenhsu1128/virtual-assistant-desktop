@@ -27,6 +27,7 @@ interface ElectronAPI {
   closeWindow(): Promise<void>;
   onWindowLayoutChanged(callback: (rects: WindowRect[]) => void): () => void;
   onTrayAction(callback: (actionId: string) => void): () => void;
+  onDebugMove(callback: (direction: string) => void): () => void;
   convertToAssetUrl(filePath: string): string;
 }
 
@@ -304,6 +305,11 @@ class ElectronIPC {
    */
   async onTrayAction(callback: (actionId: string) => void): Promise<() => void> {
     return window.electronAPI.onTrayAction(callback);
+  }
+
+  /** Listen for debug move events (Ctrl+Arrow global shortcuts) */
+  async onDebugMove(callback: (direction: string) => void): Promise<() => void> {
+    return window.electronAPI.onDebugMove(callback);
   }
 
   /**

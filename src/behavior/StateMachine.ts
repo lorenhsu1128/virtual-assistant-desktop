@@ -160,36 +160,47 @@ export class StateMachine {
       return true;
     }
 
-    // 視窗碰撞：只對「新進入」的碰撞反應（忽略已存在的重疊）
-    // 角色是 always-on-top 透明視窗，通常會與下方視窗重疊
-    if (collision.collidingWithWindow && collision.collidedWindowHwnd !== null) {
-      if (!this.walkStartCollidingWindows.has(collision.collidedWindowHwnd)) {
-        // 碰到視窗左/右邊緣時，決定穿越或反彈
-        // 前景視窗（mouse focus）→ 必定穿越；其他視窗 → 依機率
-        const isLeftRight = collision.collidingSides.left || collision.collidingSides.right;
-        const collidedWindow = input.windowRects.find(w => w.hwnd === collision.collidedWindowHwnd);
-        const isForeground = collidedWindow?.isForeground ?? false;
+    // 視窗邊緣穿越偵測：檢查角色是否正在接近某個視窗的左/右邊緣
+    // （不使用 AABB 碰撞，因為 always-on-top 視窗永遠與下方視窗重疊）
+    const charCenterX = input.currentPosition.x + input.characterBounds.width / 2;
+    const charTop = input.currentPosition.y;
+    const charBottom = input.currentPosition.y + input.characterBounds.height;
+    const edgeThreshold = 30; // 接近邊緣的判定距離
+
+    for (const wr of input.windowRects) {
+      if (this.walkStartCollidingWindows.has(wr.hwnd)) continue;
+
+      // 檢查 Y 軸是否重疊（角色與視窗有垂直交集）
+      if (charBottom <= wr.y || charTop >= wr.y + wr.height) continue;
+
+      // 檢查角色是否接近視窗的左或右邊緣
+      const distToLeft = Math.abs(charCenterX - wr.x);
+      const distToRight = Math.abs(charCenterX - (wr.x + wr.width));
+      const approachingLeft = distToLeft < edgeThreshold && this.facingDirection > 0;
+      const approachingRight = distToRight < edgeThreshold && this.facingDirection < 0;
+
+      if (approachingLeft || approachingRight) {
+        // 決定穿越或反彈
+        const isForeground = wr.isForeground ?? false;
         const shouldTraverse = isForeground || Math.random() < this.config.traverseProbability;
-        if (isLeftRight && collision.collidedWindowRect && shouldTraverse) {
-          // 穿越：設定 walkTarget 為視窗另一側，忽略此視窗的碰撞
-          const wr = collision.collidedWindowRect;
+
+        if (shouldTraverse) {
+          // 穿越：walkTarget 設為視窗另一側
           const charWidth = input.characterBounds.width;
-          if (collision.collidingSides.left) {
-            // 從左側碰到 → 穿過到右側出來
+          if (approachingLeft) {
             this.walkTarget = { x: wr.x + wr.width + charWidth * 0.5, y: input.currentPosition.y };
           } else {
-            // 從右側碰到 → 穿過到左側出來
             this.walkTarget = { x: wr.x - charWidth * 1.5, y: input.currentPosition.y };
           }
-          this.walkStartCollidingWindows.add(collision.collidedWindowHwnd);
-          this.traversingWindowHwnd = collision.collidedWindowHwnd;
-          return false; // 不算碰撞，繼續走
+          this.walkStartCollidingWindows.add(wr.hwnd);
+          this.traversingWindowHwnd = wr.hwnd;
+          return false;
+        } else {
+          // 反彈
+          this.facingDirection *= -1;
+          this.enterState('idle');
+          return true;
         }
-
-        // 反彈（原有邏輯）
-        this.facingDirection *= -1;
-        this.enterState('idle');
-        return true;
       }
     }
 

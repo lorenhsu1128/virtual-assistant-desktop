@@ -1,6 +1,7 @@
 import {
   app,
   BrowserWindow,
+  globalShortcut,
   protocol,
   net,
 } from 'electron';
@@ -135,8 +136,19 @@ app.whenReady().then(() => {
   // Register IPC handlers
   registerIpcHandlers(mainWindow, windowMonitor);
 
+  // Debug: Ctrl+Arrow keys for manual character movement (global shortcuts)
+  const arrows = ['Up', 'Down', 'Left', 'Right'] as const;
+  for (const dir of arrows) {
+    globalShortcut.register(`Ctrl+${dir}`, () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('debug_move', dir.toLowerCase());
+      }
+    });
+  }
+
   // Cleanup on window close
   mainWindow.on('closed', () => {
+    globalShortcut.unregisterAll();
     windowMonitor?.stop();
     systemTray?.dispose();
     mainWindow = null;

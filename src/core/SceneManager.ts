@@ -75,6 +75,9 @@ export class SceneManager {
 
   private scale = 1.0;
 
+  // Debug 鍵盤移動（透過 IPC global shortcut）
+  private debugMoveDir: string | null = null;
+
   // Orbit camera（右鍵拖曳旋轉）
   private orbitTheta = 0; // 水平角（弧度）
   private orbitPhi = Math.PI / 2; // 垂直角（弧度），π/2 = 正面
@@ -134,6 +137,7 @@ export class SceneManager {
     canvas.addEventListener('mousedown', this.onOrbitMouseDown);
     window.addEventListener('mousemove', this.onOrbitMouseMove);
     window.addEventListener('mouseup', this.onOrbitMouseUp);
+
   }
 
   /** 取得 Three.js scene（僅供 VRMController 使用） */
@@ -232,6 +236,11 @@ export class SceneManager {
     this.groundY = y;
   }
 
+  /** Debug: 觸發方向移動（由 global shortcut 呼叫） */
+  debugMove(direction: string): void {
+    this.debugMoveDir = direction;
+  }
+
   /** 取得角色的螢幕 bounding box */
   getCharacterBounds(): Rect {
     return {
@@ -318,6 +327,19 @@ export class SceneManager {
     this.lastFrameTime = now - (delta % targetInterval);
     const deltaTime = Math.min(delta / 1000, 0.1); // cap at 100ms to avoid spiral
 
+    // Debug 移動（Ctrl+方向鍵 global shortcut，debug mode 時有效）
+    if (this.debugMoveDir && this.debugOverlay?.isEnabled()) {
+      const step = 30; // 每次按鍵移動 30px
+      switch (this.debugMoveDir) {
+        case 'left': this.currentPosition.x -= step; break;
+        case 'right': this.currentPosition.x += step; break;
+        case 'up': this.currentPosition.y -= step; break;
+        case 'down': this.currentPosition.y += step; break;
+      }
+      this.positionSetter?.(Math.round(this.currentPosition.x), Math.round(this.currentPosition.y));
+      this.debugMoveDir = null;
+    }
+
     // Step 1 & 2: StateMachine + CollisionSystem
     if (this.stateMachine && this.collisionSystem && !this.stateMachine.isPaused()) {
       const characterBounds = this.getCharacterBounds();
@@ -373,12 +395,26 @@ export class SceneManager {
       }
     }
 
-    // 遮擋更新：只在穿越視窗時啟用（角色是 always-on-top，正常不需遮擋）
+    // 遮擋更新：穿越視窗或 debug mode 時啟用
     if (this.collisionSystem && this.occlusionSetter && now - this.lastOcclusionUpdate > OCCLUSION_UPDATE_INTERVAL) {
       const traversingHwnd = this.stateMachine?.getTraversingWindowHwnd() ?? null;
-      const occlusionRects = traversingHwnd !== null
-        ? this.collisionSystem.getOcclusionRectsForWindow(this.getCharacterBounds(), traversingHwnd)
-        : [];
+      const isDebug = this.debugOverlay?.isEnabled() ?? false;
+      let occlusionRects: Rect[];
+
+      if (traversingHwnd !== null) {
+        // 穿越中：只遮擋穿越的視窗
+        occlusionRects = this.collisionSystem.getOcclusionRectsForWindow(this.getCharacterBounds(), traversingHwnd);
+      } else if (isDebug) {
+        // Debug mode：只遮擋前景視窗（方便手動測試穿越效果）
+        const fgWindow = this.collisionSystem.getWindowRects().find(w => w.isForeground);
+        if (fgWindow) {
+          occlusionRects = this.collisionSystem.getOcclusionRectsForWindow(this.getCharacterBounds(), fgWindow.hwnd);
+        } else {
+          occlusionRects = [];
+        }
+      } else {
+        occlusionRects = [];
+      }
 
       const hash = this.hashOcclusionRects(occlusionRects);
       if (hash !== this.lastOcclusionHash) {

@@ -293,17 +293,28 @@ async function initializeBehaviorSystem(
     });
   }
 
+  // 將視窗座標從物理像素轉為邏輯像素（GetWindowRect 回傳物理像素，Electron 使用邏輯像素）
+  const dpr = window.devicePixelRatio || 1;
+  const toLogicalRects = (rects: WindowRect[]): WindowRect[] =>
+    rects.map(r => ({
+      ...r,
+      x: Math.round(r.x / dpr),
+      y: Math.round(r.y / dpr),
+      width: Math.round(r.width / dpr),
+      height: Math.round(r.height / dpr),
+    }));
+
   // 初始視窗清單（含工作列）
   const initialWindows = await ipc.getWindowList();
   const initialAllWindows = taskbarRect ? [...initialWindows, taskbarRect] : initialWindows;
-  collisionSystem.updateWindowRects(initialAllWindows);
+  collisionSystem.updateWindowRects(toLogicalRects(initialAllWindows));
 
   sceneManager.setCollisionSystem(collisionSystem);
 
   // 監聯視窗佈局變化（加入工作列虛擬視窗）
   await ipc.onWindowLayoutChanged((rects) => {
     const allRects = taskbarRect ? [...rects, taskbarRect] : rects;
-    collisionSystem.updateWindowRects(allRects);
+    collisionSystem.updateWindowRects(toLogicalRects(allRects));
   });
 
   // StateMachine
@@ -321,16 +332,18 @@ async function initializeBehaviorSystem(
 
   // 位置更新 callback（fire-and-forget）
   sceneManager.setPositionSetter((x, y) => {
-    ipc.setWindowPosition(x, y);
+    if (Number.isFinite(x) && Number.isFinite(y)) {
+      ipc.setWindowPosition(Math.round(x), Math.round(y));
+    }
   });
 
-  // 遮擋更新 callback
+  // 遮擋更新 callback（邏輯像素 → 物理像素，SetWindowRgn 使用物理像素）
   sceneManager.setOcclusionSetter((rects) => {
     const mappedRects = rects.map((r) => ({
-      x: Math.round(r.x),
-      y: Math.round(r.y),
-      width: Math.round(r.width),
-      height: Math.round(r.height),
+      x: Math.round(r.x * dpr),
+      y: Math.round(r.y * dpr),
+      width: Math.round(r.width * dpr),
+      height: Math.round(r.height * dpr),
     }));
     ipc.setWindowRegion(mappedRects);
   });
@@ -473,6 +486,11 @@ async function initializeBehaviorSystem(
     isDebugEnabled: () => debugOverlay.isEnabled(),
     onMenuOpen: () => hitTestManager.lockForDrag(),
     onMenuClose: () => hitTestManager.unlockDrag(),
+  });
+
+  // ── Debug 移動（Ctrl+方向鍵） ──
+  await ipc.onDebugMove((direction) => {
+    sceneManager.debugMove(direction);
   });
 
   // ── 系統托盤事件 ──

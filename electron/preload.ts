@@ -55,6 +55,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('tray_action', handler);
   },
 
+  onDebugMove: (callback: (direction: string) => void) => {
+    const handler = (_event: unknown, direction: string) => callback(direction);
+    ipcRenderer.on('debug_move', handler);
+    return () => ipcRenderer.removeListener('debug_move', handler);
+  },
+
   // ── Asset URL Conversion ──
   // In Electron, local files can be loaded via file:// protocol
   // or via a custom protocol registered in main.ts
