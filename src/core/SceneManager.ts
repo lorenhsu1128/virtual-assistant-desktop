@@ -58,6 +58,7 @@ export class SceneManager {
 
   // 視窗位置管理
   private currentPosition = { x: 0, y: 0 };
+  private previousPosition = { x: 0, y: 0 };
   private windowSize = { width: 400, height: 600 };
   /** workArea 下緣（邏輯像素），用於限制腳底不超出 */
   private groundY: number | null = null;
@@ -217,6 +218,7 @@ export class SceneManager {
 
   /** 更新當前視窗位置（由外部同步） */
   setCurrentPosition(pos: { x: number; y: number }): void {
+    this.previousPosition = { ...this.currentPosition };
     this.currentPosition = pos;
   }
 
@@ -413,8 +415,32 @@ export class SceneManager {
     }
 
     // Step 5: VRM update (SpringBone etc.)
+    // 反向微移：將視窗移動量轉為 3D 空間偏移，讓 SpringBone 偵測到移動
     if (this.vrmController) {
-      this.vrmController.update(deltaTime);
+      const dxPx = this.currentPosition.x - this.previousPosition.x;
+      const dyPx = this.currentPosition.y - this.previousPosition.y;
+
+      if (dxPx !== 0 || dyPx !== 0) {
+        // 像素 → 3D 世界座標：基於攝影機視野和 canvas 尺寸
+        const canvas = this.renderer.domElement;
+        const vFov = this.camera.fov * (Math.PI / 180);
+        const camDist = this.camera.position.length(); // 使用距離而非 z（考慮 orbit）
+        const worldHeight = 2 * Math.tan(vFov / 2) * camDist;
+        const pxToWorld = worldHeight / canvas.clientHeight;
+
+        // 反向偏移（視窗向右移 → 模型向左移，模擬慣性）
+        const offsetX = -dxPx * pxToWorld;
+        const offsetY = dyPx * pxToWorld; // Y 軸反轉（螢幕 Y 向下，3D Y 向上）
+
+        this.vrmController.applySceneOffset(offsetX, offsetY);
+        this.vrmController.update(deltaTime);
+        this.vrmController.clearSceneOffset(offsetX, offsetY);
+      } else {
+        this.vrmController.update(deltaTime);
+      }
+
+      this.previousPosition.x = this.currentPosition.x;
+      this.previousPosition.y = this.currentPosition.y;
     }
 
     // Debug overlay: 骨骼座標視覺化

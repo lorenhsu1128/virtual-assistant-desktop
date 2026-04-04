@@ -9,6 +9,7 @@ export interface DragHandlerDeps {
   getCharacterSize: () => { width: number; height: number };
   onDragStart: () => void;
   onDragEnd: (position: { x: number; y: number }, snappedWindow: WindowRect | null) => void;
+  onDragMove?: (x: number, y: number) => void;
   onDragLock?: () => void;
   onDragUnlock?: () => void;
 }
@@ -96,6 +97,7 @@ export class DragHandler {
 
     // fire-and-forget，不等待完成
     this.deps.setWindowPosition(newX, newY);
+    this.deps.onDragMove?.(newX, newY);
   }
 
   private onMouseUp(e: MouseEvent): void {

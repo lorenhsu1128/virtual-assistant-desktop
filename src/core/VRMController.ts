@@ -44,6 +44,7 @@ export class VRMController {
     this.vrm = vrm;
     this.mixer = new THREE.AnimationMixer(vrm.scene);
     this.scene.add(vrm.scene);
+
   }
 
   /**
@@ -228,6 +229,22 @@ export class VRMController {
     }
     if (this.mixer) {
       this.mixer.update(deltaTime);
+    }
+  }
+
+  /** 暫時偏移 VRM scene 位置（供 SpringBone 偵測移動用） */
+  applySceneOffset(dx: number, dy: number): void {
+    if (this.vrm) {
+      this.vrm.scene.position.x += dx;
+      this.vrm.scene.position.y += dy;
+    }
+  }
+
+  /** 恢復 VRM scene 位置偏移 */
+  clearSceneOffset(dx: number, dy: number): void {
+    if (this.vrm) {
+      this.vrm.scene.position.x -= dx;
+      this.vrm.scene.position.y -= dy;
     }
   }
 

@@ -370,6 +370,7 @@ async function initializeBehaviorSystem(
       const bounds = sceneManager.getCharacterBounds();
       return { width: bounds.width, height: bounds.height };
     },
+    onDragMove: (x, y) => sceneManager.setCurrentPosition({ x, y }),
     onDragLock: () => hitTestManager.lockForDrag(),
     onDragUnlock: () => hitTestManager.unlockDrag(),
     onDragStart: () => {
