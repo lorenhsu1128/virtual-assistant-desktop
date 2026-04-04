@@ -15,6 +15,11 @@ export class VRMController {
   private scene: THREE.Scene;
   private loader: GLTFLoader;
 
+  /** 取得 VRM 實例（供 SceneManager 計算 bounding box） */
+  getVRM(): VRM | null {
+    return this.vrm;
+  }
+
   constructor(scene: THREE.Scene) {
     this.scene = scene;
     this.loader = new GLTFLoader();

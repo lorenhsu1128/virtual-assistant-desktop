@@ -166,8 +166,16 @@ async function initializeApp(config: AppConfig): Promise<void> {
     }
   }
 
-  // 設定縮放
+  // 計算角色在 viewport 中的比例
+  sceneManager.computeCharacterViewportRatio();
+
+  // 設定螢幕高度（邏輯像素，用於角色大小計算：100% = 螢幕高度 30%）
+  sceneManager.setScreenHeight(screen.height);
+
+  // 設定縮放並初始化視窗大小
   sceneManager.setScale(config.scale);
+  const initBounds = sceneManager.getCharacterBounds();
+  await ipc.setWindowSize(initBounds.width, initBounds.height);
 
   // 初始化 FallbackAnimation
   const fallbackAnimation = new FallbackAnimation(vrmController);

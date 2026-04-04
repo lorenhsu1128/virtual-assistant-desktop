@@ -257,19 +257,47 @@ export class SceneManager {
     };
   }
 
-  /** 基準視窗大小 */
-  private static readonly BASE_WIDTH = 400;
-  private static readonly BASE_HEIGHT = 600;
+  /** 角色在 viewport 中佔的比例（3D 模型高度 / 相機可見高度） */
+  private charViewportRatio = 0.5;
+  /** 螢幕高度（物理像素） */
+  private screenPhysicalHeight = 1080;
 
-  /** 設定角色縮放（0.5–2.0），同步調整視窗大小 */
+  /** 計算角色在 viewport 中的比例（模型載入後呼叫一次） */
+  computeCharacterViewportRatio(): void {
+    if (!this.vrmController) return;
+    const vrm = this.vrmController.getVRM();
+    if (!vrm) return;
+
+    // 模型 3D 高度
+    const box = new THREE.Box3().setFromObject(vrm.scene);
+    const modelHeight = box.max.y - box.min.y;
+
+    // 相機可見高度（在模型所在距離）
+    const vFov = this.camera.fov * (Math.PI / 180);
+    const camDist = this.camera.position.length();
+    const visibleHeight = 2 * Math.tan(vFov / 2) * camDist;
+
+    this.charViewportRatio = modelHeight / visibleHeight;
+    console.log(`[SceneManager] modelH=${modelHeight.toFixed(2)} visibleH=${visibleHeight.toFixed(2)} ratio=${this.charViewportRatio.toFixed(3)}`);
+  }
+
+  /** 設定螢幕物理解析度高度 */
+  setScreenHeight(physicalHeight: number): void {
+    this.screenPhysicalHeight = physicalHeight;
+    console.log(`[SceneManager] screenPhysicalHeight=${physicalHeight}`);
+  }
+
+  /** 設定角色縮放（0.5–2.0），調整視窗大小（不動 model scale） */
   setScale(scale: number): void {
     this.scale = Math.max(0.5, Math.min(2.0, scale));
-    if (this.vrmController) {
-      this.vrmController.setModelScale(this.scale);
-    }
-    // 視窗大小隨 scale 等比縮放
-    const newW = Math.round(SceneManager.BASE_WIDTH * this.scale);
-    const newH = Math.round(SceneManager.BASE_HEIGHT * this.scale);
+
+    // 目標：角色螢幕高度 = 螢幕物理高度 × 30% × scale
+    // 視窗高度 = 角色高度 / charViewportRatio（角色佔 viewport 的比例）
+    // 視窗寬度 = 視窗高度 × 2/3（近似寬高比）
+    const targetCharHeight = this.screenPhysicalHeight * 0.4 * this.scale;
+    const newH = Math.round(targetCharHeight / this.charViewportRatio);
+    const newW = Math.round(newH * 0.67);
+
     this.windowSize = { width: newW, height: newH };
     this.windowSizeSetter?.(newW, newH);
   }

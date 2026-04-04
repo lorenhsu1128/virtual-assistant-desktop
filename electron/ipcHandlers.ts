@@ -113,7 +113,10 @@ export function registerIpcHandlers(
   });
 
   ipcMain.handle('set_window_size', (_event, width: number, height: number) => {
+    // Temporarily enable resizable (window is normally non-resizable)
+    mainWindow.setResizable(true);
     mainWindow.setSize(Math.round(width), Math.round(height));
+    mainWindow.setResizable(false);
   });
 
   ipcMain.handle('get_window_size', () => {
