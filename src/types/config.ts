@@ -26,6 +26,8 @@ export interface AppConfig {
   autoExpressionEnabled: boolean;
   /** 允許自動播放的表情名稱（空陣列 = 全部允許） */
   allowedAutoExpressions: string[];
+  /** 動畫播放速率倍率 */
+  animationSpeed: number;
 }
 
 /** 2D 位置 */
@@ -55,4 +57,5 @@ export const DEFAULT_CONFIG: AppConfig = {
   animationLoopEnabled: true,
   autoExpressionEnabled: true,
   allowedAutoExpressions: [],
+  animationSpeed: 1.0,
 };

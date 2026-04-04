@@ -205,6 +205,11 @@ async function initializeApp(config: AppConfig): Promise<void> {
     animationManager.setLoopEnabled(false);
   }
 
+  // 套用已儲存的動畫速率
+  if (animationManager && config.animationSpeed && config.animationSpeed !== 1.0) {
+    animationManager.setTimeScale(config.animationSpeed);
+  }
+
   // 先啟動 render loop（確保角色先渲染出來）
   debugLog('starting render loop');
   sceneManager.start();
@@ -484,6 +489,14 @@ async function initializeBehaviorSystem(
       debugOverlay.setEnabled(!debugOverlay.isEnabled());
     },
     isDebugEnabled: () => debugOverlay.isEnabled(),
+    setAnimationSpeed: (rate) => {
+      if (animationManager) {
+        animationManager.setTimeScale(rate);
+        config.animationSpeed = rate;
+        ipc.writeConfig(config);
+      }
+    },
+    getAnimationSpeed: () => animationManager?.getTimeScale() ?? 1.0,
     onMenuOpen: () => hitTestManager.lockForDrag(),
     onMenuClose: () => hitTestManager.unlockDrag(),
   });
@@ -555,6 +568,10 @@ async function initializeBehaviorSystem(
       case 'scale_125': sceneManager.setScale(1.25); config.scale = 1.25; ipc.writeConfig(config); break;
       case 'scale_150': sceneManager.setScale(1.5); config.scale = 1.5; ipc.writeConfig(config); break;
       case 'scale_200': sceneManager.setScale(2.0); config.scale = 2.0; ipc.writeConfig(config); break;
+      case 'speed_050': if (animationManager) { animationManager.setTimeScale(0.5); config.animationSpeed = 0.5; ipc.writeConfig(config); } break;
+      case 'speed_075': if (animationManager) { animationManager.setTimeScale(0.75); config.animationSpeed = 0.75; ipc.writeConfig(config); } break;
+      case 'speed_100': if (animationManager) { animationManager.setTimeScale(1.0); config.animationSpeed = 1.0; ipc.writeConfig(config); } break;
+      case 'speed_125': if (animationManager) { animationManager.setTimeScale(1.25); config.animationSpeed = 1.25; ipc.writeConfig(config); } break;
       default:
         break;
     }

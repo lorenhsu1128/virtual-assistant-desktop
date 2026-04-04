@@ -24,9 +24,19 @@ export interface ContextMenuDeps {
   getManualExpression: () => string | null;
   toggleDebug: () => void;
   isDebugEnabled: () => boolean;
+  setAnimationSpeed: (rate: number) => void;
+  getAnimationSpeed: () => number;
   onMenuOpen?: () => void;
   onMenuClose?: () => void;
 }
+
+/** 動畫速率選項 */
+const SPEED_OPTIONS = [
+  { label: '0.5x', value: 0.5 },
+  { label: '0.75x', value: 0.75 },
+  { label: '1.0x', value: 1.0 },
+  { label: '1.25x', value: 1.25 },
+];
 
 /** 縮放選項 */
 const SCALE_OPTIONS = [
@@ -124,6 +134,13 @@ export class ContextMenu {
     menu.appendChild(this.createSubmenuItem('縮放', SCALE_OPTIONS.map((opt) => ({
       label: `${opt.label}${Math.abs(opt.value - currentScale) < 0.01 ? ' ✓' : ''}`,
       onClick: () => this.deps.setScale(opt.value),
+    }))));
+
+    // 動畫速率子選單
+    const currentSpeed = this.deps.getAnimationSpeed();
+    menu.appendChild(this.createSubmenuItem('動畫速率', SPEED_OPTIONS.map((opt) => ({
+      label: `${opt.label}${Math.abs(opt.value - currentSpeed) < 0.01 ? ' ✓' : ''}`,
+      onClick: () => this.deps.setAnimationSpeed(opt.value),
     }))));
 
     // 暫停自主移動

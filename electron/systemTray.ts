@@ -35,6 +35,13 @@ export class SystemTray {
       { label: '200%', click: () => this.emitAction('scale_200') },
     ]);
 
+    const speedSubmenu = Menu.buildFromTemplate([
+      { label: '0.5x', click: () => this.emitAction('speed_050') },
+      { label: '0.75x', click: () => this.emitAction('speed_075') },
+      { label: '1.0x', click: () => this.emitAction('speed_100') },
+      { label: '1.25x', click: () => this.emitAction('speed_125') },
+    ]);
+
     const menu = Menu.buildFromTemplate([
       {
         label: '\u986f\u793a\u684c\u5bf5',
@@ -45,6 +52,7 @@ export class SystemTray {
       },
       { type: 'separator' },
       { label: '\u7e2e\u653e', submenu: scaleSubmenu },
+      { label: '\u52d5\u756b\u901f\u7387', submenu: speedSubmenu },
       { label: '\u66ab\u505c/\u6062\u5fa9\u81ea\u4e3b\u79fb\u52d5', click: () => this.emitAction('toggle_pause') },
       { label: '\u66ab\u505c/\u6062\u5fa9\u81ea\u52d5\u8868\u60c5', click: () => this.emitAction('toggle_auto_expr') },
       { label: '\u66ab\u505c/\u6062\u5fa9\u52d5\u756b\u5faa\u74b0', click: () => this.emitAction('toggle_loop') },

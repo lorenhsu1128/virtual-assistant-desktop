@@ -181,6 +181,16 @@ export class AnimationManager {
     }
   }
 
+  /** 設定動畫播放速率倍率 */
+  setTimeScale(rate: number): void {
+    this.mixer.timeScale = rate;
+  }
+
+  /** 取得動畫播放速率倍率 */
+  getTimeScale(): number {
+    return this.mixer.timeScale;
+  }
+
   /** 銷毀 */
   dispose(): void {
     this.mixer.removeEventListener('finished', this.onAnimationFinished);
