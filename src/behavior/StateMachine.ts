@@ -169,6 +169,8 @@ export class StateMachine {
 
     for (const wr of input.windowRects) {
       if (this.walkStartCollidingWindows.has(wr.hwnd)) continue;
+      // 最大化視窗不穿越（角色顯示在最大化視窗上）
+      if (wr.isMaximized) continue;
 
       // 檢查 Y 軸是否重疊（角色與視窗有垂直交集）
       if (charBottom <= wr.y || charTop >= wr.y + wr.height) continue;

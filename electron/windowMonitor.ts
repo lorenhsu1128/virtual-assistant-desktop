@@ -13,6 +13,7 @@ export interface WindowRect {
   height: number;
   zOrder: number;
   isForeground: boolean;
+  isMaximized: boolean;
 }
 
 /** Polling interval (300ms) */
@@ -47,6 +48,7 @@ let GetWindowRectFn: ((hWnd: number, lpRect: unknown) => number) | null = null;
 let GetWindowLongW: ((hWnd: number, nIndex: number) => number) | null = null;
 let DwmGetWindowAttribute: ((hWnd: number, dwAttribute: number, pvAttribute: Buffer, cbAttribute: number) => number) | null = null;
 let GetForegroundWindow: (() => number) | null = null;
+let IsZoomed: ((hWnd: number) => number) | null = null;
 
 /**
  * Load koffi and bind Windows API functions.
@@ -83,6 +85,7 @@ function ensureKoffi(): boolean {
     const dwmapi = koffi.load('dwmapi.dll');
     DwmGetWindowAttribute = dwmapi.func('long DwmGetWindowAttribute(intptr_t hwnd, uint dwAttribute, _Out_ uint8_t *pvAttribute, uint cbAttribute)');
     GetForegroundWindow = user32.func('intptr_t GetForegroundWindow()');
+    IsZoomed = user32.func('int IsZoomed(intptr_t hWnd)');
 
     koffiLoaded = true;
     console.log('[WindowMonitor] koffi loaded OK');
@@ -161,6 +164,7 @@ function enumerateWindows(ownHwnd: number): WindowRect[] {
                           height: h,
                           zOrder: zOrder++,
                           isForeground: hwnd === foregroundHwnd,
+                          isMaximized: IsZoomed ? IsZoomed(hwnd) !== 0 : false,
                         });
                       }
                     }

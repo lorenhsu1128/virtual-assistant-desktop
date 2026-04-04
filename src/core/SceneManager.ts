@@ -406,8 +406,9 @@ export class SceneManager {
         occlusionRects = this.collisionSystem.getOcclusionRectsForWindow(this.getCharacterBounds(), traversingHwnd);
       } else if (isDebug) {
         // Debug mode：只遮擋前景視窗（方便手動測試穿越效果）
+        // 前景視窗最大化時不遮擋（角色顯示在最大化視窗上）
         const fgWindow = this.collisionSystem.getWindowRects().find(w => w.isForeground);
-        if (fgWindow) {
+        if (fgWindow && !fgWindow.isMaximized) {
           occlusionRects = this.collisionSystem.getOcclusionRectsForWindow(this.getCharacterBounds(), fgWindow.hwnd);
         } else {
           occlusionRects = [];

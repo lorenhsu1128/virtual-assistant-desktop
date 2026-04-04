@@ -16,6 +16,8 @@ export interface WindowRect {
   zOrder: number;
   /** 是否為前景視窗（滑鼠焦點） */
   isForeground?: boolean;
+  /** 是否為最大化視窗 */
+  isMaximized?: boolean;
 }
 
 /** 螢幕資訊 */
