@@ -342,6 +342,11 @@ async function initializeBehaviorSystem(
     }
   });
 
+  // 視窗大小更新 callback（縮放時同步調整）
+  sceneManager.setWindowSizeSetter((w, h) => {
+    ipc.setWindowSize(w, h);
+  });
+
   // 遮擋更新 callback（邏輯像素 → 物理像素，SetWindowRgn 使用物理像素）
   sceneManager.setOcclusionSetter((rects) => {
     const mappedRects = rects.map((r) => ({

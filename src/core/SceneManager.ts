@@ -63,6 +63,7 @@ export class SceneManager {
   /** workArea 下緣（邏輯像素），用於限制腳底不超出 */
   private groundY: number | null = null;
   private positionSetter: ((x: number, y: number) => void) | null = null;
+  private windowSizeSetter: ((w: number, h: number) => void) | null = null;
   private occlusionSetter: ((rects: Rect[]) => void) | null = null;
   private lastOcclusionUpdate = 0;
   private lastOcclusionHash = '';
@@ -215,6 +216,11 @@ export class SceneManager {
     this.positionSetter = setter;
   }
 
+  /** 設定視窗大小更新 callback */
+  setWindowSizeSetter(setter: (w: number, h: number) => void): void {
+    this.windowSizeSetter = setter;
+  }
+
   /** 設定遮擋更新 callback */
   setOcclusionSetter(setter: (rects: Rect[]) => void): void {
     this.occlusionSetter = setter;
@@ -251,12 +257,21 @@ export class SceneManager {
     };
   }
 
-  /** 設定角色縮放（0.5–2.0） */
+  /** 基準視窗大小 */
+  private static readonly BASE_WIDTH = 400;
+  private static readonly BASE_HEIGHT = 600;
+
+  /** 設定角色縮放（0.5–2.0），同步調整視窗大小 */
   setScale(scale: number): void {
     this.scale = Math.max(0.5, Math.min(2.0, scale));
     if (this.vrmController) {
       this.vrmController.setModelScale(this.scale);
     }
+    // 視窗大小隨 scale 等比縮放
+    const newW = Math.round(SceneManager.BASE_WIDTH * this.scale);
+    const newH = Math.round(SceneManager.BASE_HEIGHT * this.scale);
+    this.windowSize = { width: newW, height: newH };
+    this.windowSizeSetter?.(newW, newH);
   }
 
   /** 取得角色縮放 */
