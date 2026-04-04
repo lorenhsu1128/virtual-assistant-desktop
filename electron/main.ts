@@ -82,10 +82,16 @@ function createMainWindow(): BrowserWindow {
     },
   });
 
-  // Open DevTools in dev mode for debugging
-  if (isDev) {
-    win.webContents.openDevTools({ mode: 'detach' });
-  }
+  // DevTools: F12 to toggle (auto-open disabled — causes ghost title bar on Windows 11)
+  win.webContents.on('before-input-event', (_event, input) => {
+    if (input.key === 'F12' && input.type === 'keyDown') {
+      if (win.webContents.isDevToolsOpened()) {
+        win.webContents.closeDevTools();
+      } else {
+        win.webContents.openDevTools({ mode: 'detach' });
+      }
+    }
+  });
 
   // Load the frontend
   if (isDev) {
