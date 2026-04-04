@@ -18,7 +18,7 @@ function makeOutput(overrides?: Partial<BehaviorOutput>): BehaviorOutput {
     targetPosition: null,
     facingDirection: 1,
     attachedWindowHwnd: null,
-    collisionOccurred: false,
+    traversingWindowHwnd: null,
     ...overrides,
   };
 }
@@ -101,13 +101,13 @@ describe('BehaviorAnimationBridge', () => {
     expect(manager.playByCategory).toHaveBeenNthCalledWith(2, 'idle');
   });
 
-  it('should play collide animation on collision', () => {
+  it('should not reference collide animation (bounce removed)', () => {
     const manager = makeMockAnimationManager();
     const bridge = new BehaviorAnimationBridge(manager);
 
-    bridge.update(makeOutput({ collisionOccurred: true }));
+    // No state change → no animation call
+    bridge.update(makeOutput({ stateChanged: false }));
 
-    expect(manager.hasCategory).toHaveBeenCalledWith('collide');
-    expect(manager.playByCategory).toHaveBeenCalledWith('collide');
+    expect(manager.playByCategory).not.toHaveBeenCalled();
   });
 });

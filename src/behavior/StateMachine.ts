@@ -49,10 +49,9 @@ export class StateMachine {
    */
   tick(input: BehaviorInput, collision: CollisionResult): BehaviorOutput {
     const prevState = this.state;
-    let collisionOccurred = false;
 
     if (this.paused || this.state === 'drag') {
-      return this.makeOutput(false, null, false);
+      return this.makeOutput(false, null);
     }
 
     this.stateTimer += input.deltaTime;
@@ -62,7 +61,7 @@ export class StateMachine {
         this.tickIdle(input);
         break;
       case 'walk':
-        collisionOccurred = this.tickWalk(input, collision);
+        this.tickWalk(input, collision);
         break;
       case 'sit':
         this.tickSit(input);
@@ -95,7 +94,7 @@ export class StateMachine {
 
     const targetPosition = this.getTargetPosition(input);
 
-    return this.makeOutput(stateChanged, targetPosition, collisionOccurred);
+    return this.makeOutput(stateChanged, targetPosition);
   }
 
   /** 暫停自主移動 */
@@ -147,17 +146,16 @@ export class StateMachine {
     }
   }
 
-  private tickWalk(input: BehaviorInput, collision: CollisionResult): boolean {
+  private tickWalk(input: BehaviorInput, collision: CollisionResult): void {
     if (!this.walkTarget) {
       this.enterState('idle');
-      return false;
+      return;
     }
 
-    // 螢幕邊緣碰撞：改變方向
+    // 螢幕邊緣到達：停止行走，進入 idle
     if (collision.atScreenEdge) {
-      this.facingDirection *= -1;
       this.enterState('idle');
-      return true;
+      return;
     }
 
     // 視窗邊緣穿越偵測：檢查角色是否正在接近某個視窗的左/右邊緣
@@ -182,27 +180,16 @@ export class StateMachine {
       const approachingRight = distToRight < edgeThreshold && this.facingDirection < 0;
 
       if (approachingLeft || approachingRight) {
-        // 決定穿越或反彈
-        const isForeground = wr.isForeground ?? false;
-        const shouldTraverse = isForeground || Math.random() < this.config.traverseProbability;
-
-        if (shouldTraverse) {
-          // 穿越：walkTarget 設為視窗另一側
-          const charWidth = input.characterBounds.width;
-          if (approachingLeft) {
-            this.walkTarget = { x: wr.x + wr.width + charWidth * 0.5, y: input.currentPosition.y };
-          } else {
-            this.walkTarget = { x: wr.x - charWidth * 1.5, y: input.currentPosition.y };
-          }
-          this.walkStartCollidingWindows.add(wr.hwnd);
-          this.traversingWindowHwnd = wr.hwnd;
-          return false;
+        // 永遠穿越：walkTarget 設為視窗另一側
+        const charWidth = input.characterBounds.width;
+        if (approachingLeft) {
+          this.walkTarget = { x: wr.x + wr.width + charWidth * 0.5, y: input.currentPosition.y };
         } else {
-          // 反彈
-          this.facingDirection *= -1;
-          this.enterState('idle');
-          return true;
+          this.walkTarget = { x: wr.x - charWidth * 1.5, y: input.currentPosition.y };
         }
+        this.walkStartCollidingWindows.add(wr.hwnd);
+        this.traversingWindowHwnd = wr.hwnd;
+        return;
       }
     }
 
@@ -215,7 +202,7 @@ export class StateMachine {
     if (dist <= speed || dist < 5) {
       // 到達目標
       this.enterState('idle');
-      return false;
+      return;
     }
 
     // 更新面朝方向
@@ -225,8 +212,6 @@ export class StateMachine {
     if (this.stateTimer >= this.stateDuration) {
       this.enterState('idle');
     }
-
-    return false;
   }
 
   private tickSit(input: BehaviorInput): void {
@@ -449,7 +434,6 @@ export class StateMachine {
   private makeOutput(
     stateChanged: boolean,
     targetPosition: { x: number; y: number } | null,
-    collisionOccurred: boolean,
   ): BehaviorOutput {
     return {
       currentState: this.state,
@@ -459,7 +443,6 @@ export class StateMachine {
       facingDirection: this.facingDirection,
       attachedWindowHwnd: this.attachedWindowHwnd,
       traversingWindowHwnd: this.traversingWindowHwnd,
-      collisionOccurred,
     };
   }
 

@@ -32,17 +32,9 @@ export class BehaviorAnimationBridge {
    * 每幀更新
    *
    * 由 SceneManager 在 StateMachine.tick() 之後呼叫。
-   * 僅在狀態變化或碰撞發生時觸發動畫切換。
+   * 僅在狀態變化時觸發動畫切換。
    */
   update(output: BehaviorOutput): void {
-    // 碰撞時播放 collide 動畫
-    if (output.collisionOccurred) {
-      if (this.animationManager.hasCategory('collide')) {
-        this.animationManager.playByCategory('collide');
-        return;
-      }
-    }
-
     // 狀態變化時切換動畫
     if (!output.stateChanged) return;
 

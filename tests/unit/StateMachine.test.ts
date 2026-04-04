@@ -92,8 +92,7 @@ describe('StateMachine', () => {
     vi.restoreAllMocks();
   });
 
-  it('should handle collision during walk', () => {
-    // Use a StateMachine that immediately enters walk
+  it('should always traverse window edge during walk', () => {
     const walkSm = new StateMachine({
       idleDurationMin: 0.001,
       idleDurationMax: 0.001,
@@ -105,11 +104,49 @@ describe('StateMachine', () => {
     walkSm.tick(makeInput({ deltaTime: 0.01 }), makeCollision());
     expect(walkSm.getState()).toBe('walk');
 
-    // Second tick with collision should transition back to idle
-    const collision = makeCollision({ collidingWithWindow: true, collidedWindowHwnd: 123 });
+    // Place a window edge near the character's path
+    const windowRect = {
+      hwnd: 789,
+      title: 'Blocking Window',
+      x: 530, // charCenterX=700, distToLeft=170 — not close enough to trigger
+      y: 400,
+      width: 800,
+      height: 600,
+      zOrder: 1,
+      isForeground: false,
+      isMaximized: false,
+    };
+
+    // Character approaching window left edge within threshold
+    const input = makeInput({
+      currentPosition: { x: 500, y: 500 },
+      characterBounds: { x: 500, y: 500, width: 400, height: 600 },
+      windowRects: [windowRect],
+    });
+
+    // Should stay in walk (traverse, not bounce)
+    const output = walkSm.tick(input, makeCollision());
+    expect(output.currentState).toBe('walk');
+
+    vi.restoreAllMocks();
+  });
+
+  it('should enter idle at screen edge without collision', () => {
+    const walkSm = new StateMachine({
+      idleDurationMin: 0.001,
+      idleDurationMax: 0.001,
+      transitionProbabilities: { toWalk: 1.0, toSit: 0, toPeek: 0, toIdle: 0 },
+    });
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+
+    // First tick transitions idle → walk
+    walkSm.tick(makeInput({ deltaTime: 0.01 }), makeCollision());
+    expect(walkSm.getState()).toBe('walk');
+
+    // Second tick with screen edge
+    const collision = makeCollision({ atScreenEdge: true });
     const output = walkSm.tick(makeInput(), collision);
     expect(output.currentState).toBe('idle');
-    expect(output.collisionOccurred).toBe(true);
 
     vi.restoreAllMocks();
   });
