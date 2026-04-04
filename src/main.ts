@@ -470,6 +470,8 @@ async function initializeBehaviorSystem(
       debugOverlay.setEnabled(!debugOverlay.isEnabled());
     },
     isDebugEnabled: () => debugOverlay.isEnabled(),
+    onMenuOpen: () => hitTestManager.lockForDrag(),
+    onMenuClose: () => hitTestManager.unlockDrag(),
   });
 
   // ── 系統托盤事件 ──

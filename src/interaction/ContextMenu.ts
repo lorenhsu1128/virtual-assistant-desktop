@@ -24,6 +24,8 @@ export interface ContextMenuDeps {
   getManualExpression: () => string | null;
   toggleDebug: () => void;
   isDebugEnabled: () => boolean;
+  onMenuOpen?: () => void;
+  onMenuClose?: () => void;
 }
 
 /** 縮放選項 */
@@ -88,6 +90,7 @@ export class ContextMenu {
 
   private showMenu(x: number, y: number): void {
     this.hideMenu();
+    this.deps.onMenuOpen?.();
 
     const menu = document.createElement('div');
     menu.className = 'ctx-menu';
@@ -197,6 +200,7 @@ export class ContextMenu {
     if (this.menuElement) {
       this.menuElement.remove();
       this.menuElement = null;
+      this.deps.onMenuClose?.();
     }
     document.removeEventListener('click', this.boundClickOutside);
   }
