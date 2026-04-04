@@ -26,8 +26,6 @@ export interface ContextMenuDeps {
   isDebugEnabled: () => boolean;
   setAnimationSpeed: (rate: number) => void;
   getAnimationSpeed: () => number;
-  expandWindowForMenu: () => Promise<void>;
-  restoreWindowFromMenu: () => Promise<void>;
   onMenuOpen?: () => void;
   onMenuClose?: () => void;
 }
@@ -63,7 +61,6 @@ export class ContextMenu {
   private menuElement: HTMLElement | null = null;
   private deps: ContextMenuDeps;
   private canvas: HTMLCanvasElement;
-  private pendingMenuPos: { screenX: number; screenY: number } | null = null;
 
   private boundContextMenu: (e: MouseEvent) => void;
   private boundClickOutside: (e: MouseEvent) => void;
@@ -92,16 +89,7 @@ export class ContextMenu {
     e.preventDefault();
     // 右鍵拖曳旋轉攝影機時不開選單
     if (this.deps.isOrbitDragging()) return;
-
-    // 記錄螢幕座標，先擴大視窗再顯示選單
-    this.pendingMenuPos = { screenX: e.screenX, screenY: e.screenY };
-    this.deps.expandWindowForMenu().then(() => {
-      if (this.pendingMenuPos) {
-        // 擴大後視窗在 (0,0)，用螢幕座標作為選單位置
-        this.showMenu(this.pendingMenuPos.screenX, this.pendingMenuPos.screenY);
-        this.pendingMenuPos = null;
-      }
-    });
+    this.showMenu(e.clientX, e.clientY);
   }
 
   private onClickOutside(e: MouseEvent): void {
@@ -230,7 +218,6 @@ export class ContextMenu {
       this.menuElement.remove();
       this.menuElement = null;
       this.deps.onMenuClose?.();
-      this.deps.restoreWindowFromMenu();
     }
     document.removeEventListener('click', this.boundClickOutside);
   }

@@ -226,9 +226,6 @@ async function initializeApp(config: AppConfig): Promise<void> {
 /** v0.2 行為系統參照（供 cleanup 使用） */
 const collisionSystemRef = { current: new CollisionSystem() };
 
-/** 右鍵選單展開時保存的視窗位置 */
-let savedWindowPos: { x: number; y: number } | null = null;
-
 /**
  * 初始化 v0.2 行為與互動系統
  *
@@ -500,24 +497,6 @@ async function initializeBehaviorSystem(
       }
     },
     getAnimationSpeed: () => animationManager?.getTimeScale() ?? 1.0,
-    expandWindowForMenu: async () => {
-      // 保存當前位置，擴大視窗到全螢幕以容納選單
-      const pos = await ipc.getWindowPosition();
-      savedWindowPos = { x: pos.x, y: pos.y };
-      const display = (await ipc.getDisplayInfo())[0];
-      const bounds = display?.workArea ?? { x: 0, y: 0, width: screen.width, height: screen.height };
-      await ipc.setWindowPosition(bounds.x, bounds.y);
-      await ipc.setWindowSize(bounds.width, bounds.height);
-    },
-    restoreWindowFromMenu: async () => {
-      // 恢復原始視窗位置和大小
-      if (savedWindowPos) {
-        await ipc.setWindowSize(400, 600);
-        await ipc.setWindowPosition(savedWindowPos.x, savedWindowPos.y);
-        sceneManager.setCurrentPosition(savedWindowPos);
-        savedWindowPos = null;
-      }
-    },
     onMenuOpen: () => hitTestManager.lockForDrag(),
     onMenuClose: () => hitTestManager.unlockDrag(),
   });
