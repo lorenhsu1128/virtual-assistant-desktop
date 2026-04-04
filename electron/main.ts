@@ -65,6 +65,8 @@ function createMainWindow(): BrowserWindow {
     height: 600,
     transparent: true,
     frame: false,
+    thickFrame: false,
+    focusable: false,
     alwaysOnTop: true,
     skipTaskbar: true,
     resizable: false,
