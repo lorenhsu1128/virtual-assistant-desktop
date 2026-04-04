@@ -29,6 +29,8 @@ const BONE_STYLE: Record<string, { label: string; color: string }> = {
   leftFoot: { label: 'LF', color: '#3b82f6' },   // 藍
   rightFoot: { label: 'RF', color: '#3b82f6' },   // 藍
   hips: { label: 'H', color: '#f97316' },          // 橙
+  leftUpperLeg: { label: 'LUL', color: '#f97316' }, // 橙
+  rightUpperLeg: { label: 'RUL', color: '#f97316' }, // 橙
   leftHand: { label: 'LH', color: '#22c55e' },     // 綠
   rightHand: { label: 'RH', color: '#22c55e' },    // 綠
   head: { label: 'HD', color: '#ef4444' },          // 紅

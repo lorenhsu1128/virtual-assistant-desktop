@@ -50,7 +50,7 @@ export class SceneManager {
 
   // Debug
   private debugOverlay: DebugOverlay | null = null;
-  private static readonly DEBUG_BONES = ['head', 'leftHand', 'rightHand', 'hips', 'leftFoot', 'rightFoot'];
+  private static readonly DEBUG_BONES = ['head', 'leftHand', 'rightHand', 'hips', 'leftUpperLeg', 'rightUpperLeg', 'leftFoot', 'rightFoot'];
   private windowListFetcher: (() => Promise<Array<{ title: string; x: number; y: number; width: number; height: number; zOrder: number }>>) | null = null;
   private lastWindowListUpdate = 0;
   private static readonly WINDOW_LIST_INTERVAL = 1000; // 1 秒更新一次

@@ -120,6 +120,8 @@ export class VRMController {
     leftHand: { bones: ['leftMiddleDistal', 'leftIndexDistal', 'leftHand'], offsetY: 0 },
     rightHand: { bones: ['rightMiddleDistal', 'rightIndexDistal', 'rightHand'], offsetY: 0 },
     hips: { bones: ['hips'], offsetY: 0 },
+    leftUpperLeg: { bones: ['leftUpperLeg'], offsetY: 0 },
+    rightUpperLeg: { bones: ['rightUpperLeg'], offsetY: 0 },
     leftFoot: { bones: ['leftToes', 'leftFoot'], offsetY: -0.02 },
     rightFoot: { bones: ['rightToes', 'rightFoot'], offsetY: -0.02 },
   };
