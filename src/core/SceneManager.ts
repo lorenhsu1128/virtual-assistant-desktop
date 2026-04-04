@@ -257,46 +257,57 @@ export class SceneManager {
     };
   }
 
-  /** 角色在 viewport 中佔的比例（3D 模型高度 / 相機可見高度） */
-  private charViewportRatio = 0.5;
-  /** 螢幕高度（物理像素） */
-  private screenPhysicalHeight = 1080;
+  /** 角色在 viewport 中佔的比例（高度） */
+  private charViewportRatioH = 0.5;
+  /** 角色寬高比（3D 模型） */
+  private charAspectRatio = 0.4;
+  /** 螢幕邏輯像素高度 */
+  private screenLogicalHeight = 1080;
 
-  /** 計算角色在 viewport 中的比例（模型載入後呼叫一次） */
+  /** 計算角色在 viewport 中的比例和寬高比（模型載入後呼叫一次） */
   computeCharacterViewportRatio(): void {
     if (!this.vrmController) return;
     const vrm = this.vrmController.getVRM();
     if (!vrm) return;
 
-    // 模型 3D 高度
     const box = new THREE.Box3().setFromObject(vrm.scene);
     const modelHeight = box.max.y - box.min.y;
+    const modelWidth = box.max.x - box.min.x;
 
-    // 相機可見高度（在模型所在距離）
     const vFov = this.camera.fov * (Math.PI / 180);
     const camDist = this.camera.position.length();
     const visibleHeight = 2 * Math.tan(vFov / 2) * camDist;
 
-    this.charViewportRatio = modelHeight / visibleHeight;
-    console.log(`[SceneManager] modelH=${modelHeight.toFixed(2)} visibleH=${visibleHeight.toFixed(2)} ratio=${this.charViewportRatio.toFixed(3)}`);
+    this.charViewportRatioH = modelHeight / visibleHeight;
+    this.charAspectRatio = modelWidth / modelHeight;
+    console.log(`[SceneManager] modelH=${modelHeight.toFixed(2)} modelW=${modelWidth.toFixed(2)} aspect=${this.charAspectRatio.toFixed(3)} vpRatio=${this.charViewportRatioH.toFixed(3)}`);
   }
 
-  /** 設定螢幕物理解析度高度 */
-  setScreenHeight(physicalHeight: number): void {
-    this.screenPhysicalHeight = physicalHeight;
-    console.log(`[SceneManager] screenPhysicalHeight=${physicalHeight}`);
+  /** 設定螢幕邏輯像素高度 */
+  setScreenHeight(logicalHeight: number): void {
+    this.screenLogicalHeight = logicalHeight;
   }
 
-  /** 設定角色縮放（0.5–2.0），調整視窗大小（不動 model scale） */
+  /** 視窗高度邊距倍率（容納頭髮/配飾不被切掉） */
+  private static readonly HEIGHT_PADDING = 1.3;
+
+  /** 設定角色縮放（0.5–2.0） */
   setScale(scale: number): void {
     this.scale = Math.max(0.5, Math.min(2.0, scale));
 
-    // 目標：角色螢幕高度 = 螢幕物理高度 × 30% × scale
-    // 視窗高度 = 角色高度 / charViewportRatio（角色佔 viewport 的比例）
-    // 視窗寬度 = 視窗高度 × 2/3（近似寬高比）
-    const targetCharHeight = this.screenPhysicalHeight * 0.4 * this.scale;
-    const newH = Math.round(targetCharHeight / this.charViewportRatio);
-    const newW = Math.round(newH * 0.67);
+    // 目標：角色螢幕高度 = 螢幕高度 × 40% × scale
+    const targetCharH = this.screenLogicalHeight * 0.4 * this.scale;
+    const targetCharW = targetCharH * this.charAspectRatio;
+
+    // 視窗加邊距，model scale 補償以保持角色大小不變
+    const padding = SceneManager.HEIGHT_PADDING;
+    const newH = Math.round(targetCharH / this.charViewportRatioH * padding);
+    const newW = Math.round(targetCharW * 3);
+
+    // 補償 model scale = 1/padding，抵消視窗變大導致角色放大
+    if (this.vrmController) {
+      this.vrmController.setModelScale(1.0 / padding);
+    }
 
     this.windowSize = { width: newW, height: newH };
     this.windowSizeSetter?.(newW, newH);
