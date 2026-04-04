@@ -395,13 +395,17 @@ export class SceneManager {
       }
     }
 
-    // 遮擋更新：穿越視窗或 debug mode 時啟用
+    // 遮擋更新：穿越視窗或 debug mode 時啟用（拖曳時不遮擋）
     if (this.collisionSystem && this.occlusionSetter && now - this.lastOcclusionUpdate > OCCLUSION_UPDATE_INTERVAL) {
+      const isDragging = this.stateMachine?.getState() === 'drag';
       const traversingHwnd = this.stateMachine?.getTraversingWindowHwnd() ?? null;
       const isDebug = this.debugOverlay?.isEnabled() ?? false;
       let occlusionRects: Rect[];
 
-      if (traversingHwnd !== null) {
+      if (isDragging) {
+        // 拖曳中：角色最上層顯示，不遮擋
+        occlusionRects = [];
+      } else if (traversingHwnd !== null) {
         // 穿越中：只遮擋穿越的視窗
         occlusionRects = this.collisionSystem.getOcclusionRectsForWindow(this.getCharacterBounds(), traversingHwnd);
       } else if (isDebug) {
