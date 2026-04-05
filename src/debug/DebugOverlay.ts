@@ -79,12 +79,16 @@ export class DebugOverlay {
       `Pos: (${Math.round(info.posX)}, ${Math.round(info.posY)})`,
       `Scale: ${info.scale.toFixed(2)}`,
       `FPS: ${info.fps.toFixed(0)}`,
-      `MoveSpeed: ${info.moveSpeed.toFixed(2)}x`,
+      `MoveSpeed: ${info.baseMoveSpeed.toFixed(1)} px/s`,
+      `Multiplier: ${info.moveSpeedMultiplier.toFixed(2)}x`,
       `Paused: ${info.paused ? 'Yes' : 'No'}`,
     ];
 
-    if (info.facingDirection !== undefined) {
-      lines.push(`Facing: ${info.facingDirection > 0 ? 'Right' : 'Left'}`);
+    if (info.stepLength !== undefined && info.stepLength > 0) {
+      const effectiveStep = info.stepLength * info.scale;
+      const effectiveSpeed = info.baseMoveSpeed * info.scale * info.moveSpeedMultiplier;
+      lines.push(`StepLen: ${info.stepLength.toFixed(3)} (x${info.scale.toFixed(2)}=${effectiveStep.toFixed(3)})`);
+      lines.push(`Effective: ${effectiveSpeed.toFixed(1)} px/s`);
     }
 
     this.panel.textContent = lines.join('\n');
@@ -106,7 +110,11 @@ export interface DebugInfo {
   posY: number;
   scale: number;
   fps: number;
-  moveSpeed: number;
+  /** 基礎移動速度（px/s，scale=1） */
+  baseMoveSpeed: number;
+  /** 速率倍率 */
+  moveSpeedMultiplier: number;
   paused: boolean;
-  facingDirection?: number;
+  /** 步伐長度（世界單位，scale=1 基準） */
+  stepLength?: number;
 }

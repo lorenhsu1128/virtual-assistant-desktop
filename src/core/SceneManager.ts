@@ -50,6 +50,10 @@ export class SceneManager {
   private frameCount = 0;
   private lastFpsTime = 0;
   private currentFps = 0;
+  /** 步伐分析結果（步伐長度，世界單位，scale=1 基準） */
+  private analyzedStepLength = 0;
+  /** 基礎移動速度（px/s，scale=1 基準，來自步伐分析） */
+  private baseMoveSpeed = 60;
 
   // 角色位置管理（全螢幕模式：角色在 canvas 內移動，視窗不動）
   private currentPosition = { x: 0, y: 0 };
@@ -191,6 +195,12 @@ export class SceneManager {
     this.debugOverlay = overlay;
   }
 
+  /** 設定步伐分析結果（供 debug overlay 顯示） */
+  setStepAnalysis(stepLength: number, baseMoveSpeed: number): void {
+    this.analyzedStepLength = stepLength;
+    this.baseMoveSpeed = baseMoveSpeed;
+  }
+
   /** 設定 BehaviorAnimationBridge (v0.2) */
   setBehaviorAnimationBridge(bridge: BehaviorAnimationBridge): void {
     this.behaviorBridge = bridge;
@@ -275,6 +285,11 @@ export class SceneManager {
   /** 取得角色縮放 */
   getScale(): number {
     return this.scale;
+  }
+
+  /** 取得像素到世界座標的轉換比例 */
+  getPixelToWorld(): number {
+    return this.pixelToWorld;
   }
 
   /** 設定目標幀率 */
@@ -443,8 +458,10 @@ export class SceneManager {
         posY: this.currentPosition.y,
         scale: this.scale,
         fps: this.currentFps,
-        moveSpeed: this.stateMachine?.getSpeedMultiplier() ?? 1.0,
+        baseMoveSpeed: this.baseMoveSpeed,
+        moveSpeedMultiplier: this.stateMachine?.getSpeedMultiplier() ?? 1.0,
         paused: this.stateMachine?.isPaused() ?? false,
+        stepLength: this.analyzedStepLength,
       });
     }
 

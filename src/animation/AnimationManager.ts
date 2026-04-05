@@ -151,6 +151,11 @@ export class AnimationManager {
     }
   }
 
+  /** 取得系統動畫 clip（供 StepAnalyzer 等外部分析用） */
+  getSystemAnimationClip(name: string): THREE.AnimationClip | null {
+    return this.systemAnimations.get(name) ?? null;
+  }
+
   /**
    * 播放系統動畫
    *

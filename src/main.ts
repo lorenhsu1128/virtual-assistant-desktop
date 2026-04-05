@@ -11,6 +11,7 @@ import { DEFAULT_CONFIG, type AppConfig } from './types/config';
 import type { TrayMenuData } from './types/tray';
 import { ExpressionManager } from './expression/ExpressionManager';
 import { DebugOverlay } from './debug/DebugOverlay';
+import { analyzeWalkAnimation } from './animation/StepAnalyzer';
 
 /**
  * 應用程式進入點
@@ -247,6 +248,21 @@ async function initializeApp(config: AppConfig, appPath: string): Promise<void> 
       `${sysVrmaDir}/SYS_WALK.vrma`,
     );
     debugLog('System animations loaded');
+
+    // 步伐分析：從行走動畫計算擬真移動速度
+    const walkClip = animationManager.getSystemAnimationClip('walk');
+    if (walkClip) {
+      const analysis = analyzeWalkAnimation(walkClip, vrmController);
+      if (analysis) {
+        // worldSpeed → 螢幕像素/秒（scale=1 基準）
+        const pixelToWorld = sceneManager.getPixelToWorld();
+        const baseMoveSpeedPx = analysis.worldSpeed / pixelToWorld;
+        // 儲存到 config 以便傳給 StateMachine
+        (config as unknown as Record<string, unknown>)._analyzedMoveSpeed = baseMoveSpeedPx;
+        sceneManager.setStepAnalysis(analysis.stepLength, baseMoveSpeedPx);
+        debugLog(`Walk step analysis: stepLen=${analysis.stepLength.toFixed(3)} cycle=${analysis.cycleDuration.toFixed(2)}s steps=${analysis.stepsPerCycle} speed=${baseMoveSpeedPx.toFixed(1)}px/s`);
+      }
+    }
   }
 
   // 套用已儲存的動畫循環設定
@@ -300,8 +316,9 @@ async function initializeBehaviorSystem(
     });
   }
 
-  // StateMachine
-  const stateMachine = new StateMachine();
+  // StateMachine（使用步伐分析計算的移動速度，或預設 60px/s）
+  const analyzedSpeed = (config as unknown as Record<string, unknown>)._analyzedMoveSpeed as number | undefined;
+  const stateMachine = new StateMachine(analyzedSpeed ? { moveSpeed: analyzedSpeed } : undefined);
   if (config.autonomousMovementPaused) {
     stateMachine.pause();
   }
