@@ -159,9 +159,12 @@ export class StateMachine {
       this.sitCooldown -= input.deltaTime;
     }
 
-    // 平面接觸偵測：膝蓋到達或超過平面時坐下（冷卻中不觸發）
-    if (this.sitCooldown <= 0) {
-      const triggerY = input.kneeScreenY ?? (input.currentPosition.y + input.characterBounds.height);
+    // 平面接觸偵測：膝蓋到達或超過平面時坐下
+    // 角色完全離開桌面範圍時不觸發（避免在畫面外坐下）
+    const feetY = input.currentPosition.y + input.characterBounds.height;
+    const isOutsideScreen = feetY > input.screenBounds.y + input.screenBounds.height;
+    if (this.sitCooldown <= 0 && !isOutsideScreen) {
+      const triggerY = input.kneeScreenY ?? feetY;
       for (const platform of input.platforms) {
         if (triggerY >= platform.screenY &&
             input.currentPosition.x + input.characterBounds.width > platform.screenXMin &&
@@ -263,16 +266,27 @@ export class StateMachine {
   }
 
   private pickWalkTarget(input: BehaviorInput): void {
-    // 在螢幕範圍內隨機選擇一個目標
     const margin = input.characterBounds.width;
     const minX = input.screenBounds.x + margin;
     const maxX = input.screenBounds.x + input.screenBounds.width - margin;
-    const minY = input.screenBounds.y + input.screenBounds.height * 0.3;
-    const maxY = input.screenBounds.y + input.screenBounds.height - input.characterBounds.height * 0.5;
+    const screenTop = input.screenBounds.y + input.screenBounds.height * 0.3;
+    const screenBottom = input.screenBounds.y + input.screenBounds.height - input.characterBounds.height * 0.5;
+
+    // 角色在螢幕外（下方）時，強制走回桌面中央區域
+    const feetY = input.currentPosition.y + input.characterBounds.height;
+    const isOutsideScreen = feetY > input.screenBounds.y + input.screenBounds.height;
+    if (isOutsideScreen) {
+      const safeMaxY = input.screenBounds.y + input.screenBounds.height * 0.7;
+      this.walkTarget = {
+        x: minX + Math.random() * (maxX - minX),
+        y: screenTop + Math.random() * (safeMaxY - screenTop),
+      };
+      return;
+    }
 
     this.walkTarget = {
       x: minX + Math.random() * (maxX - minX),
-      y: minY + Math.random() * (maxY - minY),
+      y: screenTop + Math.random() * (screenBottom - screenTop),
     };
   }
 
