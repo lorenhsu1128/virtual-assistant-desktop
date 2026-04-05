@@ -535,9 +535,9 @@ export class SceneManager {
       // Mesh 清單
       const meshList: Array<{ name: string; x: number; y: number; z: number; visible: boolean }> = [];
       this.scene.traverse((obj) => {
-        if ((obj as THREE.Mesh).isMesh) {
+        if ((obj as THREE.Mesh).isMesh && obj.name.startsWith('platform:')) {
           meshList.push({
-            name: obj.name || obj.type,
+            name: obj.name,
             x: obj.position.x,
             y: obj.position.y,
             z: obj.position.z,
