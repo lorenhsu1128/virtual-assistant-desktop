@@ -130,6 +130,24 @@ export class DebugOverlay {
       }
     }
 
+    // 遮擋系統資訊
+    if (info.characterZ !== undefined || (info.occlusionMeshes && info.occlusionMeshes.length > 0)) {
+      lines.push(`--- Occlusion ---`);
+      if (info.characterZ !== undefined) {
+        lines.push(`CharZ: ${info.characterZ.toFixed(2)}`);
+      }
+      if (info.occlusionMeshes && info.occlusionMeshes.length > 0) {
+        lines.push(`Meshes (${info.occlusionMeshes.length}):`);
+        for (const m of info.occlusionMeshes.slice(0, 10)) {
+          const title = m.title.length > 20 ? m.title.substring(0, 17) + '...' : m.title;
+          lines.push(`  z=${m.meshZ.toFixed(1)} ${String(m.width).padStart(5)}x${String(m.height).padEnd(5)} ${title}`);
+        }
+        if (info.occlusionMeshes.length > 10) {
+          lines.push(`  ... +${info.occlusionMeshes.length - 10} more`);
+        }
+      }
+    }
+
     this.panel.textContent = lines.join('\n');
   }
 
@@ -192,6 +210,18 @@ export interface DebugInfo {
   stepLength?: number;
   /** 當前播放的動畫名稱 */
   currentAnimation?: string;
+  /** 角色當前 Z 深度 */
+  characterZ?: number;
+  /** 遮擋 mesh 清單 */
+  occlusionMeshes?: OcclusionDebugEntry[];
+}
+
+/** 遮擋 mesh debug 條目 */
+export interface OcclusionDebugEntry {
+  title: string;
+  width: number;
+  height: number;
+  meshZ: number;
 }
 
 /** 視窗清單條目 */

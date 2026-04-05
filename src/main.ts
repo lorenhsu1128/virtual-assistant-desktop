@@ -12,6 +12,7 @@ import type { TrayMenuData } from './types/tray';
 import { ExpressionManager } from './expression/ExpressionManager';
 import { DebugOverlay } from './debug/DebugOverlay';
 import { analyzeWalkAnimation } from './animation/StepAnalyzer';
+import { WindowMeshManager } from './occlusion/WindowMeshManager';
 
 /**
  * 應用程式進入點
@@ -324,6 +325,28 @@ async function initializeBehaviorSystem(
     sceneManager.setCurrentPosition({
       x: wa.x + (wa.width - charBounds.width) / 2,
       y: wa.y + (wa.height - charBounds.height) / 2,
+    });
+
+    // ── 3D 深度遮擋系統 ──
+    const windowMeshManager = new WindowMeshManager(
+      sceneManager.getScene(),
+      sceneManager.getPixelToWorld(),
+      sceneManager.getScreenOrigin(),
+      canvas.clientWidth || canvas.width,
+      canvas.clientHeight || canvas.height,
+    );
+    sceneManager.setWindowMeshManager(windowMeshManager);
+
+    // IPC 事件驅動：視窗佈局變化時同步 mesh
+    ipc.onWindowLayoutChanged((rects) => {
+      sceneManager.updateCachedWindowRects(rects);
+      windowMeshManager.syncWindows(rects);
+    });
+
+    // 啟動時取得初始視窗清單
+    ipc.getWindowList().then((rects) => {
+      sceneManager.updateCachedWindowRects(rects);
+      windowMeshManager.syncWindows(rects);
     });
   }
 

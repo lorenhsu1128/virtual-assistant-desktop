@@ -6,15 +6,17 @@ SceneManager 擁有唯一的 render loop，每幀依以下順序執行：
 
 ```
 1. StateMachine.tick(deltaTime)       → 計算行為狀態與目標位置（僅未暫停時）
-2. CollisionSystem.check()            → 碰撞檢測與回饋（僅未暫停時）
-   ※ 遮擋更新獨立於暫停狀態，每 100ms 節流
-3. AnimationManager.update(deltaTime) → 動畫混合與播放推進（或 FallbackAnimation）
-4. ExpressionManager.resolve()        → 表情優先級仲裁
-5. VRMController.update(deltaTime)    → SpringBone 物理 + mixer 更新
-   ※ Debug overlay：骨骼座標 + 視窗接觸偵測（Z-order 遮擋感知）+ 視窗清單
+   ※ 輸出 peekTargetHwnd / attachedWindowHwnd 供深度遮擋計算
+2. AnimationManager.update(deltaTime) → 動畫混合與播放推進（或 FallbackAnimation）
+3. ExpressionManager.resolve()        → 表情優先級仲裁
+4. VRMController.update(deltaTime)    → SpringBone 物理 + mixer 更新
+   ※ updateModelWorldPosition 含 resolveCharacterZ（根據行為狀態設定角色 Z 深度）
+   ※ Debug overlay：骨骼座標 + 遮擋系統資訊 + 視窗清單
    ※ 腳底 groundY 約束（workArea 下緣限制）
-6. renderer.render(scene, camera)     → 渲染輸出
+5. renderer.render(scene, camera)     → 渲染輸出（GPU depth test 自動處理視窗遮擋）
 ```
+
+※ WindowMeshManager.syncWindows() 由 IPC 事件驅動（~300ms），不在 render loop 中
 
 此順序至關重要：後面的步驟依賴前面的結果。新增模組時，必須確認插入位置。
 
@@ -30,6 +32,7 @@ SceneManager 擁有唯一的 render loop，每幀依以下順序執行：
 | AnimationManager 透過注入取得 mixer | 使用 VRMController.getAnimationMixer() |
 | StateMachine 是純邏輯 | 不得 import 'three' 的任何模組 |
 | BehaviorAnimationBridge 做狀態→動畫映射 | StateMachine 不直接呼叫 AnimationManager |
+| WindowMeshManager 管理遮擋 mesh | 由 IPC 事件驅動 syncWindows，不在 render loop 中更新 |
 | ElectronIPC 獨佔 IPC | 其他模組不得直接使用 window.electronAPI |
 
 ## 錯誤處理策略

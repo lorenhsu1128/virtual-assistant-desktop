@@ -5,9 +5,10 @@ import type { FallbackAnimation } from '../animation/FallbackAnimation';
 import type { StateMachine } from '../behavior/StateMachine';
 import type { BehaviorAnimationBridge } from '../behavior/BehaviorAnimationBridge';
 import type { ExpressionManager } from '../expression/ExpressionManager';
-import type { Rect } from '../types/window';
-import type { Platform } from '../types/behavior';
+import type { Rect, WindowRect } from '../types/window';
+import type { BehaviorOutput, Platform } from '../types/behavior';
 import type { DebugOverlay } from '../debug/DebugOverlay';
+import type { WindowMeshManager } from '../occlusion/WindowMeshManager';
 
 /** 幀率模式 */
 type FpsMode = 'foreground' | 'background' | 'powerSave';
@@ -19,7 +20,7 @@ const FPS_MAP: Record<FpsMode, number> = {
   powerSave: 15,
 };
 
-// (遮擋系統已移除)
+// 3D 深度遮擋：透過 WindowMeshManager 管理視窗 depth-only mesh
 
 /**
  * Three.js 場景的生命週期管理
@@ -80,7 +81,13 @@ export class SceneManager {
   private static readonly PIXEL_TO_WORLD = 0.003126;
   private pixelToWorld = SceneManager.PIXEL_TO_WORLD;
   // BASE_CAMERA_Y removed: camera Y is now computed from visibleHeight
-  // (遮擋系統已移除，未來重新開發)
+  // 3D 深度遮擋系統
+  private windowMeshManager: WindowMeshManager | null = null;
+  private cachedWindowRects: WindowRect[] = [];
+  /** 當前角色 Z 值（用於 debug 顯示） */
+  private currentCharacterZ = 9.5;
+  /** 最近一次 StateMachine 輸出（供 resolveCharacterZ 使用） */
+  private lastBehaviorOutput: BehaviorOutput | null = null;
 
   private targetFps: number;
   private fpsMode: FpsMode = 'foreground';
@@ -223,6 +230,16 @@ export class SceneManager {
     }
   }
 
+  /** 設定 WindowMeshManager（3D 深度遮擋） */
+  setWindowMeshManager(manager: WindowMeshManager): void {
+    this.windowMeshManager = manager;
+  }
+
+  /** 更新快取的視窗清單（由 IPC 事件觸發） */
+  updateCachedWindowRects(rects: WindowRect[]): void {
+    this.cachedWindowRects = rects;
+  }
+
   /** 設定視窗清單取得函式（供 debug overlay 使用） */
   setWindowListFetcher(fetcher: () => Promise<Array<{ title: string; width: number; height: number; zOrder: number }>>): void {
     this.windowListFetcher = fetcher;
@@ -330,6 +347,16 @@ export class SceneManager {
     return this.pixelToWorld;
   }
 
+  /** 取得螢幕原點 */
+  getScreenOrigin(): { x: number; y: number } {
+    return { ...this.screenOrigin };
+  }
+
+  /** 取得當前角色 Z 值（debug 用） */
+  getCharacterZ(): number {
+    return this.currentCharacterZ;
+  }
+
   /** 設定目標幀率 */
   setTargetFps(fps: number): void {
     this.targetFps = Math.max(1, Math.min(60, fps));
@@ -356,6 +383,7 @@ export class SceneManager {
   /** 銷毀場景並釋放資源 */
   dispose(): void {
     this.stop();
+    this.windowMeshManager?.dispose();
     this.renderer.dispose();
     this.scene.clear();
     window.removeEventListener('resize', this.onResize);
@@ -433,12 +461,14 @@ export class SceneManager {
           width: canvas.clientWidth || canvas.width,
           height: canvas.clientHeight || canvas.height,
         },
-        windowRects: [],
+        windowRects: this.cachedWindowRects,
         platforms: this.platforms,
         scale: this.scale,
         deltaTime,
         kneeScreenY,
       });
+
+      this.lastBehaviorOutput = output;
 
       // 套用目標位置（簡單螢幕邊界 clamp）
       if (output.targetPosition) {
@@ -516,6 +546,8 @@ export class SceneManager {
         paused: this.stateMachine?.isPaused() ?? false,
         stepLength: this.analyzedStepLength,
         currentAnimation: this.animationManager?.getCurrentAnimationName() ?? undefined,
+        characterZ: this.currentCharacterZ,
+        occlusionMeshes: this.windowMeshManager?.getDebugInfo(),
       });
 
       // 視窗清單（每秒更新一次）
@@ -799,7 +831,31 @@ export class SceneManager {
       }
     }
 
-    this.vrmController.setWorldPosition(world.x, world.y);
+    // 根據行為狀態決定角色 Z 深度
+    this.currentCharacterZ = this.resolveCharacterZ(this.lastBehaviorOutput);
+    this.vrmController.setWorldPosition(world.x, world.y, this.currentCharacterZ);
+  }
+
+  /**
+   * 根據行為狀態計算角色 Z 深度
+   *
+   * walk/idle/drag/fall → 9.5（最前面）
+   * sit → 吸附視窗 Z + 0.05（在視窗前面，但可被更上層視窗遮擋）
+   * peek → 目標視窗 Z - 0.05（在視窗後面）
+   */
+  private resolveCharacterZ(output: BehaviorOutput | null): number {
+    const DEFAULT_Z = 9.5;
+    if (!output || !this.windowMeshManager) return DEFAULT_Z;
+
+    if (output.currentState === 'peek' && output.peekTargetHwnd !== null) {
+      const windowZ = this.windowMeshManager.getWindowZ(output.peekTargetHwnd);
+      return windowZ !== null ? windowZ - 0.05 : DEFAULT_Z;
+    }
+    if (output.currentState === 'sit' && output.attachedWindowHwnd !== null) {
+      const windowZ = this.windowMeshManager.getWindowZ(output.attachedWindowHwnd);
+      return windowZ !== null ? windowZ + 0.05 : DEFAULT_Z;
+    }
+    return DEFAULT_Z;
   }
 
   /** 簡單螢幕邊界 clamp（基於 workArea 範圍，允許超出到螢幕邊緣） */

@@ -49,7 +49,7 @@
 ### Electron 遷移（從 Tauri）
 - 遷移原因：Tauri/Rust 的 EnumWindows 持續 crash，無法實現視窗感知功能
 - 視窗列舉改用 koffi GetWindow 遍歷（無 callback，直接 FFI）
-- 視窗裁切（SetWindowRgn）改用 koffi FFI
+- 視窗遮擋改用 3D depth-only mesh（取代 SetWindowRgn）
 - DwmGetWindowAttribute(DWMWA_CLOAKED) 過濾 Windows 11 系統 UI
 - src-tauri/ 保留作參考，不再編譯
 
@@ -61,6 +61,7 @@ src/                → TypeScript 前端（renderer process）
   animation/        → 動畫系統（AnimationManager, FallbackAnimation）
   behavior/         → 行為邏輯（StateMachine, CollisionSystem, BehaviorAnimationBridge）
   expression/       → 表情系統（ExpressionManager）
+  occlusion/        → 3D 深度遮擋（WindowMeshManager）
   interaction/      → 使用者互動（DragHandler）
   bridge/           → IPC 封裝（ElectronIPC）
   debug/            → Debug overlay（DebugOverlay）
@@ -71,7 +72,7 @@ electron/           → Electron 主程序（main process）
   ipcHandlers.ts    → 所有 ipcMain.handle() 註冊
   fileManager.ts    → config.json / animations.json 管理
   windowMonitor.ts  → koffi GetWindow 遍歷視窗列舉
-  windowRegion.ts   → koffi FFI 視窗裁切（SetWindowRgn）
+  windowRegion.ts   → [已棄用] koffi FFI 視窗裁切（改用 3D depth occlusion）
   systemTray.ts     → 系統托盤選單
 src-tauri/          → [已棄用] 舊 Rust 後端（保留作參考）
 src-settings/       → Svelte 設定視窗（尚未實作）

@@ -24,6 +24,8 @@ export interface BehaviorOutput {
   attachedWindowHwnd: number | null;
   /** 正在穿越的視窗 handle（walk traverse 時） */
   traversingWindowHwnd: number | null;
+  /** peek 狀態時躲在哪個視窗後面（hwnd），其他狀態為 null */
+  peekTargetHwnd: number | null;
 }
 
 /**

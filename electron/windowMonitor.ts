@@ -246,7 +246,7 @@ export class WindowMonitor {
 
   private hashRects(rects: WindowRect[]): string {
     return rects
-      .map((r) => `${r.hwnd}:${r.x},${r.y},${r.width},${r.height}`)
+      .map((r) => `${r.hwnd}:${r.x},${r.y},${r.width},${r.height},${r.zOrder}`)
       .join('|');
   }
 }

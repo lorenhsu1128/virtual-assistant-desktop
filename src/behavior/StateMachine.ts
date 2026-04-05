@@ -39,6 +39,9 @@ export class StateMachine {
   /** 當前坐在的平面 ID（未來用於多平面識別） */
   sitPlatformId: string | null = null;
 
+  // peek 狀態
+  private peekTargetHwnd: number | null = null;
+
   // fall 狀態
   private fallSpeed = 0;
 
@@ -207,9 +210,20 @@ export class StateMachine {
     }
   }
 
-  private tickPeek(_input: BehaviorInput): void {
+  private tickPeek(input: BehaviorInput): void {
+    // 目標視窗消失 → 立即離開 peek
+    if (this.peekTargetHwnd !== null) {
+      const windowExists = input.windowRects.some((w) => w.hwnd === this.peekTargetHwnd);
+      if (!windowExists) {
+        this.peekTargetHwnd = null;
+        this.enterState('idle');
+        return;
+      }
+    }
+
     if (this.stateTimer >= this.stateDuration) {
       // peek 結束，隨機回到 walk 或 idle
+      this.peekTargetHwnd = null;
       const nextState: BehaviorState = Math.random() < 0.5 ? 'walk' : 'idle';
       this.enterState(nextState);
     }
@@ -251,6 +265,7 @@ export class StateMachine {
     // 找一個可以躲的視窗
     if (input.windowRects.length > 0) {
       const target = input.windowRects[Math.floor(Math.random() * input.windowRects.length)];
+      this.peekTargetHwnd = target.hwnd;
       // 走到視窗邊緣
       const side = Math.random() < 0.5 ? 'left' : 'right';
       this.walkTarget = {
@@ -396,6 +411,7 @@ export class StateMachine {
       facingDirection: this.facingDirection,
       attachedWindowHwnd: this.attachedWindowHwnd,
       traversingWindowHwnd: null,
+      peekTargetHwnd: this.peekTargetHwnd,
     };
   }
 

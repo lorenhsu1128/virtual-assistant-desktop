@@ -229,10 +229,11 @@ export class VRMController {
    * 將 VRM 模型平移到指定的世界座標，模型原點在腳底。
    * 基礎旋轉 (Math.PI) 保留，只改變 position。
    */
-  setWorldPosition(x: number, y: number): void {
+  setWorldPosition(x: number, y: number, z?: number): void {
     if (this.vrm) {
       this.vrm.scene.position.x = x;
       this.vrm.scene.position.y = y;
+      if (z !== undefined) this.vrm.scene.position.z = z;
     }
   }
 
