@@ -884,7 +884,8 @@ export class SceneManager {
     if (this.forceTopAfterDrag) return DEFAULT_Z;
 
     // 自動退到前景視窗後面：使用者點擊視窗時角色不遮擋
-    if (foreground) {
+    // 前景視窗最大化時不退後（否則角色完全被遮蔽）
+    if (foreground && !foreground.isMaximized) {
       const fgZ = this.windowMeshManager.getWindowZ(foreground.hwnd);
       if (fgZ !== null) return fgZ - 0.25;
     }
