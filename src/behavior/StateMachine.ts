@@ -159,11 +159,11 @@ export class StateMachine {
       this.sitCooldown -= input.deltaTime;
     }
 
-    // 平面接觸偵測：角色腳底到達或超過平面時坐下（冷卻中不觸發）
+    // 平面接觸偵測：膝蓋到達或超過平面時坐下（冷卻中不觸發）
     if (this.sitCooldown <= 0) {
-      const feetY = input.currentPosition.y + input.characterBounds.height;
+      const triggerY = input.kneeScreenY ?? (input.currentPosition.y + input.characterBounds.height);
       for (const platform of input.platforms) {
-        if (feetY >= platform.screenY &&
+        if (triggerY >= platform.screenY &&
             input.currentPosition.x + input.characterBounds.width > platform.screenXMin &&
             input.currentPosition.x < platform.screenXMax) {
           this.sitPlatformId = platform.id;

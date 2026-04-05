@@ -64,6 +64,8 @@ export interface BehaviorInput {
   scale: number;
   /** 幀間隔時間（秒） */
   deltaTime: number;
+  /** 膝蓋螢幕 Y 座標（兩腳取較低者），用於平面接觸判定 */
+  kneeScreenY?: number;
 }
 
 /**

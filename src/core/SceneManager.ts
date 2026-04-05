@@ -410,7 +410,20 @@ export class SceneManager {
       const characterBounds = this.getCharacterBounds();
       const canvas = this.renderer.domElement;
 
-      // StateMachine 更新（不再需要 CollisionResult）
+      // 計算膝蓋螢幕 Y（取兩腳較低者 = 較大的螢幕 Y）
+      let kneeScreenY: number | undefined;
+      if (this.vrmController) {
+        const leftKnee = this.vrmController.getBoneWorldPosition('leftLowerLeg');
+        const rightKnee = this.vrmController.getBoneWorldPosition('rightLowerLeg');
+        if (leftKnee || rightKnee) {
+          const candidates: number[] = [];
+          if (leftKnee) candidates.push(this.worldToScreen(leftKnee.x, leftKnee.y).y);
+          if (rightKnee) candidates.push(this.worldToScreen(rightKnee.x, rightKnee.y).y);
+          kneeScreenY = Math.max(...candidates); // 螢幕 Y 越大 = 位置越低
+        }
+      }
+
+      // StateMachine 更新
       const output = this.stateMachine.tick({
         currentPosition: this.currentPosition,
         characterBounds,
@@ -424,6 +437,7 @@ export class SceneManager {
         platforms: this.platforms,
         scale: this.scale,
         deltaTime,
+        kneeScreenY,
       });
 
       // 套用目標位置（簡單螢幕邊界 clamp）
@@ -729,6 +743,23 @@ export class SceneManager {
     this.camera.lookAt(0, centerY, 0);
 
     this.orbitRadius = 10;
+  }
+
+  /**
+   * 3D 世界座標 → 螢幕座標
+   *
+   * 輸入：Three.js 世界座標（z=0 平面）
+   * 輸出：螢幕絕對座標（邏輯像素）
+   */
+  private worldToScreen(worldX: number, worldY: number): { x: number; y: number } {
+    const canvas = this.renderer.domElement;
+    const canvasW = canvas.clientWidth || canvas.width;
+    const canvasH = canvas.clientHeight || canvas.height;
+
+    return {
+      x: worldX / this.pixelToWorld + canvasW / 2 + this.screenOrigin.x,
+      y: canvasH - worldY / this.pixelToWorld + this.screenOrigin.y,
+    };
   }
 
   /**
