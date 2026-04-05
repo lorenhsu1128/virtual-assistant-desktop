@@ -25,7 +25,7 @@ interface MeshRecord {
 export class WindowMeshManager {
   /** Z 軸常數 */
   private static readonly Z_TOP = 9.0;
-  private static readonly Z_BOTTOM = 1.0;
+  private static readonly Z_SPACING = 0.2;
 
   private readonly meshMap = new Map<number, MeshRecord>();
   private readonly scene: THREE.Scene;
@@ -67,13 +67,12 @@ export class WindowMeshManager {
    * 建立/移除/更新 mesh 的 position、scale、Z 值。
    */
   syncWindows(windowRects: WindowRect[]): void {
-    const maxZOrder = windowRects.reduce((max, w) => Math.max(max, w.zOrder), 0);
     const dpr = window.devicePixelRatio;
     const currentHwnds = new Set<number>();
 
     for (const rect of windowRects) {
       currentHwnds.add(rect.hwnd);
-      const meshZ = this.calcMeshZ(rect.zOrder, maxZOrder);
+      const meshZ = this.calcMeshZ(rect.zOrder);
       const existing = this.meshMap.get(rect.hwnd);
 
       if (existing) {
@@ -134,14 +133,13 @@ export class WindowMeshManager {
   }
 
   /**
-   * 計算正規化 Z 值
+   * 計算固定間距 Z 值
    *
-   * zOrder=0（最上層）→ Z=9.0，zOrder=max（最下層）→ Z=1.0
+   * zOrder=0 → Z=9.0，zOrder=1 → Z=8.8，zOrder=2 → Z=8.6 ...
+   * 間距恆定 0.2，不受視窗數量影響。
    */
-  private calcMeshZ(zOrder: number, maxZOrder: number): number {
-    if (maxZOrder === 0) return WindowMeshManager.Z_TOP;
-    const ratio = zOrder / maxZOrder;
-    return WindowMeshManager.Z_BOTTOM + (1 - ratio) * (WindowMeshManager.Z_TOP - WindowMeshManager.Z_BOTTOM);
+  private calcMeshZ(zOrder: number): number {
+    return WindowMeshManager.Z_TOP - zOrder * WindowMeshManager.Z_SPACING;
   }
 
   /** 設定 mesh 的 position 和 scale */
