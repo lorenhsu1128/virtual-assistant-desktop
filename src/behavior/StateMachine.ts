@@ -5,7 +5,6 @@ import type {
   BehaviorConfig,
 } from '../types/behavior';
 import { DEFAULT_BEHAVIOR_CONFIG } from '../types/behavior';
-import type { CollisionResult } from '../types/collision';
 
 /**
  * 自主移動行為狀態機
@@ -26,8 +25,6 @@ export class StateMachine {
 
   // walk 狀態
   private walkTarget: { x: number; y: number } | null = null;
-  private walkStartCollidingWindows: Set<number> = new Set();
-  private traversingWindowHwnd: number | null = null;
   private facingDirection = 1;
 
   // 速率倍率
@@ -53,7 +50,7 @@ export class StateMachine {
    *
    * 由 SceneManager render loop 呼叫。
    */
-  tick(input: BehaviorInput, collision: CollisionResult): BehaviorOutput {
+  tick(input: BehaviorInput): BehaviorOutput {
     const prevState = this.state;
 
     if (this.paused || this.state === 'drag') {
@@ -69,7 +66,7 @@ export class StateMachine {
         this.tickIdle(input);
         break;
       case 'walk':
-        this.tickWalk(input, collision);
+        this.tickWalk(input);
         break;
       case 'sit':
         this.tickSit(input);
@@ -84,22 +81,6 @@ export class StateMachine {
 
     const stateChanged = this.state !== prevState || this.pendingStateChange;
     this.pendingStateChange = false;
-
-    // 進入 walk 時記錄已重疊的視窗（避免立即取消移動）
-    if (stateChanged && this.state === 'walk') {
-      this.walkStartCollidingWindows.clear();
-      if (collision.collidingWithWindow && collision.collidedWindowHwnd !== null) {
-        this.walkStartCollidingWindows.add(collision.collidedWindowHwnd);
-      }
-      // 也記錄所有與角色重疊的視窗
-      for (const wr of input.windowRects) {
-        const cb = input.characterBounds;
-        if (cb.x < wr.x + wr.width && cb.x + cb.width > wr.x &&
-            cb.y < wr.y + wr.height && cb.y + cb.height > wr.y) {
-          this.walkStartCollidingWindows.add(wr.hwnd);
-        }
-      }
-    }
 
     const targetPosition = this.getTargetPosition(input);
 
@@ -125,11 +106,6 @@ export class StateMachine {
   /** 取得當前狀態 */
   getState(): BehaviorState {
     return this.state;
-  }
-
-  /** 取得正在穿越的視窗 handle */
-  getTraversingWindowHwnd(): number | null {
-    return this.traversingWindowHwnd;
   }
 
   /** 是否已暫停 */
@@ -166,51 +142,10 @@ export class StateMachine {
     }
   }
 
-  private tickWalk(input: BehaviorInput, collision: CollisionResult): void {
+  private tickWalk(input: BehaviorInput): void {
     if (!this.walkTarget) {
       this.enterState('idle');
       return;
-    }
-
-    // 螢幕邊緣到達：停止行走，進入 idle
-    if (collision.atScreenEdge) {
-      this.enterState('idle');
-      return;
-    }
-
-    // 視窗邊緣穿越偵測：檢查角色是否正在接近某個視窗的左/右邊緣
-    // （不使用 AABB 碰撞，因為 always-on-top 視窗永遠與下方視窗重疊）
-    const charCenterX = input.currentPosition.x + input.characterBounds.width / 2;
-    const charTop = input.currentPosition.y;
-    const charBottom = input.currentPosition.y + input.characterBounds.height;
-    const edgeThreshold = 30; // 接近邊緣的判定距離
-
-    for (const wr of input.windowRects) {
-      if (this.walkStartCollidingWindows.has(wr.hwnd)) continue;
-      // 最大化視窗不穿越（角色顯示在最大化視窗上）
-      if (wr.isMaximized) continue;
-
-      // 檢查 Y 軸是否重疊（角色與視窗有垂直交集）
-      if (charBottom <= wr.y || charTop >= wr.y + wr.height) continue;
-
-      // 檢查角色是否接近視窗的左或右邊緣
-      const distToLeft = Math.abs(charCenterX - wr.x);
-      const distToRight = Math.abs(charCenterX - (wr.x + wr.width));
-      const approachingLeft = distToLeft < edgeThreshold && this.facingDirection > 0;
-      const approachingRight = distToRight < edgeThreshold && this.facingDirection < 0;
-
-      if (approachingLeft || approachingRight) {
-        // 永遠穿越：walkTarget 設為視窗另一側
-        const charWidth = input.characterBounds.width;
-        if (approachingLeft) {
-          this.walkTarget = { x: wr.x + wr.width + charWidth * 0.5, y: input.currentPosition.y };
-        } else {
-          this.walkTarget = { x: wr.x - charWidth * 1.5, y: input.currentPosition.y };
-        }
-        this.walkStartCollidingWindows.add(wr.hwnd);
-        this.traversingWindowHwnd = wr.hwnd;
-        return;
-      }
     }
 
     // 移動
@@ -370,10 +305,6 @@ export class StateMachine {
     this.previousState = this.state;
     this.state = state;
     this.stateTimer = 0;
-    // 離開 walk 時清除穿越狀態
-    if (state !== 'walk') {
-      this.traversingWindowHwnd = null;
-    }
 
     switch (state) {
       case 'idle':
@@ -462,7 +393,7 @@ export class StateMachine {
       targetPosition,
       facingDirection: this.facingDirection,
       attachedWindowHwnd: this.attachedWindowHwnd,
-      traversingWindowHwnd: this.traversingWindowHwnd,
+      traversingWindowHwnd: null,
     };
   }
 

@@ -3,14 +3,9 @@ import { VRMController } from './VRMController';
 import type { AnimationManager } from '../animation/AnimationManager';
 import type { FallbackAnimation } from '../animation/FallbackAnimation';
 import type { StateMachine } from '../behavior/StateMachine';
-import type { CollisionSystem } from '../behavior/CollisionSystem';
 import type { BehaviorAnimationBridge } from '../behavior/BehaviorAnimationBridge';
 import type { ExpressionManager } from '../expression/ExpressionManager';
-import type { DebugOverlay, BoneDebugData, ContactDebugData } from '../debug/DebugOverlay';
 import type { Rect } from '../types/window';
-import type { Point } from '../types/occlusion';
-import { SilhouetteExtractor } from '../occlusion/SilhouetteExtractor';
-import { clipPolygonToRect } from '../occlusion/PolygonClip';
 
 /** 幀率模式 */
 type FpsMode = 'foreground' | 'background' | 'powerSave';
@@ -22,8 +17,7 @@ const FPS_MAP: Record<FpsMode, number> = {
   powerSave: 15,
 };
 
-/** 遮擋更新最小間隔（ms） */
-const OCCLUSION_UPDATE_INTERVAL = 100;
+// (遮擋系統已移除)
 
 /**
  * Three.js 場景的生命週期管理
@@ -44,20 +38,13 @@ export class SceneManager {
 
   // v0.2 模組
   private stateMachine: StateMachine | null = null;
-  private collisionSystem: CollisionSystem | null = null;
   private behaviorBridge: BehaviorAnimationBridge | null = null;
 
   // v0.3 模組
   private expressionManager: ExpressionManager | null = null;
   private lastAppliedExpression: string | null = null;
 
-  // Debug
-  private debugOverlay: DebugOverlay | null = null;
-  private static readonly DEBUG_BONES = ['head', 'leftHand', 'rightHand', 'hips', 'leftUpperLeg', 'rightUpperLeg', 'leftFoot', 'rightFoot'];
-  private windowListFetcher: (() => Promise<Array<{ title: string; x: number; y: number; width: number; height: number; zOrder: number }>>) | null = null;
-  private lastWindowListUpdate = 0;
-  private static readonly WINDOW_LIST_INTERVAL = 1000; // 1 秒更新一次
-  private static readonly CONTACT_THRESHOLD = 10; // 骨骼與視窗邊緣接觸判定閾值（像素）
+  // (Debug overlay 已移除，未來重新開發)
 
   // 角色位置管理（全螢幕模式：角色在 canvas 內移動，視窗不動）
   private currentPosition = { x: 0, y: 0 };
@@ -73,12 +60,7 @@ export class SceneManager {
   /** 原始攝影機距離 */
   private static readonly BASE_CAMERA_DIST = 3.5;
   // BASE_CAMERA_Y removed: camera Y is now computed from visibleHeight
-  private occlusionSetter: ((rects: Rect[]) => void) | null = null;
-  private occlusionPolygonSetter: ((points: Point[]) => void) | null = null;
-  private silhouetteExtractor: SilhouetteExtractor | null = null;
-  private silhouetteEnabled = true;
-  private lastOcclusionUpdate = 0;
-  private lastOcclusionHash = '';
+  // (遮擋系統已移除，未來重新開發)
 
   private targetFps: number;
   private fpsMode: FpsMode = 'foreground';
@@ -199,11 +181,6 @@ export class SceneManager {
     this.stateMachine = sm;
   }
 
-  /** 設定 CollisionSystem (v0.2) */
-  setCollisionSystem(cs: CollisionSystem): void {
-    this.collisionSystem = cs;
-  }
-
   /** 設定 BehaviorAnimationBridge (v0.2) */
   setBehaviorAnimationBridge(bridge: BehaviorAnimationBridge): void {
     this.behaviorBridge = bridge;
@@ -214,36 +191,12 @@ export class SceneManager {
     this.expressionManager = em;
   }
 
-  /** 設定 Debug Overlay */
-  setDebugOverlay(overlay: DebugOverlay): void {
-    this.debugOverlay = overlay;
-  }
-
-  /** 設定視窗清單取得函式（供 debug overlay 使用） */
-  setWindowListFetcher(fetcher: () => Promise<Array<{ title: string; x: number; y: number; width: number; height: number; zOrder: number }>>): void {
-    this.windowListFetcher = fetcher;
-  }
-
   /** 設定 workArea 原點（螢幕絕對座標，邏輯像素） */
   setWorkAreaOrigin(x: number, y: number): void {
     this.workAreaOrigin = { x, y };
   }
 
-  /** 設定遮擋更新 callback（矩形，fallback 用） */
-  setOcclusionSetter(setter: (rects: Rect[]) => void): void {
-    this.occlusionSetter = setter;
-  }
-
-  /** 設定多邊形遮擋更新 callback（精確輪廓） */
-  setOcclusionPolygonSetter(setter: (points: Point[]) => void): void {
-    this.occlusionPolygonSetter = setter;
-    // 有 polygon setter 時建立 silhouette extractor
-    if (!this.silhouetteExtractor) {
-      this.silhouetteExtractor = new SilhouetteExtractor(this.renderer);
-    }
-  }
-
-  /** 更新當前視窗位置（由外部同步） */
+  /** 更新當前角色位置（螢幕座標） */
   setCurrentPosition(pos: { x: number; y: number }): void {
     this.previousPosition = { ...this.currentPosition };
     this.currentPosition = pos;
@@ -378,7 +331,7 @@ export class SceneManager {
     const deltaTime = Math.min(delta / 1000, 0.1); // cap at 100ms to avoid spiral
 
     // Debug 移動（Ctrl+方向鍵 global shortcut，debug mode 時有效）
-    if (this.debugMoveDir && this.debugOverlay?.isEnabled()) {
+    if (this.debugMoveDir) {
       const step = 30;
       switch (this.debugMoveDir) {
         case 'left': this.currentPosition.x -= step; break;
@@ -389,35 +342,29 @@ export class SceneManager {
       this.debugMoveDir = null;
     }
 
-    // Step 1 & 2: StateMachine + CollisionSystem
-    if (this.stateMachine && this.collisionSystem && !this.stateMachine.isPaused()) {
+    // Step 1: StateMachine（碰撞/穿越已移除，僅保留基本狀態機）
+    if (this.stateMachine && !this.stateMachine.isPaused()) {
       const characterBounds = this.getCharacterBounds();
+      const canvas = this.renderer.domElement;
 
-      // CollisionSystem 檢測
-      const collision = this.collisionSystem.check(characterBounds);
-
-      // StateMachine 更新
-      const output = this.stateMachine.tick(
-        {
-          currentPosition: this.currentPosition,
-          characterBounds,
-          screenBounds: this.collisionSystem.getScreenBounds(),
-          windowRects: this.collisionSystem.getWindowRects(),
-          scale: this.scale,
-          deltaTime,
+      // StateMachine 更新（不再需要 CollisionResult）
+      const output = this.stateMachine.tick({
+        currentPosition: this.currentPosition,
+        characterBounds,
+        screenBounds: {
+          x: this.workAreaOrigin.x,
+          y: this.workAreaOrigin.y,
+          width: canvas.clientWidth || canvas.width,
+          height: canvas.clientHeight || canvas.height,
         },
-        collision,
-      );
+        windowRects: [],
+        scale: this.scale,
+        deltaTime,
+      });
 
-      // 套用目標位置
+      // 套用目標位置（簡單螢幕邊界 clamp）
       if (output.targetPosition) {
-        const clamped = this.collisionSystem.clampToScreen(
-          output.targetPosition,
-          this.characterSize.width,
-          this.characterSize.height,
-        );
-
-        this.currentPosition = clamped;
+        this.currentPosition = this.clampToScreen(output.targetPosition);
       }
 
       // BehaviorAnimationBridge 更新
@@ -426,41 +373,10 @@ export class SceneManager {
       }
     }
 
-    // 移動方向追蹤 → 模型 Y 軸旋轉（全螢幕模式不旋轉攝影機）
+    // 移動方向追蹤 → 模型 Y 軸旋轉
     const moveDx = this.currentPosition.x - this.previousPosition.x;
     const moveDy = this.currentPosition.y - this.previousPosition.y;
     this.updateModelFacingDirection(moveDx, moveDy);
-
-    // 遮擋判定（Phase 1: 判定需要遮擋的視窗，render 後再提取輪廓）
-    let pendingOcclusionRects: Rect[] | null = null;
-    let pendingOcclusionWindowRect: Rect | null = null;
-
-    if (this.collisionSystem && (this.occlusionSetter || this.occlusionPolygonSetter) && now - this.lastOcclusionUpdate > OCCLUSION_UPDATE_INTERVAL) {
-      const isDragging = this.stateMachine?.getState() === 'drag';
-      const traversingHwnd = this.stateMachine?.getTraversingWindowHwnd() ?? null;
-      const isDebug = this.debugOverlay?.isEnabled() ?? false;
-
-      if (isDragging) {
-        pendingOcclusionRects = [];
-      } else if (traversingHwnd !== null) {
-        pendingOcclusionRects = this.collisionSystem.getOcclusionRectsForWindow(this.getCharacterBounds(), traversingHwnd);
-        // 取得穿越視窗的螢幕座標（供多邊形裁切用）
-        const wr = this.collisionSystem.getWindowRects().find(w => w.hwnd === traversingHwnd);
-        if (wr) {
-          pendingOcclusionWindowRect = { x: wr.x, y: wr.y, width: wr.width, height: wr.height };
-        }
-      } else if (isDebug) {
-        const fgWindow = this.collisionSystem.getWindowRects().find(w => w.isForeground);
-        if (fgWindow && !fgWindow.isMaximized) {
-          pendingOcclusionRects = this.collisionSystem.getOcclusionRectsForWindow(this.getCharacterBounds(), fgWindow.hwnd);
-          pendingOcclusionWindowRect = { x: fgWindow.x, y: fgWindow.y, width: fgWindow.width, height: fgWindow.height };
-        } else {
-          pendingOcclusionRects = [];
-        }
-      } else {
-        pendingOcclusionRects = [];
-      }
-    }
 
     // Step 3: Animation update
     if (this.useFallback && this.fallbackAnimation) {
@@ -503,210 +419,9 @@ export class SceneManager {
       this.previousPosition.y = this.currentPosition.y;
     }
 
-    // Debug overlay: 骨骼座標視覺化
-    if (this.debugOverlay?.isEnabled() && this.vrmController) {
-      const canvas = this.renderer.domElement;
-      const screenPositions = this.vrmController.getBoneScreenPositions(
-        SceneManager.DEBUG_BONES,
-        this.camera,
-        canvas.clientWidth,
-        canvas.clientHeight,
-      );
-
-      const boneData: BoneDebugData[] = SceneManager.DEBUG_BONES.map((name) => ({
-        boneName: name,
-        world: this.vrmController!.getBoneExtremityWorldPosition(name),
-        screen: screenPositions.get(name) ?? null,
-      }));
-
-      this.debugOverlay.updateBones(boneData);
-
-      // 攝影機角度面板
-      this.debugOverlay.updateCamera(
-        this.orbitTheta,
-        this.orbitPhi,
-        this.modelTargetTheta,
-        this.stateMachine?.getSpeedMultiplier() ?? 1.0,
-      );
-
-      // 骨骼與視窗邊緣的接觸檢測（Z-order 遮擋感知）
-      if (this.collisionSystem) {
-        const contacts: ContactDebugData[] = [];
-        const windowRects = this.collisionSystem.getWindowRects();
-        const threshold = SceneManager.CONTACT_THRESHOLD;
-        const dpr = window.devicePixelRatio || 1;
-
-        // 預先計算所有視窗的邏輯座標（避免重複計算）
-        const logicalWindows = windowRects.map((wr) => ({
-          left: wr.x / dpr,
-          right: (wr.x + wr.width) / dpr,
-          top: wr.y / dpr,
-          bottom: (wr.y + wr.height) / dpr,
-          zOrder: wr.zOrder,
-        }));
-
-        /** 檢查螢幕座標點是否被更高 Z-order 的視窗遮擋 */
-        const isOccludedByHigherZ = (sx: number, sy: number, currentZ: number): boolean => {
-          for (const hw of logicalWindows) {
-            if (hw.zOrder >= currentZ) continue; // 只看更高層（zOrder 越小越上層）
-            if (sx >= hw.left && sx <= hw.right && sy >= hw.top && sy <= hw.bottom) {
-              return true;
-            }
-          }
-          return false;
-        };
-
-        for (const bone of boneData) {
-          if (!bone.screen) continue;
-          // 全螢幕模式：bone.screen 已是 canvas 座標 = workArea 相對座標
-          const boneScreenX = this.workAreaOrigin.x + bone.screen.x;
-          const boneScreenY = this.workAreaOrigin.y + bone.screen.y;
-
-          for (const lw of logicalWindows) {
-            const inVertRange = boneScreenY >= lw.top - threshold && boneScreenY <= lw.bottom + threshold;
-            const inHorzRange = boneScreenX >= lw.left - threshold && boneScreenX <= lw.right + threshold;
-
-            // 左邊緣
-            if (inVertRange && Math.abs(boneScreenX - lw.left) <= threshold) {
-              if (!isOccludedByHigherZ(boneScreenX, boneScreenY, lw.zOrder)) {
-                contacts.push({ x: bone.screen.x, y: bone.screen.y, direction: 'vertical' });
-              }
-            }
-            // 右邊緣
-            if (inVertRange && Math.abs(boneScreenX - lw.right) <= threshold) {
-              if (!isOccludedByHigherZ(boneScreenX, boneScreenY, lw.zOrder)) {
-                contacts.push({ x: bone.screen.x, y: bone.screen.y, direction: 'vertical' });
-              }
-            }
-            // 上邊緣
-            if (inHorzRange && Math.abs(boneScreenY - lw.top) <= threshold) {
-              if (!isOccludedByHigherZ(boneScreenX, boneScreenY, lw.zOrder)) {
-                contacts.push({ x: bone.screen.x, y: bone.screen.y, direction: 'horizontal' });
-              }
-            }
-            // 下邊緣
-            if (inHorzRange && Math.abs(boneScreenY - lw.bottom) <= threshold) {
-              if (!isOccludedByHigherZ(boneScreenX, boneScreenY, lw.zOrder)) {
-                contacts.push({ x: bone.screen.x, y: bone.screen.y, direction: 'horizontal' });
-              }
-            }
-          }
-        }
-
-        this.debugOverlay.updateContacts(contacts);
-      }
-
-      // 視窗清單（每秒更新一次）
-      const now = performance.now();
-      if (this.windowListFetcher && now - this.lastWindowListUpdate > SceneManager.WINDOW_LIST_INTERVAL) {
-        this.lastWindowListUpdate = now;
-        const pos = this.currentPosition;
-        this.windowListFetcher().then((windows) => {
-          this.debugOverlay?.updateWindowList(windows, pos);
-        }).catch(() => { /* 忽略錯誤 */ });
-      }
-    }
-
     // Step 6: Render
     this.renderer.render(this.scene, this.camera);
-
-    // 遮擋套用（Phase 2: render 後提取輪廓或 fallback 到矩形）
-    if (pendingOcclusionRects !== null) {
-      this.applyOcclusion(pendingOcclusionRects, pendingOcclusionWindowRect);
-      this.lastOcclusionUpdate = now;
-    }
   };
-
-  /**
-   * 套用遮擋效果（render 後呼叫）
-   *
-   * 優先使用多邊形輪廓，失敗則 fallback 到矩形。
-   */
-  private applyOcclusion(fallbackRects: Rect[], windowRect: Rect | null): void {
-    // 無遮擋需求（空矩形 = 清除遮擋）
-    if (fallbackRects.length === 0) {
-      const hash = '0';
-      if (hash !== this.lastOcclusionHash) {
-        this.lastOcclusionHash = hash;
-        if (this.occlusionPolygonSetter) {
-          this.occlusionPolygonSetter([]);
-        } else {
-          this.occlusionSetter?.(fallbackRects);
-        }
-      }
-      return;
-    }
-
-    // 嘗試多邊形輪廓（僅在實際穿越時使用，debug mode 用矩形即可）
-    const isTraversing = this.stateMachine?.getTraversingWindowHwnd() !== null;
-    if (isTraversing && this.silhouetteEnabled && this.silhouetteExtractor && this.occlusionPolygonSetter && windowRect) {
-      try {
-        // 全螢幕模式：只讀取角色所在的子區域（canvas CSS 座標）
-        const charBounds = this.getCharacterBounds();
-        const extractRegion = {
-          x: charBounds.x - this.workAreaOrigin.x,
-          y: charBounds.y - this.workAreaOrigin.y,
-          width: charBounds.width,
-          height: charBounds.height,
-        };
-        const silhouette = this.silhouetteExtractor.extract(128, 2.0, 200, 4, extractRegion);
-        if (silhouette && silhouette.length >= 3) {
-          // 視窗螢幕座標轉為 canvas 本地座標（用於裁切）
-          const localClipRect: Rect = {
-            x: windowRect.x - this.workAreaOrigin.x,
-            y: windowRect.y - this.workAreaOrigin.y,
-            width: windowRect.width,
-            height: windowRect.height,
-          };
-
-          // 裁切輪廓與視窗的交集
-          const clipped = clipPolygonToRect(silhouette, localClipRect);
-          if (clipped.length >= 3) {
-            const hash = this.hashPoints(clipped);
-            if (hash !== this.lastOcclusionHash) {
-              this.lastOcclusionHash = hash;
-              this.occlusionPolygonSetter(clipped);
-            }
-            return;
-          }
-        }
-      } catch (e) {
-        // 輪廓提取失敗，永久降級到矩形
-        console.warn('[SceneManager] Silhouette extraction failed, falling back to rects:', e);
-        this.silhouetteEnabled = false;
-      }
-    }
-
-    // Fallback: 矩形遮擋
-    const hash = this.hashOcclusionData(fallbackRects);
-    if (hash !== this.lastOcclusionHash) {
-      this.lastOcclusionHash = hash;
-      this.occlusionSetter?.(fallbackRects);
-    }
-  }
-
-  /** 遮擋矩形的簡易 hash（避免 JSON.stringify 的 GC 壓力） */
-  private hashOcclusionData(rects: Rect[]): string {
-    if (rects.length === 0) return '0';
-    let hash = rects.length;
-    for (const r of rects) {
-      hash = ((hash << 5) - hash + r.x) | 0;
-      hash = ((hash << 5) - hash + r.y) | 0;
-      hash = ((hash << 5) - hash + r.width) | 0;
-      hash = ((hash << 5) - hash + r.height) | 0;
-    }
-    return 'r' + String(hash);
-  }
-
-  /** 多邊形頂點的簡易 hash */
-  private hashPoints(points: Point[]): string {
-    let hash = points.length;
-    for (const p of points) {
-      hash = ((hash << 5) - hash + Math.round(p.x)) | 0;
-      hash = ((hash << 5) - hash + Math.round(p.y)) | 0;
-    }
-    return 'p' + String(hash);
-  }
 
   /** 重置攝影機到預設視角 */
   resetCamera(): void {
@@ -939,6 +654,25 @@ export class SceneManager {
     const world = this.screenToWorld(centerX, bottomY);
 
     this.vrmController.setWorldPosition(world.x, world.y);
+  }
+
+  /** 簡單螢幕邊界 clamp（保留 20% 可見） */
+  private clampToScreen(pos: { x: number; y: number }): { x: number; y: number } {
+    const canvas = this.renderer.domElement;
+    const canvasW = canvas.clientWidth || canvas.width;
+    const canvasH = canvas.clientHeight || canvas.height;
+    const charW = this.characterSize.width;
+    const charH = this.characterSize.height;
+
+    const minX = this.workAreaOrigin.x - charW * 0.8;
+    const maxX = this.workAreaOrigin.x + canvasW - charW * 0.2;
+    const minY = this.workAreaOrigin.y - charH * 0.8;
+    const maxY = this.workAreaOrigin.y + canvasH - charH * 0.2;
+
+    return {
+      x: Math.max(minX, Math.min(maxX, pos.x)),
+      y: Math.max(minY, Math.min(maxY, pos.y)),
+    };
   }
 
   /** 更新角色 bounding box 尺寸（基於模型世界尺寸） */

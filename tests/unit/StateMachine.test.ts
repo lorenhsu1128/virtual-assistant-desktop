@@ -1,8 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { StateMachine } from '../../src/behavior/StateMachine';
 import type { BehaviorInput } from '../../src/types/behavior';
-import type { CollisionResult } from '../../src/types/collision';
-import { NO_COLLISION } from '../../src/types/collision';
 
 function makeInput(overrides?: Partial<BehaviorInput>): BehaviorInput {
   return {
@@ -14,10 +12,6 @@ function makeInput(overrides?: Partial<BehaviorInput>): BehaviorInput {
     deltaTime: 1 / 30,
     ...overrides,
   };
-}
-
-function makeCollision(overrides?: Partial<CollisionResult>): CollisionResult {
-  return { ...NO_COLLISION, snappableWindows: [], occlusionRects: [], ...overrides };
 }
 
 describe('StateMachine', () => {
@@ -44,7 +38,7 @@ describe('StateMachine', () => {
 
   it('should return no movement when paused', () => {
     sm.pause();
-    const output = sm.tick(makeInput(), makeCollision());
+    const output = sm.tick(makeInput());
     // Paused state returns current position (no new movement calculation)
     expect(output.currentState).toBe('idle');
     expect(output.stateChanged).toBe(false);
@@ -53,7 +47,7 @@ describe('StateMachine', () => {
   it('should forceState to drag', () => {
     sm.forceState('drag');
     expect(sm.getState()).toBe('drag');
-    const output = sm.tick(makeInput(), makeCollision());
+    const output = sm.tick(makeInput());
     expect(output.currentState).toBe('drag');
     // Drag state is handled externally; SM returns current position
   });
@@ -70,7 +64,7 @@ describe('StateMachine', () => {
     const input = makeInput({ deltaTime: 0.02 });
 
     // 第一次 tick 應觸發轉移
-    const output = shortSm.tick(input, makeCollision());
+    const output = shortSm.tick(input);
     // 可能轉到 walk, sit, peek 或繼續 idle
     expect(['idle', 'walk', 'sit', 'peek']).toContain(output.currentState);
   });
@@ -86,13 +80,13 @@ describe('StateMachine', () => {
     vi.spyOn(Math, 'random').mockReturnValue(0);
 
     const input = makeInput({ deltaTime: 0.01 });
-    const output = walkSm.tick(input, makeCollision());
+    const output = walkSm.tick(input);
     expect(output.currentState).toBe('walk');
 
     vi.restoreAllMocks();
   });
 
-  it('should always traverse window edge during walk', () => {
+  it('should walk to target and return to idle', () => {
     const walkSm = new StateMachine({
       idleDurationMin: 0.001,
       idleDurationMax: 0.001,
@@ -101,52 +95,8 @@ describe('StateMachine', () => {
     vi.spyOn(Math, 'random').mockReturnValue(0.5);
 
     // First tick transitions idle → walk
-    walkSm.tick(makeInput({ deltaTime: 0.01 }), makeCollision());
+    walkSm.tick(makeInput({ deltaTime: 0.01 }));
     expect(walkSm.getState()).toBe('walk');
-
-    // Place a window edge near the character's path
-    const windowRect = {
-      hwnd: 789,
-      title: 'Blocking Window',
-      x: 530, // charCenterX=700, distToLeft=170 — not close enough to trigger
-      y: 400,
-      width: 800,
-      height: 600,
-      zOrder: 1,
-      isForeground: false,
-      isMaximized: false,
-    };
-
-    // Character approaching window left edge within threshold
-    const input = makeInput({
-      currentPosition: { x: 500, y: 500 },
-      characterBounds: { x: 500, y: 500, width: 400, height: 600 },
-      windowRects: [windowRect],
-    });
-
-    // Should stay in walk (traverse, not bounce)
-    const output = walkSm.tick(input, makeCollision());
-    expect(output.currentState).toBe('walk');
-
-    vi.restoreAllMocks();
-  });
-
-  it('should enter idle at screen edge without collision', () => {
-    const walkSm = new StateMachine({
-      idleDurationMin: 0.001,
-      idleDurationMax: 0.001,
-      transitionProbabilities: { toWalk: 1.0, toSit: 0, toPeek: 0, toIdle: 0 },
-    });
-    vi.spyOn(Math, 'random').mockReturnValue(0.5);
-
-    // First tick transitions idle → walk
-    walkSm.tick(makeInput({ deltaTime: 0.01 }), makeCollision());
-    expect(walkSm.getState()).toBe('walk');
-
-    // Second tick with screen edge
-    const collision = makeCollision({ atScreenEdge: true });
-    const output = walkSm.tick(makeInput(), collision);
-    expect(output.currentState).toBe('idle');
 
     vi.restoreAllMocks();
   });
@@ -157,7 +107,7 @@ describe('StateMachine', () => {
 
     // Window not in the list
     const input = makeInput({ windowRects: [] });
-    const output = sm.tick(input, makeCollision());
+    const output = sm.tick(input);
 
     expect(output.currentState).toBe('fall');
   });
@@ -167,7 +117,7 @@ describe('StateMachine', () => {
 
     // Simulate 2 seconds passing
     const input = makeInput({ deltaTime: 2.0 });
-    const output = sm.tick(input, makeCollision());
+    const output = sm.tick(input);
 
     expect(output.currentState).toBe('idle');
   });
@@ -183,10 +133,10 @@ describe('StateMachine', () => {
     });
 
     const input = makeInput({ deltaTime: 0.01 });
-    shortSm.tick(input, makeCollision()); // transitions to walk
+    shortSm.tick(input); // transitions to walk
 
     // Next tick should have a target position
-    const output = shortSm.tick(makeInput({ deltaTime: 1 / 30 }), makeCollision());
+    const output = shortSm.tick(makeInput({ deltaTime: 1 / 30 }));
     if (output.currentState === 'walk') {
       // walk state should produce target position
       expect(output.targetPosition).not.toBeNull();
@@ -210,7 +160,7 @@ describe('StateMachine', () => {
     };
 
     const input = makeInput({ windowRects: [windowRect] });
-    const output = sm.tick(input, makeCollision());
+    const output = sm.tick(input);
 
     expect(output.currentState).toBe('sit');
     expect(output.targetPosition).not.toBeNull();

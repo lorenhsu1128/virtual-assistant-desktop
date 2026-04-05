@@ -25,9 +25,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ── Window Monitor ──
   getWindowList: () => ipcRenderer.invoke('get_window_list'),
 
-  // ── Window Region ──
-  setWindowRegion: (excludeRects: unknown) => ipcRenderer.invoke('set_window_region', excludeRects),
-  setWindowPolygonRegion: (points: unknown) => ipcRenderer.invoke('set_window_polygon_region', points),
+  // (Window Region 已移除，未來重新開發)
 
   // ── Display Info ──
   getDisplayInfo: () => ipcRenderer.invoke('get_display_info'),

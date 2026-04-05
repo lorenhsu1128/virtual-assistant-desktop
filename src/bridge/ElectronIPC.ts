@@ -1,8 +1,7 @@
 import type { AppConfig } from '../types/config';
 import type { AnimationMeta } from '../types/animation';
-import type { WindowRect, Rect, DisplayInfo } from '../types/window';
+import type { WindowRect, DisplayInfo } from '../types/window';
 import type { TrayMenuData } from '../types/tray';
-import type { Point } from '../types/occlusion';
 
 /**
  * Electron API interface exposed via preload script (contextBridge).
@@ -20,8 +19,6 @@ interface ElectronAPI {
   pickVrmFile(): Promise<string | null>;
   pickAnimationFolder(): Promise<string | null>;
   getWindowList(): Promise<WindowRect[]>;
-  setWindowRegion(excludeRects: Rect[]): Promise<void>;
-  setWindowPolygonRegion(points: Point[]): Promise<void>;
   getDisplayInfo(): Promise<DisplayInfo[]>;
   setWindowPosition(x: number, y: number): Promise<void>;
   getWindowPosition(): Promise<{ x: number; y: number }>;
@@ -220,36 +217,6 @@ class ElectronIPC {
       callback(rects);
     });
     return unlisten;
-  }
-
-  /**
-   * Set window region for occlusion effect
-   *
-   * Pass empty array to reset to full window.
-   */
-  async setWindowRegion(excludeRects: Rect[]): Promise<boolean> {
-    try {
-      await window.electronAPI.setWindowRegion(excludeRects);
-      return true;
-    } catch (e) {
-      console.warn('[ElectronIPC] setWindowRegion failed:', e);
-      return false;
-    }
-  }
-
-  /**
-   * Set window region using polygon shape for precise silhouette occlusion
-   *
-   * Pass empty array to reset to full window.
-   */
-  async setWindowPolygonRegion(points: Point[]): Promise<boolean> {
-    try {
-      await window.electronAPI.setWindowPolygonRegion(points);
-      return true;
-    } catch (e) {
-      console.warn('[ElectronIPC] setWindowPolygonRegion failed:', e);
-      return false;
-    }
   }
 
   /**

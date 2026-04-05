@@ -1,21 +1,14 @@
-import type { Rect, WindowRect } from '../types/window';
-
 /** DragHandler 的依賴注入介面 */
 export interface DragHandlerDeps {
   /** 取得角色目前位置（同步，螢幕座標） */
   getCharacterPosition: () => { x: number; y: number };
-  getSnappableWindows: (bounds: Rect, threshold: number) => WindowRect[];
-  clampToScreen: (position: { x: number; y: number }, charWidth: number, charHeight: number) => { x: number; y: number };
   getCharacterSize: () => { width: number; height: number };
   onDragStart: () => void;
-  onDragEnd: (position: { x: number; y: number }, snappedWindow: WindowRect | null) => void;
+  onDragEnd: (position: { x: number; y: number }) => void;
   onDragMove?: (x: number, y: number) => void;
   onDragLock?: () => void;
   onDragUnlock?: () => void;
 }
-
-/** 吸附判定閾值（px） */
-const SNAP_THRESHOLD = 20;
 
 /**
  * 拖曳互動處理
@@ -80,14 +73,8 @@ export class DragHandler {
     const dx = e.screenX - this.dragStartPos.x;
     const dy = e.screenY - this.dragStartPos.y;
 
-    let newX = this.charStartPos.x + dx;
-    let newY = this.charStartPos.y + dy;
-
-    // 邊緣夾限（保留 20% 可見）
-    const charSize = this.deps.getCharacterSize();
-    const clamped = this.deps.clampToScreen({ x: newX, y: newY }, charSize.width, charSize.height);
-    newX = clamped.x;
-    newY = clamped.y;
+    const newX = this.charStartPos.x + dx;
+    const newY = this.charStartPos.y + dy;
 
     this.deps.onDragMove?.(newX, newY);
   }
@@ -100,32 +87,9 @@ export class DragHandler {
     const dx = e.screenX - this.dragStartPos.x;
     const dy = e.screenY - this.dragStartPos.y;
 
-    let finalX = this.charStartPos.x + dx;
-    let finalY = this.charStartPos.y + dy;
+    const finalX = this.charStartPos.x + dx;
+    const finalY = this.charStartPos.y + dy;
 
-    // 邊緣夾限
-    const charSize = this.deps.getCharacterSize();
-    const clamped = this.deps.clampToScreen({ x: finalX, y: finalY }, charSize.width, charSize.height);
-    finalX = clamped.x;
-    finalY = clamped.y;
-
-    // 吸附判定
-    const characterBounds: Rect = {
-      x: finalX,
-      y: finalY,
-      width: charSize.width,
-      height: charSize.height,
-    };
-
-    const snappable = this.deps.getSnappableWindows(characterBounds, SNAP_THRESHOLD);
-
-    if (snappable.length > 0) {
-      const target = snappable[0];
-      finalX = target.x + target.width / 2 - charSize.width / 2;
-      finalY = target.y - charSize.height;
-      this.deps.onDragEnd({ x: finalX, y: finalY }, target);
-    } else {
-      this.deps.onDragEnd({ x: finalX, y: finalY }, null);
-    }
+    this.deps.onDragEnd({ x: finalX, y: finalY });
   }
 }

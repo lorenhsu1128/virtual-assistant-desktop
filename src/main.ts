@@ -4,15 +4,12 @@ import { VRMController } from './core/VRMController';
 import { AnimationManager } from './animation/AnimationManager';
 import { FallbackAnimation } from './animation/FallbackAnimation';
 import { StateMachine } from './behavior/StateMachine';
-import { CollisionSystem } from './behavior/CollisionSystem';
 import { BehaviorAnimationBridge } from './behavior/BehaviorAnimationBridge';
 import { DragHandler } from './interaction/DragHandler';
 import { HitTestManager } from './interaction/HitTestManager';
 import { DEFAULT_CONFIG, type AppConfig } from './types/config';
 import type { TrayMenuData } from './types/tray';
 import { ExpressionManager } from './expression/ExpressionManager';
-import { DebugOverlay } from './debug/DebugOverlay';
-import type { WindowRect } from './types/window';
 
 /**
  * 應用程式進入點
@@ -268,17 +265,14 @@ async function initializeApp(config: AppConfig, appPath: string): Promise<void> 
 
   // ── v0.2: 行為系統（非阻塞，初始化失敗不影響基本渲染） ──
   try {
-    await initializeBehaviorSystem(config, sceneManager, vrmController, animationManager, canvas, collisionSystemRef);
+    await initializeBehaviorSystem(config, sceneManager, vrmController, animationManager, canvas);
   } catch (e) {
     console.warn('[main] v0.2 behavior system initialization failed, basic rendering continues:', e);
   }
 }
 
-/** v0.2 行為系統參照（供 cleanup 使用） */
-const collisionSystemRef = { current: new CollisionSystem() };
-
 /**
- * 初始化 v0.2 行為與互動系統
+ * 初始化行為與互動系統
  *
  * 獨立函式，失敗時不影響基本渲染。
  */
@@ -288,28 +282,13 @@ async function initializeBehaviorSystem(
   vrmController: VRMController,
   animationManager: AnimationManager | null,
   canvas: HTMLCanvasElement,
-  csRef: { current: CollisionSystem },
 ): Promise<void> {
-  // 全螢幕模式：視窗位置固定，角色起始位置 = workArea 中央
-
-  // CollisionSystem
-  const collisionSystem = csRef.current;
-
-  // 螢幕邊界 + 工作列偵測
+  // 螢幕資訊（workArea 用於座標轉換和角色初始位置）
   const displays = await ipc.getDisplayInfo();
-  let taskbarRect: WindowRect | null = null;
   if (displays.length > 0) {
     const primaryDisplay = displays[0];
-    // 使用 workArea 作為螢幕邊界（扣除工作列）
     const effectiveBounds = primaryDisplay.workArea ?? primaryDisplay;
-    collisionSystem.updateScreenBounds({
-      x: effectiveBounds.x,
-      y: effectiveBounds.y,
-      width: effectiveBounds.width,
-      height: effectiveBounds.height,
-    });
 
-    // 設定 workArea 原點（用於座標轉換）
     sceneManager.setWorkAreaOrigin(effectiveBounds.x, effectiveBounds.y);
 
     // 角色初始位置：workArea 中央
@@ -318,63 +297,7 @@ async function initializeBehaviorSystem(
       x: effectiveBounds.x + (effectiveBounds.width - charBounds.width) / 2,
       y: effectiveBounds.y + (effectiveBounds.height - charBounds.height) / 2,
     });
-
-    // 從 bounds vs workArea 推算工作列位置
-    if (primaryDisplay.workArea) {
-      const b = primaryDisplay;
-      const w = primaryDisplay.workArea;
-      // DPI: workArea 是邏輯像素，但 WindowRect 是物理像素
-      const dpr = primaryDisplay.scaleFactor;
-      if (w.y > b.y) {
-        // 工作列在上方
-        taskbarRect = { hwnd: -1, title: 'Taskbar', x: Math.round(b.x * dpr), y: Math.round(b.y * dpr), width: Math.round(b.width * dpr), height: Math.round((w.y - b.y) * dpr), zOrder: -1 };
-      } else if (w.height < b.height) {
-        // 工作列在下方
-        const taskbarY = w.y + w.height;
-        const taskbarH = b.height - w.height;
-        taskbarRect = { hwnd: -1, title: 'Taskbar', x: Math.round(b.x * dpr), y: Math.round(taskbarY * dpr), width: Math.round(b.width * dpr), height: Math.round(taskbarH * dpr), zOrder: -1 };
-      } else if (w.x > b.x) {
-        // 工作列在左方
-        taskbarRect = { hwnd: -1, title: 'Taskbar', x: Math.round(b.x * dpr), y: Math.round(b.y * dpr), width: Math.round((w.x - b.x) * dpr), height: Math.round(b.height * dpr), zOrder: -1 };
-      } else if (w.width < b.width) {
-        // 工作列在右方
-        const taskbarX = w.x + w.width;
-        const taskbarW = b.width - w.width;
-        taskbarRect = { hwnd: -1, title: 'Taskbar', x: Math.round(taskbarX * dpr), y: Math.round(b.y * dpr), width: Math.round(taskbarW * dpr), height: Math.round(b.height * dpr), zOrder: -1 };
-      }
-    }
-  } else {
-    collisionSystem.updateScreenBounds({
-      x: 0,
-      y: 0,
-      width: screen.width,
-      height: screen.height,
-    });
   }
-
-  // 將視窗座標從物理像素轉為邏輯像素（GetWindowRect 回傳物理像素，Electron 使用邏輯像素）
-  const dpr = window.devicePixelRatio || 1;
-  const toLogicalRects = (rects: WindowRect[]): WindowRect[] =>
-    rects.map(r => ({
-      ...r,
-      x: Math.round(r.x / dpr),
-      y: Math.round(r.y / dpr),
-      width: Math.round(r.width / dpr),
-      height: Math.round(r.height / dpr),
-    }));
-
-  // 初始視窗清單（含工作列）
-  const initialWindows = await ipc.getWindowList();
-  const initialAllWindows = taskbarRect ? [...initialWindows, taskbarRect] : initialWindows;
-  collisionSystem.updateWindowRects(toLogicalRects(initialAllWindows));
-
-  sceneManager.setCollisionSystem(collisionSystem);
-
-  // 監聯視窗佈局變化（加入工作列虛擬視窗）
-  await ipc.onWindowLayoutChanged((rects) => {
-    const allRects = taskbarRect ? [...rects, taskbarRect] : rects;
-    collisionSystem.updateWindowRects(toLogicalRects(allRects));
-  });
 
   // StateMachine
   const stateMachine = new StateMachine();
@@ -392,32 +315,6 @@ async function initializeBehaviorSystem(
     sceneManager.setBehaviorAnimationBridge(bridge);
   }
 
-  // 全螢幕模式：位置和大小由 SceneManager 內部管理，不需 IPC
-
-  // 遮擋更新 callback — 矩形（fallback，邏輯像素 → 物理像素）
-  sceneManager.setOcclusionSetter((rects) => {
-    const mappedRects = rects.map((r) => ({
-      x: Math.round(r.x * dpr),
-      y: Math.round(r.y * dpr),
-      width: Math.round(r.width * dpr),
-      height: Math.round(r.height * dpr),
-    }));
-    ipc.setWindowRegion(mappedRects);
-  });
-
-  // 遮擋更新 callback — 多邊形輪廓（精確 silhouette，邏輯像素 → 物理像素）
-  sceneManager.setOcclusionPolygonSetter((points) => {
-    if (points.length === 0) {
-      ipc.setWindowRegion([]); // 清除遮擋用矩形 API（傳空陣列）
-      return;
-    }
-    const mappedPoints = points.map((p) => ({
-      x: Math.round(p.x * dpr),
-      y: Math.round(p.y * dpr),
-    }));
-    ipc.setWindowPolygonRegion(mappedPoints);
-  });
-
   // ── v0.3: 表情系統 ──
   const expressionManager = new ExpressionManager();
   const blendShapes = vrmController.getBlendShapes();
@@ -430,27 +327,17 @@ async function initializeBehaviorSystem(
   }
   sceneManager.setExpressionManager(expressionManager);
 
-  // ── Debug Overlay ──
-  const debugOverlay = new DebugOverlay();
-  debugOverlay.setEnabled(true); // 預設開啟 debug mode
-  sceneManager.setDebugOverlay(debugOverlay);
-  sceneManager.setWindowListFetcher(() => ipc.getWindowList());
-
   // ── Hit-Test 滑鼠穿透 ──
   const hitTestManager = new HitTestManager(canvas, sceneManager.getRenderer(), {
     setIgnoreCursorEvents: (ignore) => ipc.setIgnoreCursorEvents(ignore),
   });
 
   // ── 互動系統 ──
-
   const dragHandler = new DragHandler(canvas, {
     getCharacterPosition: () => {
       const bounds = sceneManager.getCharacterBounds();
       return { x: bounds.x, y: bounds.y };
     },
-    getSnappableWindows: (bounds, threshold) =>
-      collisionSystem.getSnappableWindows(bounds, threshold),
-    clampToScreen: (pos, w, h) => collisionSystem.clampToScreen(pos, w, h),
     getCharacterSize: () => {
       const bounds = sceneManager.getCharacterBounds();
       return { width: bounds.width, height: bounds.height };
@@ -461,17 +348,9 @@ async function initializeBehaviorSystem(
     onDragStart: () => {
       stateMachine.forceState('drag');
     },
-    onDragEnd: (position, snappedWindow) => {
+    onDragEnd: (position) => {
       sceneManager.setCurrentPosition(position);
-      if (snappedWindow) {
-        stateMachine.setAttachedWindow(snappedWindow.hwnd, {
-          x: snappedWindow.x,
-          y: snappedWindow.y,
-        });
-        stateMachine.forceState('sit');
-      } else {
-        stateMachine.forceState('idle');
-      }
+      stateMachine.forceState('idle');
     },
   });
 
@@ -490,7 +369,7 @@ async function initializeBehaviorSystem(
       isPaused: stateMachine.isPaused(),
       isAutoExpressionEnabled: expressionManager.isAutoEnabled(),
       isLoopEnabled: animationManager?.isLoopEnabled() ?? true,
-      isDebugEnabled: debugOverlay.isEnabled(),
+      isDebugEnabled: false,
       currentExpression: expressionManager.getManualExpression(),
     };
     ipc.sendMenuData(menuData);
@@ -508,7 +387,7 @@ async function initializeBehaviorSystem(
   await ipc.onTrayAction((actionId) => {
     switch (actionId) {
       case 'toggle_debug':
-        debugOverlay.setEnabled(!debugOverlay.isEnabled());
+        // Debug overlay 已移除，未來重新開發
         break;
       case 'toggle_pause':
         if (stateMachine.isPaused()) { stateMachine.resume(); } else { stateMachine.pause(); }
@@ -603,7 +482,6 @@ async function initializeBehaviorSystem(
   window.addEventListener('beforeunload', () => {
     hitTestManager.dispose();
     dragHandler.dispose();
-    debugOverlay.dispose();
     sceneManager.dispose();
   });
 }

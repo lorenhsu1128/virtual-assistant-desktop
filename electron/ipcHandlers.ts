@@ -1,7 +1,6 @@
 import { ipcMain, dialog, BrowserWindow, screen, app } from 'electron';
 import * as fileManager from './fileManager.js';
-import { WindowMonitor, type WindowRect } from './windowMonitor.js';
-import { setWindowRegion, setWindowPolygonRegion, type Rect } from './windowRegion.js';
+import { WindowMonitor } from './windowMonitor.js';
 
 /** Display info returned to renderer */
 interface DisplayInfo {
@@ -81,15 +80,7 @@ export function registerIpcHandlers(
     return windowMonitor.getLatest();
   });
 
-  // ── Window Region (Occlusion) ──
-
-  ipcMain.handle('set_window_region', (_event, excludeRects: Rect[]) => {
-    setWindowRegion(mainWindow, excludeRects);
-  });
-
-  ipcMain.handle('set_window_polygon_region', (_event, points: Array<{ x: number; y: number }>) => {
-    setWindowPolygonRegion(mainWindow, points);
-  });
+  // (Window Region / Occlusion 已移除，未來重新開發)
 
   // ── Display Info ──
 
