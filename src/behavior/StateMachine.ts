@@ -163,10 +163,18 @@ export class StateMachine {
     }
 
     // 平面接觸偵測：膝蓋到達或超過平面時坐下
-    // 角色完全離開桌面範圍時不觸發（避免在畫面外坐下）
-    const feetY = input.currentPosition.y + input.characterBounds.height;
-    const isOutsideScreen = feetY > input.screenBounds.y + input.screenBounds.height;
+    // 整個角色離開螢幕範圍時才跳過（避免在完全不可見時坐下）
+    const pos = input.currentPosition;
+    const cw = input.characterBounds.width;
+    const ch = input.characterBounds.height;
+    const sb = input.screenBounds;
+    const isOutsideScreen =
+      pos.x + cw < sb.x ||
+      pos.x > sb.x + sb.width ||
+      pos.y + ch < sb.y ||
+      pos.y > sb.y + sb.height;
     if (this.sitCooldown <= 0 && !isOutsideScreen) {
+      const feetY = pos.y + ch;
       const triggerY = input.kneeScreenY ?? feetY;
       for (const platform of input.platforms) {
         if (triggerY >= platform.screenY &&
@@ -290,7 +298,7 @@ export class StateMachine {
     const minX = sb.x;
     const maxX = sb.x + sb.width - charW;
     const minY = sb.y;
-    const maxY = sb.y + sb.height - charH;
+    const maxY = sb.y + sb.height - charH * 0.3;
 
     // ── 邊界外偵測：超出時強制走回螢幕中央安全區域 ──
     const outsideLeft = pos.x + charW < sb.x;                    // 整個身體超出左邊
