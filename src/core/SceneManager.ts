@@ -907,23 +907,25 @@ export class SceneManager {
     return charArea > 0 && overlapArea / charArea < 0.2;
   }
 
-  /** 角色螢幕位置是否被任一視窗完全覆蓋（不考慮 Z 深度） */
+  /** 角色螢幕位置是否被視窗大幅覆蓋（覆蓋面積 >= 80%） */
   private isCharacterFullyOccluded(): boolean {
     const pos = this.currentPosition;
-    const charRight = pos.x + this.characterSize.width;
-    const charBottom = pos.y + this.characterSize.height;
+    const cw = this.characterSize.width;
+    const ch = this.characterSize.height;
+    const charArea = cw * ch;
+    if (charArea <= 0) return false;
     const dpr = window.devicePixelRatio || 1;
 
+    // 找出覆蓋面積最大的單一視窗
+    let maxOverlapArea = 0;
     for (const win of this.cachedWindowRects) {
       const wx = win.x / dpr;
       const wy = win.y / dpr;
-      const wr = wx + win.width / dpr;
-      const wb = wy + win.height / dpr;
-      if (wx <= pos.x && wr >= charRight && wy <= pos.y && wb >= charBottom) {
-        return true;
-      }
+      const overlapX = Math.max(0, Math.min(pos.x + cw, wx + win.width / dpr) - Math.max(pos.x, wx));
+      const overlapY = Math.max(0, Math.min(pos.y + ch, wy + win.height / dpr) - Math.max(pos.y, wy));
+      maxOverlapArea = Math.max(maxOverlapArea, overlapX * overlapY);
     }
-    return false;
+    return maxOverlapArea / charArea >= 0.8;
   }
 
   /** 簡單螢幕邊界 clamp（基於 workArea 範圍，允許超出到螢幕邊緣） */
