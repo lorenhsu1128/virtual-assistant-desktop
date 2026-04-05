@@ -21,6 +21,8 @@ export interface TrayMenuData {
   isLoopEnabled: boolean;
   /** Debug 模式是否啟用 */
   isDebugEnabled: boolean;
+  /** 當前移動速率倍率 */
+  currentMoveSpeed: number;
   /** 當前手動設定的表情（null = 無） */
   currentExpression: string | null;
 }

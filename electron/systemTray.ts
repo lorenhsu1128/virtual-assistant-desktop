@@ -18,12 +18,28 @@ const SPEED_OPTIONS = [
   { label: '1.25x', value: 1.25, actionId: 'speed_125' },
 ];
 
+/** Move speed options (50%~150%, every 10%) */
+const MOVE_SPEED_OPTIONS = [
+  { label: '50%', value: 0.5, actionId: 'move_speed_050' },
+  { label: '60%', value: 0.6, actionId: 'move_speed_060' },
+  { label: '70%', value: 0.7, actionId: 'move_speed_070' },
+  { label: '80%', value: 0.8, actionId: 'move_speed_080' },
+  { label: '90%', value: 0.9, actionId: 'move_speed_090' },
+  { label: '100%', value: 1.0, actionId: 'move_speed_100' },
+  { label: '110%', value: 1.1, actionId: 'move_speed_110' },
+  { label: '120%', value: 1.2, actionId: 'move_speed_120' },
+  { label: '130%', value: 1.3, actionId: 'move_speed_130' },
+  { label: '140%', value: 1.4, actionId: 'move_speed_140' },
+  { label: '150%', value: 1.5, actionId: 'move_speed_150' },
+];
+
 /** TrayMenuData from renderer (mirrors src/types/tray.ts) */
 interface TrayMenuData {
   animations: { fileName: string; displayName: string }[];
   expressions: string[];
   currentScale: number;
   currentSpeed: number;
+  currentMoveSpeed: number;
   isPaused: boolean;
   isAutoExpressionEnabled: boolean;
   isLoopEnabled: boolean;
@@ -140,6 +156,17 @@ export class SystemTray {
         label: opt.label,
         type: 'radio' as const,
         checked: data ? Math.abs(opt.value - data.currentSpeed) < 0.01 : opt.value === 1.0,
+        click: () => this.emitAction(opt.actionId),
+      })),
+    });
+
+    // 移動速率子選單
+    template.push({
+      label: '\u79fb\u52d5\u901f\u7387',
+      submenu: MOVE_SPEED_OPTIONS.map((opt) => ({
+        label: opt.label,
+        type: 'radio' as const,
+        checked: data ? Math.abs(opt.value - data.currentMoveSpeed) < 0.01 : opt.value === 1.0,
         click: () => this.emitAction(opt.actionId),
       })),
     });

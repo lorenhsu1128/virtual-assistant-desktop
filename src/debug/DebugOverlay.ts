@@ -288,17 +288,19 @@ export class DebugOverlay {
   }
 
   /** 更新攝影機角度面板 */
-  updateCamera(theta: number, phi: number, targetTheta: number | null): void {
+  updateCamera(theta: number, phi: number, targetTheta: number | null, moveSpeed: number): void {
     if (!this.enabled) return;
 
     const toDeg = (rad: number): string => ((rad * 180) / Math.PI).toFixed(1);
     const targetStr = targetTheta !== null ? `${toDeg(targetTheta)}°` : 'none';
+    const speedPct = (moveSpeed * 100).toFixed(0);
 
     this.cameraPanel.textContent =
-      `📷 Camera\n` +
-      `θ: ${theta.toFixed(3)} rad (${toDeg(theta)}°)\n` +
-      `φ: ${phi.toFixed(3)} rad (${toDeg(phi)}°)\n` +
-      `target θ: ${targetStr}`;
+      `Camera\n` +
+      `  theta: ${theta.toFixed(3)} rad (${toDeg(theta)})\n` +
+      `  phi: ${phi.toFixed(3)} rad (${toDeg(phi)})\n` +
+      `  target: ${targetStr}\n` +
+      `Move Speed: ${speedPct}%`;
   }
 
   /** 銷毀 overlay */

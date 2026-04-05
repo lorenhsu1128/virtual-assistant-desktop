@@ -30,6 +30,9 @@ export class StateMachine {
   private traversingWindowHwnd: number | null = null;
   private facingDirection = 1;
 
+  // 速率倍率
+  private speedMultiplier = 1.0;
+
   // sit 狀態
   private attachedWindowHwnd: number | null = null;
   private attachedWindowLastPos: { x: number; y: number } | null = null;
@@ -127,6 +130,16 @@ export class StateMachine {
     return this.paused;
   }
 
+  /** 設定移動速率倍率 */
+  setSpeedMultiplier(multiplier: number): void {
+    this.speedMultiplier = multiplier;
+  }
+
+  /** 取得移動速率倍率 */
+  getSpeedMultiplier(): number {
+    return this.speedMultiplier;
+  }
+
   /** Debug: 取得計時器資訊 */
   getDebugTimers(): { timer: number; duration: number } {
     return { timer: this.stateTimer, duration: this.stateDuration };
@@ -194,7 +207,7 @@ export class StateMachine {
     }
 
     // 移動
-    const speed = this.config.moveSpeed * input.scale * input.deltaTime;
+    const speed = this.config.moveSpeed * input.scale * this.speedMultiplier * input.deltaTime;
     const dx = this.walkTarget.x - input.currentPosition.x;
     const dy = this.walkTarget.y - input.currentPosition.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
@@ -393,7 +406,7 @@ export class StateMachine {
     switch (this.state) {
       case 'walk': {
         if (!this.walkTarget) return null;
-        const speed = this.config.moveSpeed * input.scale * input.deltaTime;
+        const speed = this.config.moveSpeed * input.scale * this.speedMultiplier * input.deltaTime;
         const dx = this.walkTarget.x - input.currentPosition.x;
         const dy = this.walkTarget.y - input.currentPosition.y;
         const dist = Math.sqrt(dx * dx + dy * dy);

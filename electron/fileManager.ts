@@ -18,6 +18,7 @@ export interface AppConfig {
   autoExpressionEnabled: boolean;
   allowedAutoExpressions: string[];
   animationSpeed: number;
+  moveSpeedMultiplier: number;
   systemAssetsDir: string;
 }
 
@@ -51,6 +52,7 @@ const DEFAULT_CONFIG: AppConfig = {
   autoExpressionEnabled: true,
   allowedAutoExpressions: [],
   animationSpeed: 1.0,
+  moveSpeedMultiplier: 1.0,
   systemAssetsDir: 'assets/system',
 };
 

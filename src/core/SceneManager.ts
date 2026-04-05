@@ -575,6 +575,7 @@ export class SceneManager {
         this.orbitTheta,
         this.orbitPhi,
         this.targetOrbitTheta,
+        this.stateMachine?.getSpeedMultiplier() ?? 1.0,
       );
 
       // 骨骼與視窗邊緣的接觸檢測（Z-order 遮擋感知）

@@ -28,6 +28,8 @@ export interface AppConfig {
   allowedAutoExpressions: string[];
   /** 動畫播放速率倍率 */
   animationSpeed: number;
+  /** 移動速率倍率（0.5–1.5，預設 1.0） */
+  moveSpeedMultiplier: number;
   /** 系統預設資產根目錄（相對於 app 根目錄，子目錄約定 vrm/ + vrma/） */
   systemAssetsDir: string;
 }
@@ -60,5 +62,6 @@ export const DEFAULT_CONFIG: AppConfig = {
   autoExpressionEnabled: true,
   allowedAutoExpressions: [],
   animationSpeed: 1.0,
+  moveSpeedMultiplier: 1.0,
   systemAssetsDir: 'assets/system',
 };

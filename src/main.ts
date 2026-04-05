@@ -383,6 +383,9 @@ async function initializeBehaviorSystem(
   if (config.autonomousMovementPaused) {
     stateMachine.pause();
   }
+  if (config.moveSpeedMultiplier && config.moveSpeedMultiplier !== 1.0) {
+    stateMachine.setSpeedMultiplier(config.moveSpeedMultiplier);
+  }
   sceneManager.setStateMachine(stateMachine);
 
   // BehaviorAnimationBridge
@@ -480,6 +483,7 @@ async function initializeBehaviorSystem(
       expressions: vrmController.getBlendShapes(),
       currentScale: sceneManager.getScale(),
       currentSpeed: animationManager?.getTimeScale() ?? 1.0,
+      currentMoveSpeed: stateMachine.getSpeedMultiplier(),
       isPaused: stateMachine.isPaused(),
       isAutoExpressionEnabled: expressionManager.isAutoEnabled(),
       isLoopEnabled: animationManager?.isLoopEnabled() ?? true,
@@ -568,8 +572,15 @@ async function initializeBehaviorSystem(
         console.log('[main] Settings window not yet implemented');
         break;
       default:
+        // Dynamic action: move speed
+        if (actionId.startsWith('move_speed_')) {
+          const val = parseInt(actionId.slice('move_speed_'.length), 10) / 100;
+          stateMachine.setSpeedMultiplier(val);
+          config.moveSpeedMultiplier = val;
+          ipc.writeConfig(config);
+        }
         // Dynamic action: play animation
-        if (actionId.startsWith('play_anim::')) {
+        else if (actionId.startsWith('play_anim::')) {
           const fileName = actionId.slice('play_anim::'.length);
           animationManager?.playByName(fileName);
         }
