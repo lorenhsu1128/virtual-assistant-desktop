@@ -551,7 +551,7 @@ export class SceneManager {
         currentAnimation: this.animationManager?.getCurrentAnimationName() ?? undefined,
         characterZ: this.currentCharacterZ,
         isOffScreen: this.isCharacterOffScreen(),
-        isFullyOccluded: this.isCharacterFullyOccluded(),
+        occlusionRatio: this.getOcclusionRatio(),
         occlusionMeshes: this.windowMeshManager?.getDebugInfo(),
       });
 
@@ -907,16 +907,15 @@ export class SceneManager {
     return charArea > 0 && overlapArea / charArea < 0.2;
   }
 
-  /** 角色螢幕位置是否被視窗大幅覆蓋（覆蓋面積 >= 80%） */
-  private isCharacterFullyOccluded(): boolean {
+  /** 角色螢幕位置被視窗覆蓋的最大比率（0~1） */
+  private getOcclusionRatio(): number {
     const pos = this.currentPosition;
     const cw = this.characterSize.width;
     const ch = this.characterSize.height;
     const charArea = cw * ch;
-    if (charArea <= 0) return false;
+    if (charArea <= 0) return 0;
     const dpr = window.devicePixelRatio || 1;
 
-    // 找出覆蓋面積最大的單一視窗
     let maxOverlapArea = 0;
     for (const win of this.cachedWindowRects) {
       const wx = win.x / dpr;
@@ -925,7 +924,7 @@ export class SceneManager {
       const overlapY = Math.max(0, Math.min(pos.y + ch, wy + win.height / dpr) - Math.max(pos.y, wy));
       maxOverlapArea = Math.max(maxOverlapArea, overlapX * overlapY);
     }
-    return maxOverlapArea / charArea >= 0.8;
+    return maxOverlapArea / charArea;
   }
 
   /** 簡單螢幕邊界 clamp（基於 workArea 範圍，允許超出到螢幕邊緣） */
