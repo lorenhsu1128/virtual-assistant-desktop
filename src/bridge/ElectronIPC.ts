@@ -1,6 +1,7 @@
 import type { AppConfig } from '../types/config';
 import type { AnimationMeta } from '../types/animation';
 import type { WindowRect, Rect, DisplayInfo } from '../types/window';
+import type { TrayMenuData } from '../types/tray';
 
 /**
  * Electron API interface exposed via preload script (contextBridge).
@@ -27,6 +28,8 @@ interface ElectronAPI {
   closeWindow(): Promise<void>;
   onWindowLayoutChanged(callback: (rects: WindowRect[]) => void): () => void;
   onTrayAction(callback: (actionId: string) => void): () => void;
+  onRequestMenuData(callback: () => void): () => void;
+  sendMenuData(data: TrayMenuData): void;
   onDebugMove(callback: (direction: string) => void): () => void;
   convertToAssetUrl(filePath: string): string;
 }
@@ -305,6 +308,22 @@ class ElectronIPC {
    */
   async onTrayAction(callback: (actionId: string) => void): Promise<() => void> {
     return window.electronAPI.onTrayAction(callback);
+  }
+
+  /**
+   * Listen for menu data requests from main process (tray left-click)
+   *
+   * Returns unlisten function.
+   */
+  async onRequestMenuData(callback: () => void): Promise<() => void> {
+    return window.electronAPI.onRequestMenuData(callback);
+  }
+
+  /**
+   * Send menu data to main process for tray menu construction
+   */
+  sendMenuData(data: TrayMenuData): void {
+    window.electronAPI.sendMenuData(data);
   }
 
   /** Listen for debug move events (Ctrl+Arrow global shortcuts) */

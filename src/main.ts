@@ -8,8 +8,8 @@ import { CollisionSystem } from './behavior/CollisionSystem';
 import { BehaviorAnimationBridge } from './behavior/BehaviorAnimationBridge';
 import { DragHandler } from './interaction/DragHandler';
 import { HitTestManager } from './interaction/HitTestManager';
-import { ContextMenu } from './interaction/ContextMenu';
 import { DEFAULT_CONFIG, type AppConfig } from './types/config';
+import type { TrayMenuData } from './types/tray';
 import { ExpressionManager } from './expression/ExpressionManager';
 import { DebugOverlay } from './debug/DebugOverlay';
 import type { WindowRect } from './types/window';
@@ -421,98 +421,28 @@ async function initializeBehaviorSystem(
     },
   });
 
-  const contextMenu = new ContextMenu(canvas, {
-    getActionAnimations: () =>
-      animationManager?.getAnimationsByCategory('action') ?? [],
-    getBlendShapes: () => vrmController.getBlendShapes(),
-    playAnimation: (name) => {
-      animationManager?.playByName(name);
-    },
-    setExpression: (name) => {
-      expressionManager.setManualExpression(name);
-      vrmController.setBlendShape(name, 1.0);
-    },
-    setScale: (s) => {
-      sceneManager.setScale(s);
-      config.scale = s;
-      ipc.writeConfig(config);
-    },
-    getCurrentScale: () => sceneManager.getScale(),
-    togglePause: () => {
-      if (stateMachine.isPaused()) {
-        stateMachine.resume();
-      } else {
-        stateMachine.pause();
-      }
-      config.autonomousMovementPaused = stateMachine.isPaused();
-      ipc.writeConfig(config);
-    },
-    isPaused: () => stateMachine.isPaused(),
-    isOrbitDragging: () => sceneManager.isOrbitDragging(),
-    toggleLoop: () => {
-      if (animationManager) {
-        const newVal = !animationManager.isLoopEnabled();
-        animationManager.setLoopEnabled(newVal);
-        config.animationLoopEnabled = newVal;
-        ipc.writeConfig(config);
-      }
-    },
-    isLoopEnabled: () => animationManager?.isLoopEnabled() ?? true,
-    resetCamera: () => sceneManager.resetCamera(),
-    resetPosition: async () => {
-      const displays = await ipc.getDisplayInfo();
-      const d = displays[0] ?? { x: 0, y: 0, width: screen.width, height: screen.height };
-      const wb = d.workArea ?? d;
-      const cx = wb.x + (wb.width - 400) / 2;
-      const cy = wb.y + (wb.height - 600) / 2;
-      sceneManager.setCurrentPosition({ x: cx, y: cy });
-      await ipc.setWindowPosition(cx, cy);
-    },
-    changeModel: async () => {
-      const newPath = await ipc.pickVrmFile();
-      if (!newPath) return;
-      config.vrmModelPath = newPath;
-      await ipc.writeConfig(config);
-      window.location.reload();
-    },
-    changeAnimationFolder: async () => {
-      const folderPath = await ipc.pickAnimationFolder();
-      if (!folderPath) return;
-      config.animationFolderPath = folderPath;
-      await ipc.scanAnimations(folderPath);
-      await ipc.writeConfig(config);
-      window.location.reload();
-    },
-    closeApp: () => {
-      ipc.closeWindow();
-    },
-    openSettings: () => {
-      // TODO: 開啟設定視窗
-      console.log('[main] Settings window not yet implemented');
-    },
-    toggleAutoExpression: () => {
-      const newVal = !expressionManager.isAutoEnabled();
-      expressionManager.setAutoEnabled(newVal);
-      config.autoExpressionEnabled = newVal;
-      ipc.writeConfig(config);
-    },
-    isAutoExpressionEnabled: () => expressionManager.isAutoEnabled(),
-    getManualExpression: () => expressionManager.getManualExpression(),
-    toggleDebug: () => {
-      debugOverlay.setEnabled(!debugOverlay.isEnabled());
-    },
-    isDebugEnabled: () => debugOverlay.isEnabled(),
-    setAnimationSpeed: (rate) => {
-      if (animationManager) {
-        animationManager.setTimeScale(rate);
-        config.animationSpeed = rate;
-        ipc.writeConfig(config);
-      }
-    },
-    getAnimationSpeed: () => animationManager?.getTimeScale() ?? 1.0,
-    onMenuOpen: () => hitTestManager.lockForDrag(),
-    onMenuClose: () => hitTestManager.unlockDrag(),
-  });
+  // ── 系統托盤選單資料推送 ──
+  /** 收集當前狀態並推送給 main process 更新托盤選單 */
+  const pushTrayMenuData = (): void => {
+    const menuData: TrayMenuData = {
+      animations: animationManager?.getAnimationsByCategory('action').map((a) => ({
+        fileName: a.fileName,
+        displayName: a.displayName,
+      })) ?? [],
+      expressions: vrmController.getBlendShapes(),
+      currentScale: sceneManager.getScale(),
+      currentSpeed: animationManager?.getTimeScale() ?? 1.0,
+      isPaused: stateMachine.isPaused(),
+      isAutoExpressionEnabled: expressionManager.isAutoEnabled(),
+      isLoopEnabled: animationManager?.isLoopEnabled() ?? true,
+      isDebugEnabled: debugOverlay.isEnabled(),
+      currentExpression: expressionManager.getManualExpression(),
+    };
+    ipc.sendMenuData(menuData);
+  };
+
+  // 初始推送（讓托盤有動態選單資料）
+  pushTrayMenuData();
 
   // ── Debug 移動（Ctrl+方向鍵） ──
   await ipc.onDebugMove((direction) => {
@@ -585,16 +515,32 @@ async function initializeBehaviorSystem(
       case 'speed_075': if (animationManager) { animationManager.setTimeScale(0.75); config.animationSpeed = 0.75; ipc.writeConfig(config); } break;
       case 'speed_100': if (animationManager) { animationManager.setTimeScale(1.0); config.animationSpeed = 1.0; ipc.writeConfig(config); } break;
       case 'speed_125': if (animationManager) { animationManager.setTimeScale(1.25); config.animationSpeed = 1.25; ipc.writeConfig(config); } break;
+      case 'settings':
+        // TODO: 開啟設定視窗
+        console.log('[main] Settings window not yet implemented');
+        break;
       default:
+        // Dynamic action: play animation
+        if (actionId.startsWith('play_anim::')) {
+          const fileName = actionId.slice('play_anim::'.length);
+          animationManager?.playByName(fileName);
+        }
+        // Dynamic action: set expression
+        else if (actionId.startsWith('set_expr::')) {
+          const name = actionId.slice('set_expr::'.length);
+          expressionManager.setManualExpression(name);
+          vrmController.setBlendShape(name, 1.0);
+        }
         break;
     }
+    // 每次動作後更新托盤選單狀態
+    pushTrayMenuData();
   });
 
   // 清理函式
   window.addEventListener('beforeunload', () => {
     hitTestManager.dispose();
     dragHandler.dispose();
-    contextMenu.dispose();
     debugOverlay.dispose();
     sceneManager.dispose();
   });

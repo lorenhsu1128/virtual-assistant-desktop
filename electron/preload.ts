@@ -55,6 +55,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('tray_action', handler);
   },
 
+  onRequestMenuData: (callback: () => void) => {
+    const handler = () => callback();
+    ipcRenderer.on('request_menu_data', handler);
+    return () => ipcRenderer.removeListener('request_menu_data', handler);
+  },
+
+  sendMenuData: (data: unknown) => {
+    ipcRenderer.send('menu_data_response', data);
+  },
+
   onDebugMove: (callback: (direction: string) => void) => {
     const handler = (_event: unknown, direction: string) => callback(direction);
     ipcRenderer.on('debug_move', handler);

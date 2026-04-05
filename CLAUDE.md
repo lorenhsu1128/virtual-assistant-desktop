@@ -29,12 +29,12 @@
 | 版本 | 狀態 | 說明 |
 |------|------|------|
 | v0.1 | ✅ 完成 | 透明視窗 + VRM 模型載入渲染 + .vrma 動畫系統 |
-| v0.2 | ✅ 完成 | 自主移動狀態機 + 拖曳 + 右鍵選單 + 軌道攝影機 + 視窗碰撞/吸附/遮擋 |
+| v0.2 | ✅ 完成 | 自主移動狀態機 + 拖曳 + 軌道攝影機 + 視窗碰撞/吸附/遮擋 |
 | v0.3 | ✅ 完成 | 表情系統（自動+手動）+ 系統托盤 + Debug overlay |
 | v0.4+ | 未開始 | — |
 
-### 已實作的右鍵選單功能
-動畫 ▸ | 表情 ▸ | 縮放 ▸ | 暫停自主移動 | 暫停/恢復自動表情 | 暫停/恢復動畫循環 | 重置鏡頭角度 | 重置回桌面正中央 | 更換 VRM 模型 | 更換動畫資料夾 | Debug 模式 | 設定(TODO) | 關閉
+### 系統托盤選單功能（左鍵點擊）
+顯示桌寵 | 動畫 ▸ | 表情 ▸ | 縮放 ▸ | 動畫速率 ▸ | 暫停/恢復自主移動 | 暫停/恢復自動表情 | 暫停/恢復動畫循環 | 重置鏡頭角度 | 重置回桌面正中央 | 更換 VRM 模型 | 更換動畫資料夾 | Debug 模式 | 設定(TODO) | 結束
 
 ### Debug overlay 功能
 - 骨骼座標面板（3D 世界座標 + 2D 螢幕座標）
@@ -61,10 +61,10 @@ src/                → TypeScript 前端（renderer process）
   animation/        → 動畫系統（AnimationManager, FallbackAnimation）
   behavior/         → 行為邏輯（StateMachine, CollisionSystem, BehaviorAnimationBridge）
   expression/       → 表情系統（ExpressionManager）
-  interaction/      → 使用者互動（DragHandler, ContextMenu）
+  interaction/      → 使用者互動（DragHandler）
   bridge/           → IPC 封裝（ElectronIPC）
   debug/            → Debug overlay（DebugOverlay）
-  types/            → 共用型別（config.ts, animation.ts, window.ts, behavior.ts, collision.ts）
+  types/            → 共用型別（config.ts, animation.ts, window.ts, behavior.ts, collision.ts, tray.ts）
 electron/           → Electron 主程序（main process）
   main.ts           → 應用程式入口、BrowserWindow 建立
   preload.ts        → contextBridge 暴露 IPC API

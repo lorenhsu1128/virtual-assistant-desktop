@@ -1,17 +1,55 @@
-import { Tray, Menu, BrowserWindow, nativeImage, app } from 'electron';
+import { Tray, Menu, BrowserWindow, nativeImage, app, ipcMain } from 'electron';
 
-/** System tray setup and management */
+/** Scale options for the menu */
+const SCALE_OPTIONS = [
+  { label: '50%', value: 0.5, actionId: 'scale_50' },
+  { label: '75%', value: 0.75, actionId: 'scale_75' },
+  { label: '100%', value: 1.0, actionId: 'scale_100' },
+  { label: '125%', value: 1.25, actionId: 'scale_125' },
+  { label: '150%', value: 1.5, actionId: 'scale_150' },
+  { label: '200%', value: 2.0, actionId: 'scale_200' },
+];
+
+/** Animation speed options */
+const SPEED_OPTIONS = [
+  { label: '0.5x', value: 0.5, actionId: 'speed_050' },
+  { label: '0.75x', value: 0.75, actionId: 'speed_075' },
+  { label: '1.0x', value: 1.0, actionId: 'speed_100' },
+  { label: '1.25x', value: 1.25, actionId: 'speed_125' },
+];
+
+/** TrayMenuData from renderer (mirrors src/types/tray.ts) */
+interface TrayMenuData {
+  animations: { fileName: string; displayName: string }[];
+  expressions: string[];
+  currentScale: number;
+  currentSpeed: number;
+  isPaused: boolean;
+  isAutoExpressionEnabled: boolean;
+  isLoopEnabled: boolean;
+  isDebugEnabled: boolean;
+  currentExpression: string | null;
+}
+
+/**
+ * System tray setup and management
+ *
+ * On Windows, setContextMenu() shows the menu on both left-click and right-click.
+ * Renderer sends menu data updates via 'menu_data_response' IPC;
+ * main process caches it and rebuilds the native Menu.
+ */
 export class SystemTray {
   private tray: Tray | null = null;
   private mainWindow: BrowserWindow;
+  private cachedData: TrayMenuData | null = null;
+  private ipcHandler: ((_event: Electron.IpcMainEvent, data: TrayMenuData) => void) | null = null;
 
   constructor(mainWindow: BrowserWindow) {
     this.mainWindow = mainWindow;
   }
 
-  /** Create system tray icon and context menu */
+  /** Create system tray icon and listen for menu data updates */
   setup(): void {
-    // Create a simple 16x16 tray icon (transparent with a colored square)
     const icon = nativeImage.createFromBuffer(
       this.createDefaultIcon(),
       { width: 16, height: 16 },
@@ -19,60 +57,158 @@ export class SystemTray {
 
     this.tray = new Tray(icon);
     this.tray.setToolTip('Virtual Assistant Desktop');
-    this.buildMenu();
+
+    // Build initial static menu (before renderer sends dynamic data)
+    this.rebuildMenu();
+
+    // Listen for menu data updates from renderer
+    this.ipcHandler = (_event, data) => {
+      this.cachedData = data;
+      this.rebuildMenu();
+    };
+    ipcMain.on('menu_data_response', this.ipcHandler);
   }
 
-  /** Rebuild the context menu */
-  private buildMenu(): void {
+  /** Rebuild the context menu from cached data */
+  private rebuildMenu(): void {
     if (!this.tray) return;
 
-    const scaleSubmenu = Menu.buildFromTemplate([
-      { label: '50%', click: () => this.emitAction('scale_50') },
-      { label: '75%', click: () => this.emitAction('scale_75') },
-      { label: '100%', click: () => this.emitAction('scale_100') },
-      { label: '125%', click: () => this.emitAction('scale_125') },
-      { label: '150%', click: () => this.emitAction('scale_150') },
-      { label: '200%', click: () => this.emitAction('scale_200') },
-    ]);
+    const data = this.cachedData;
+    const template: Electron.MenuItemConstructorOptions[] = [];
 
-    const speedSubmenu = Menu.buildFromTemplate([
-      { label: '0.5x', click: () => this.emitAction('speed_050') },
-      { label: '0.75x', click: () => this.emitAction('speed_075') },
-      { label: '1.0x', click: () => this.emitAction('speed_100') },
-      { label: '1.25x', click: () => this.emitAction('speed_125') },
-    ]);
-
-    const menu = Menu.buildFromTemplate([
-      {
-        label: '\u986f\u793a\u684c\u5bf5',
-        click: () => {
-          this.mainWindow.show();
-          this.mainWindow.focus();
-        },
+    // 顯示桌寵
+    template.push({
+      label: '\u986f\u793a\u684c\u5bf5',
+      click: () => {
+        this.mainWindow.show();
+        this.mainWindow.focus();
       },
-      { type: 'separator' },
-      { label: '\u7e2e\u653e', submenu: scaleSubmenu },
-      { label: '\u52d5\u756b\u901f\u7387', submenu: speedSubmenu },
-      { label: '\u66ab\u505c/\u6062\u5fa9\u81ea\u4e3b\u79fb\u52d5', click: () => this.emitAction('toggle_pause') },
-      { label: '\u66ab\u505c/\u6062\u5fa9\u81ea\u52d5\u8868\u60c5', click: () => this.emitAction('toggle_auto_expr') },
-      { label: '\u66ab\u505c/\u6062\u5fa9\u52d5\u756b\u5faa\u74b0', click: () => this.emitAction('toggle_loop') },
-      { label: '\u91cd\u7f6e\u93e1\u982d\u89d2\u5ea6', click: () => this.emitAction('reset_camera') },
-      { label: '\u91cd\u7f6e\u56de\u684c\u9762\u6b63\u4e2d\u592e', click: () => this.emitAction('reset_position') },
-      { type: 'separator' },
-      { label: '\u66f4\u63db VRM \u6a21\u578b', click: () => this.emitAction('change_model') },
-      { label: '\u66f4\u63db\u52d5\u756b\u8cc7\u6599\u593e', click: () => this.emitAction('change_anim') },
-      { type: 'separator' },
-      { label: 'Debug \u6a21\u5f0f', click: () => this.emitAction('toggle_debug') },
-      { label: '\u8a2d\u5b9a', click: () => this.emitAction('settings') },
-      { type: 'separator' },
-      {
-        label: '\u7d50\u675f',
-        click: () => {
-          app.quit();
-        },
-      },
-    ]);
+    });
+    template.push({ type: 'separator' });
 
+    // 動畫子選單（dynamic）
+    if (data && data.animations.length > 0) {
+      template.push({
+        label: '\u52d5\u756b',
+        submenu: data.animations.map((a) => ({
+          label: a.displayName,
+          click: () => this.emitAction(`play_anim::${a.fileName}`),
+        })),
+      });
+    }
+
+    // 表情子選單（dynamic）
+    if (data && data.expressions.length > 0) {
+      template.push({
+        label: '\u8868\u60c5',
+        submenu: data.expressions.map((name) => ({
+          label: name,
+          type: 'checkbox' as const,
+          checked: name === data.currentExpression,
+          click: () => this.emitAction(`set_expr::${name}`),
+        })),
+      });
+    }
+
+    if (data && (data.animations.length > 0 || data.expressions.length > 0)) {
+      template.push({ type: 'separator' });
+    }
+
+    // 縮放子選單
+    template.push({
+      label: '\u7e2e\u653e',
+      submenu: SCALE_OPTIONS.map((opt) => ({
+        label: opt.label,
+        type: 'radio' as const,
+        checked: data ? Math.abs(opt.value - data.currentScale) < 0.01 : opt.value === 1.0,
+        click: () => this.emitAction(opt.actionId),
+      })),
+    });
+
+    // 動畫速率子選單
+    template.push({
+      label: '\u52d5\u756b\u901f\u7387',
+      submenu: SPEED_OPTIONS.map((opt) => ({
+        label: opt.label,
+        type: 'radio' as const,
+        checked: data ? Math.abs(opt.value - data.currentSpeed) < 0.01 : opt.value === 1.0,
+        click: () => this.emitAction(opt.actionId),
+      })),
+    });
+
+    // 暫停/恢復自主移動
+    template.push({
+      label: data?.isPaused ? '\u6062\u5fa9\u81ea\u4e3b\u79fb\u52d5' : '\u66ab\u505c\u81ea\u4e3b\u79fb\u52d5',
+      click: () => this.emitAction('toggle_pause'),
+    });
+
+    // 暫停/恢復自動表情
+    template.push({
+      label: data?.isAutoExpressionEnabled ? '\u66ab\u505c\u81ea\u52d5\u8868\u60c5' : '\u6062\u5fa9\u81ea\u52d5\u8868\u60c5',
+      click: () => this.emitAction('toggle_auto_expr'),
+    });
+
+    // 暫停/恢復動畫循環
+    template.push({
+      label: data?.isLoopEnabled ? '\u66ab\u505c\u52d5\u756b\u5faa\u74b0' : '\u6062\u5fa9\u52d5\u756b\u5faa\u74b0',
+      click: () => this.emitAction('toggle_loop'),
+    });
+
+    template.push({ type: 'separator' });
+
+    // 重置鏡頭角度
+    template.push({
+      label: '\u91cd\u7f6e\u93e1\u982d\u89d2\u5ea6',
+      click: () => this.emitAction('reset_camera'),
+    });
+
+    // 重置回桌面正中央
+    template.push({
+      label: '\u91cd\u7f6e\u56de\u684c\u9762\u6b63\u4e2d\u592e',
+      click: () => this.emitAction('reset_position'),
+    });
+
+    template.push({ type: 'separator' });
+
+    // 更換 VRM 模型
+    template.push({
+      label: '\u66f4\u63db VRM \u6a21\u578b',
+      click: () => this.emitAction('change_model'),
+    });
+
+    // 更換動畫資料夾
+    template.push({
+      label: '\u66f4\u63db\u52d5\u756b\u8cc7\u6599\u593e',
+      click: () => this.emitAction('change_anim'),
+    });
+
+    template.push({ type: 'separator' });
+
+    // Debug 模式
+    template.push({
+      label: 'Debug \u6a21\u5f0f',
+      type: 'checkbox',
+      checked: data?.isDebugEnabled ?? false,
+      click: () => this.emitAction('toggle_debug'),
+    });
+
+    // 設定
+    template.push({
+      label: '\u8a2d\u5b9a',
+      click: () => this.emitAction('settings'),
+    });
+
+    template.push({ type: 'separator' });
+
+    // 結束
+    template.push({
+      label: '\u7d50\u675f',
+      click: () => {
+        app.quit();
+      },
+    });
+
+    const menu = Menu.buildFromTemplate(template);
     this.tray.setContextMenu(menu);
   }
 
@@ -91,7 +227,6 @@ export class SystemTray {
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
         const i = (y * size + x) * 4;
-        // Simple cyan-ish circle
         const cx = x - 7.5;
         const cy = y - 7.5;
         const dist = Math.sqrt(cx * cx + cy * cy);
@@ -110,6 +245,10 @@ export class SystemTray {
 
   /** Destroy tray */
   dispose(): void {
+    if (this.ipcHandler) {
+      ipcMain.removeListener('menu_data_response', this.ipcHandler);
+      this.ipcHandler = null;
+    }
     if (this.tray) {
       this.tray.destroy();
       this.tray = null;
