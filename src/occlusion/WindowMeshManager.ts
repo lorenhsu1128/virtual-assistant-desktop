@@ -25,7 +25,7 @@ interface MeshRecord {
 export class WindowMeshManager {
   /** Z 軸常數 */
   private static readonly Z_TOP = 9.0;
-  private static readonly Z_SPACING = 0.2;
+  private static readonly Z_SPACING = 0.5;
 
   private readonly meshMap = new Map<number, MeshRecord>();
   private readonly scene: THREE.Scene;

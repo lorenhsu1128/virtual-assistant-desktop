@@ -839,9 +839,9 @@ export class SceneManager {
   /**
    * 根據行為狀態計算角色 Z 深度
    *
-   * peek → 目標視窗 Z - 0.1（在視窗後面）
-   * sit → 吸附視窗 Z + 0.1（在視窗前面，但可被更上層視窗遮擋）
-   * walk/idle/drag/fall → 前景視窗 Z - 0.1（自動退到使用者正在操作的視窗後面）
+   * peek → 目標視窗 Z - 0.25（在視窗後面）
+   * sit → 吸附視窗 Z + 0.25（在視窗前面，但可被更上層視窗遮擋）
+   * walk/idle/drag/fall → 前景視窗 Z - 0.25（自動退到使用者正在操作的視窗後面）
    *                       無前景視窗時 → 9.5（最前面）
    */
   private resolveCharacterZ(output: BehaviorOutput | null): number {
@@ -850,18 +850,18 @@ export class SceneManager {
 
     if (output.currentState === 'peek' && output.peekTargetHwnd !== null) {
       const windowZ = this.windowMeshManager.getWindowZ(output.peekTargetHwnd);
-      return windowZ !== null ? windowZ - 0.1 : DEFAULT_Z;
+      return windowZ !== null ? windowZ - 0.25 : DEFAULT_Z;
     }
     if (output.currentState === 'sit' && output.attachedWindowHwnd !== null) {
       const windowZ = this.windowMeshManager.getWindowZ(output.attachedWindowHwnd);
-      return windowZ !== null ? windowZ + 0.1 : DEFAULT_Z;
+      return windowZ !== null ? windowZ + 0.25 : DEFAULT_Z;
     }
 
     // 自動退到前景視窗後面：使用者點擊視窗時角色不遮擋
     const foreground = this.cachedWindowRects.find((w) => w.isForeground);
     if (foreground) {
       const fgZ = this.windowMeshManager.getWindowZ(foreground.hwnd);
-      if (fgZ !== null) return fgZ - 0.1;
+      if (fgZ !== null) return fgZ - 0.25;
     }
     return DEFAULT_Z;
   }
