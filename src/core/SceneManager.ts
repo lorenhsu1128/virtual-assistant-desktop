@@ -88,6 +88,9 @@ export class SceneManager {
   private currentCharacterZ = 9.5;
   /** 最近一次 StateMachine 輸出（供 resolveCharacterZ 使用） */
   private lastBehaviorOutput: BehaviorOutput | null = null;
+  /** 拖曳後維持最上方，直到前景視窗改變時清除 */
+  private forceTopAfterDrag = false;
+  private lastForegroundHwnd: number | null = null;
 
   private targetFps: number;
   private fpsMode: FpsMode = 'foreground';
@@ -841,27 +844,46 @@ export class SceneManager {
    *
    * peek → 目標視窗 Z - 0.25（在視窗後面）
    * sit → 吸附視窗 Z + 0.25（在視窗前面，但可被更上層視窗遮擋）
-   * drag → 9.5（最上方，確保拖曳時角色不被遮擋）
-   * walk/idle/fall → 前景視窗 Z - 0.25（自動退到使用者正在操作的視窗後面）
+   * drag → 9.5（最上方）+ 設定 forceTopAfterDrag
+   * 放下後 → 維持 9.5，直到使用者點擊其他視窗（前景視窗改變）
+   * peek → 目標視窗 Z - 0.25（在視窗後面）
+   * sit → 吸附視窗 Z + 0.25（在視窗前面）
+   * walk/idle/fall → 前景視窗 Z - 0.25（自動退到前景視窗後面）
    *                  無前景視窗時 → 9.5（最前面）
    */
   private resolveCharacterZ(output: BehaviorOutput | null): number {
     const DEFAULT_Z = 9.5;
     if (!output || !this.windowMeshManager) return DEFAULT_Z;
 
-    if (output.currentState === 'drag') return DEFAULT_Z;
+    // 偵測前景視窗改變 → 清除拖曳後置頂
+    const foreground = this.cachedWindowRects.find((w) => w.isForeground);
+    const currentFgHwnd = foreground?.hwnd ?? null;
+    if (this.forceTopAfterDrag && currentFgHwnd !== this.lastForegroundHwnd) {
+      this.forceTopAfterDrag = false;
+    }
+    this.lastForegroundHwnd = currentFgHwnd;
+
+    // drag 狀態：置頂 + 設定旗標
+    if (output.currentState === 'drag') {
+      this.forceTopAfterDrag = true;
+      return DEFAULT_Z;
+    }
 
     if (output.currentState === 'peek' && output.peekTargetHwnd !== null) {
+      this.forceTopAfterDrag = false;
       const windowZ = this.windowMeshManager.getWindowZ(output.peekTargetHwnd);
       return windowZ !== null ? windowZ - 0.25 : DEFAULT_Z;
     }
     if (output.currentState === 'sit' && output.attachedWindowHwnd !== null) {
+      this.forceTopAfterDrag = false;
       const windowZ = this.windowMeshManager.getWindowZ(output.attachedWindowHwnd);
       return windowZ !== null ? windowZ + 0.25 : DEFAULT_Z;
     }
 
+    // 拖曳後置頂：放下後維持最上方
+    if (this.forceTopAfterDrag) return DEFAULT_Z;
+
     // 自動退到前景視窗後面：使用者點擊視窗時角色不遮擋
-    const foreground = this.cachedWindowRects.find((w) => w.isForeground);
     if (foreground) {
       const fgZ = this.windowMeshManager.getWindowZ(foreground.hwnd);
       if (fgZ !== null) return fgZ - 0.25;
