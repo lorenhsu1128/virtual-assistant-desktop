@@ -937,7 +937,7 @@ export class SceneManager {
     // 邏輯 Platform：ground 為觸發平面，sitTargetY 指向 taskbar 位置
     this.platforms = [{
       id: 'ground',
-      screenY: groundScreenY,
+      screenY: taskbarScreenY,
       screenXMin: xMin,
       screenXMax: xMax,
       sitTargetY: taskbarScreenY,
