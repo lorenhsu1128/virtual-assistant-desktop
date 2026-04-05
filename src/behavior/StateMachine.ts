@@ -345,6 +345,17 @@ export class StateMachine {
             };
           }
         }
+        // 平面坐下：定位到 sitTargetY（如工作列上緣）
+        if (this.sitPlatformId) {
+          const platform = input.platforms.find((p) => p.id === this.sitPlatformId);
+          if (platform) {
+            const sitY = platform.sitTargetY ?? platform.screenY;
+            return {
+              x: input.currentPosition.x,
+              y: sitY - input.characterBounds.height,
+            };
+          }
+        }
         return null;
       }
       case 'fall': {

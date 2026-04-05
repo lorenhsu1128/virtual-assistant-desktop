@@ -74,6 +74,8 @@ export class SceneManager {
   private platforms: Platform[] = [];
   /** 工作列平面 3D Mesh（debug 可見） */
   private taskbarPlatformMesh: THREE.Mesh | null = null;
+  /** 地面觸發平面 3D Mesh（debug 可見，canvas 最底部） */
+  private groundPlatformMesh: THREE.Mesh | null = null;
   /** 像素到世界座標的轉換比例（正交攝影機下為固定常數） */
   private static readonly PIXEL_TO_WORLD = 0.003126;
   private pixelToWorld = SceneManager.PIXEL_TO_WORLD;
@@ -215,6 +217,9 @@ export class SceneManager {
     const visible = this.debugOverlay?.isEnabled() ?? false;
     if (this.taskbarPlatformMesh) {
       this.taskbarPlatformMesh.visible = visible;
+    }
+    if (this.groundPlatformMesh) {
+      this.groundPlatformMesh.visible = visible;
     }
   }
 
@@ -512,6 +517,21 @@ export class SceneManager {
           })));
         }).catch(() => { /* 忽略錯誤 */ });
       }
+
+      // Mesh 清單
+      const meshList: Array<{ name: string; x: number; y: number; z: number; visible: boolean }> = [];
+      this.scene.traverse((obj) => {
+        if ((obj as THREE.Mesh).isMesh) {
+          meshList.push({
+            name: obj.name || obj.type,
+            x: obj.position.x,
+            y: obj.position.y,
+            z: obj.position.z,
+            visible: obj.visible,
+          });
+        }
+      });
+      this.debugOverlay.updateMeshList(meshList);
     }
 
     // Step 6: Render
@@ -800,50 +820,78 @@ export class SceneManager {
   }
 
   /**
-   * 建立工作列平面（3D Mesh + 邏輯 Platform）
+   * 建立平面系統（ground 觸發 + taskbar 坐下目標）
    *
-   * 位於 workArea 下緣（= 工作列上緣）。
-   * Debug mode 可見（半透明綠色），一般模式隱藏。
+   * - ground：canvas 最底部，角色腳底碰到即觸發 sit
+   * - taskbar：workArea 下緣（= 工作列上緣），sit 後角色定位於此
+   * Debug mode 可見，一般模式隱藏。
    */
   private createTaskbarPlatform(): void {
-    // 移除舊的
+    // 移除舊的 mesh
     if (this.taskbarPlatformMesh) {
       this.scene.remove(this.taskbarPlatformMesh);
       this.taskbarPlatformMesh.geometry.dispose();
       (this.taskbarPlatformMesh.material as THREE.Material).dispose();
       this.taskbarPlatformMesh = null;
     }
+    if (this.groundPlatformMesh) {
+      this.scene.remove(this.groundPlatformMesh);
+      this.groundPlatformMesh.geometry.dispose();
+      (this.groundPlatformMesh.material as THREE.Material).dispose();
+      this.groundPlatformMesh = null;
+    }
 
-    // 平面螢幕座標
-    const platformScreenY = this.workAreaOrigin.y + this.workAreaSize.height;
-    const platformScreenXMin = this.workAreaOrigin.x;
-    const platformScreenXMax = this.workAreaOrigin.x + this.workAreaSize.width;
+    const canvas = this.renderer.domElement;
+    const canvasH = canvas.clientHeight || canvas.height;
 
-    // 邏輯 Platform（給 StateMachine 用）
+    // 螢幕座標
+    const taskbarScreenY = this.workAreaOrigin.y + this.workAreaSize.height;
+    const groundScreenY = this.screenOrigin.y + canvasH; // canvas 最底部
+    const xMin = this.workAreaOrigin.x;
+    const xMax = this.workAreaOrigin.x + this.workAreaSize.width;
+
+    // 邏輯 Platform：ground 為觸發平面，sitTargetY 指向 taskbar 位置
     this.platforms = [{
-      id: 'taskbar',
-      screenY: platformScreenY,
-      screenXMin: platformScreenXMin,
-      screenXMax: platformScreenXMax,
+      id: 'ground',
+      screenY: groundScreenY,
+      screenXMin: xMin,
+      screenXMax: xMax,
+      sitTargetY: taskbarScreenY,
     }];
 
-    // 3D Mesh（螢幕座標 → 世界座標）
-    const leftWorld = this.screenToWorld(platformScreenXMin, platformScreenY);
-    const rightWorld = this.screenToWorld(platformScreenXMax, platformScreenY);
-    const platformWidth = rightWorld.x - leftWorld.x;
-    const platformHeight = 4 * this.pixelToWorld; // 4px 厚度
-    const centerX = (leftWorld.x + rightWorld.x) / 2;
+    const debugVisible = this.debugOverlay?.isEnabled() ?? false;
+    const meshThickness = 4 * this.pixelToWorld;
 
-    const geometry = new THREE.BoxGeometry(platformWidth, platformHeight, 0.02);
-    const material = new THREE.MeshBasicMaterial({
-      color: 0x00ff88,
-      transparent: true,
-      opacity: 0.3,
-      depthTest: false,
+    // Taskbar mesh（綠色，坐下目標位置）
+    const tbLeft = this.screenToWorld(xMin, taskbarScreenY);
+    const tbRight = this.screenToWorld(xMax, taskbarScreenY);
+    const tbWidth = tbRight.x - tbLeft.x;
+    const tbCenterX = (tbLeft.x + tbRight.x) / 2;
+
+    const tbGeo = new THREE.BoxGeometry(tbWidth, meshThickness, 0.02);
+    const tbMat = new THREE.MeshBasicMaterial({
+      color: 0x00ff88, transparent: true, opacity: 0.3, depthTest: false,
     });
-    this.taskbarPlatformMesh = new THREE.Mesh(geometry, material);
-    this.taskbarPlatformMesh.position.set(centerX, leftWorld.y, 0);
-    this.taskbarPlatformMesh.visible = this.debugOverlay?.isEnabled() ?? false;
+    this.taskbarPlatformMesh = new THREE.Mesh(tbGeo, tbMat);
+    this.taskbarPlatformMesh.name = 'platform:taskbar';
+    this.taskbarPlatformMesh.position.set(tbCenterX, tbLeft.y, 0);
+    this.taskbarPlatformMesh.visible = debugVisible;
     this.scene.add(this.taskbarPlatformMesh);
+
+    // Ground mesh（黃色，觸發平面 = canvas 最底部）
+    const grLeft = this.screenToWorld(xMin, groundScreenY);
+    const grRight = this.screenToWorld(xMax, groundScreenY);
+    const grWidth = grRight.x - grLeft.x;
+    const grCenterX = (grLeft.x + grRight.x) / 2;
+
+    const grGeo = new THREE.BoxGeometry(grWidth, meshThickness, 0.02);
+    const grMat = new THREE.MeshBasicMaterial({
+      color: 0xffcc00, transparent: true, opacity: 0.3, depthTest: false,
+    });
+    this.groundPlatformMesh = new THREE.Mesh(grGeo, grMat);
+    this.groundPlatformMesh.name = 'platform:ground';
+    this.groundPlatformMesh.position.set(grCenterX, grLeft.y, 0);
+    this.groundPlatformMesh.visible = debugVisible;
+    this.scene.add(this.groundPlatformMesh);
   }
 }

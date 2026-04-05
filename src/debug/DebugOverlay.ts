@@ -121,6 +121,15 @@ export class DebugOverlay {
       lines.push(`Effective: ${effectiveSpeed.toFixed(1)} px/s`);
     }
 
+    // Mesh 清單
+    if (this.lastMeshList.length > 0) {
+      lines.push(`--- Meshes (${this.lastMeshList.length}) ---`);
+      for (const m of this.lastMeshList) {
+        const pos = `(${m.x.toFixed(2)}, ${m.y.toFixed(2)}, ${m.z.toFixed(2)})`;
+        lines.push(`  ${m.name} ${pos} ${m.visible ? '' : '[hidden]'}`);
+      }
+    }
+
     this.panel.textContent = lines.join('\n');
   }
 
@@ -146,6 +155,15 @@ export class DebugOverlay {
 
     this.windowPanel.textContent = [header, separator, ...rows].join('\n');
   }
+
+  /** 更新場景 mesh 清單 */
+  updateMeshList(meshes: MeshListEntry[]): void {
+    if (!this.enabled || !this.panel) return;
+    this.lastMeshList = meshes;
+  }
+
+  /** 上次的 mesh 清單（合併顯示在 panel 中） */
+  private lastMeshList: MeshListEntry[] = [];
 
   /** 銷毀 overlay 元素 */
   dispose(): void {
@@ -182,4 +200,13 @@ export interface WindowListEntry {
   zOrder: number;
   width: number;
   height: number;
+}
+
+/** Mesh 清單條目 */
+export interface MeshListEntry {
+  name: string;
+  x: number;
+  y: number;
+  z: number;
+  visible: boolean;
 }

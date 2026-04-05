@@ -34,12 +34,14 @@ export interface BehaviorOutput {
 export interface Platform {
   /** 平面 ID */
   id: string;
-  /** 平面的螢幕 Y 座標（角色腳底位置） */
+  /** 平面的螢幕 Y 座標（觸發判定位置，角色腳底碰到此 Y 即觸發 sit） */
   screenY: number;
   /** 平面的螢幕 X 範圍（左） */
   screenXMin: number;
   /** 平面的螢幕 X 範圍（右） */
   screenXMax: number;
+  /** 坐下目標 Y 座標（角色腳底應對齊的位置）。未設定時使用 screenY */
+  sitTargetY?: number;
 }
 
 /**
