@@ -936,14 +936,15 @@ export class SceneManager {
     this.vrmController.setWorldPosition(world.x, world.y);
   }
 
-  /** 更新角色 bounding box 尺寸（基於模型世界尺寸和縮放） */
+  /** 更新角色 bounding box 尺寸（基於模型世界尺寸） */
   private updateCharacterSize(): void {
     if (!this.vrmController) return;
     const modelSize = this.vrmController.getModelWorldSize();
     if (!modelSize) return;
 
-    const charH = modelSize.height * this.scale / this.pixelToWorld;
-    const charW = modelSize.width * this.scale / this.pixelToWorld;
+    // getModelWorldSize() 已包含 model scale，不需再乘 this.scale
+    const charH = modelSize.height / this.pixelToWorld;
+    const charW = modelSize.width / this.pixelToWorld;
 
     // 加邊距容納頭髮、配飾、手臂
     this.characterSize = {
