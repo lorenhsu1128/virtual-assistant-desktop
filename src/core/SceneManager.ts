@@ -892,19 +892,28 @@ export class SceneManager {
     return DEFAULT_Z;
   }
 
-  /** 角色是否大部分超出 workArea（可見部分 < 20%） */
+  /** 角色是否大部分超出 workArea（可見部分 < 20%），使用模型實際尺寸 */
   private isCharacterOffScreen(): boolean {
-    const pos = this.currentPosition;
-    const cw = this.characterSize.width;
-    const ch = this.characterSize.height;
+    if (!this.vrmController) return false;
+    const modelSize = this.vrmController.getModelWorldSize();
+    if (!modelSize) return false;
+
+    const actualW = modelSize.width / this.pixelToWorld;
+    const actualH = modelSize.height / this.pixelToWorld;
+    const charArea = actualW * actualH;
+    if (charArea <= 0) return false;
+
+    // 模型中心 = characterSize bounding box 的中心
+    const cx = this.currentPosition.x + this.characterSize.width / 2;
+    const cy = this.currentPosition.y + this.characterSize.height / 2;
+    const modelLeft = cx - actualW / 2;
+    const modelTop = cy - actualH / 2;
+
     const wa = this.workAreaOrigin;
     const ws = this.workAreaSize;
-    // 計算角色與 workArea 的重疊區域
-    const overlapX = Math.max(0, Math.min(pos.x + cw, wa.x + ws.width) - Math.max(pos.x, wa.x));
-    const overlapY = Math.max(0, Math.min(pos.y + ch, wa.y + ws.height) - Math.max(pos.y, wa.y));
-    const overlapArea = overlapX * overlapY;
-    const charArea = cw * ch;
-    return charArea > 0 && overlapArea / charArea < 0.2;
+    const overlapX = Math.max(0, Math.min(modelLeft + actualW, wa.x + ws.width) - Math.max(modelLeft, wa.x));
+    const overlapY = Math.max(0, Math.min(modelTop + actualH, wa.y + ws.height) - Math.max(modelTop, wa.y));
+    return (overlapX * overlapY) / charArea < 0.2;
   }
 
   /** 角色螢幕位置被視窗覆蓋的最大比率（0~1），使用模型實際尺寸（不含邊距） */
