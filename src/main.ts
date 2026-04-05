@@ -307,19 +307,23 @@ async function initializeBehaviorSystem(
   animationManager: AnimationManager | null,
   canvas: HTMLCanvasElement,
 ): Promise<void> {
-  // 螢幕資訊（workArea 用於座標轉換和角色初始位置）
+  // 螢幕資訊
   const displays = await ipc.getDisplayInfo();
   if (displays.length > 0) {
     const primaryDisplay = displays[0];
-    const effectiveBounds = primaryDisplay.workArea ?? primaryDisplay;
 
-    sceneManager.setWorkArea(effectiveBounds.x, effectiveBounds.y, effectiveBounds.width, effectiveBounds.height);
+    // 螢幕原點（整個螢幕，含工作列）
+    sceneManager.setScreenOrigin(primaryDisplay.x, primaryDisplay.y);
+
+    // workArea（不含工作列，用於平面位置和角色活動範圍）
+    const wa = primaryDisplay.workArea ?? primaryDisplay;
+    sceneManager.setWorkArea(wa.x, wa.y, wa.width, wa.height);
 
     // 角色初始位置：workArea 中央
     const charBounds = sceneManager.getCharacterBounds();
     sceneManager.setCurrentPosition({
-      x: effectiveBounds.x + (effectiveBounds.width - charBounds.width) / 2,
-      y: effectiveBounds.y + (effectiveBounds.height - charBounds.height) / 2,
+      x: wa.x + (wa.width - charBounds.width) / 2,
+      y: wa.y + (wa.height - charBounds.height) / 2,
     });
   }
 

@@ -60,16 +60,16 @@ protocol.registerSchemesAsPrivileged([
   },
 ]);
 
-/** Create the main transparent fullscreen window covering the workArea */
+/** Create the main transparent fullscreen window covering the entire screen (including taskbar) */
 function createMainWindow(): BrowserWindow {
   const primaryDisplay = screen.getPrimaryDisplay();
-  const workArea = primaryDisplay.workArea;
+  const bounds = primaryDisplay.bounds;
 
   const win = new BrowserWindow({
-    x: workArea.x,
-    y: workArea.y,
-    width: workArea.width,
-    height: workArea.height,
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
     transparent: true,
     frame: false,
     thickFrame: false,

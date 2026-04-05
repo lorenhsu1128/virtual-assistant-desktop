@@ -64,7 +64,9 @@ export class SceneManager {
   private previousPosition = { x: 0, y: 0 };
   /** 角色 bounding box 尺寸（螢幕像素） */
   private characterSize = { width: 300, height: 500 };
-  /** workArea 原點（螢幕絕對座標，邏輯像素） */
+  /** 螢幕原點（螢幕絕對座標，用於 screenToWorld，通常 = (0,0)） */
+  private screenOrigin = { x: 0, y: 0 };
+  /** workArea 原點（螢幕絕對座標，用於平面位置和活動範圍） */
   private workAreaOrigin = { x: 0, y: 0 };
   /** workArea 尺寸（邏輯像素） */
   private workAreaSize = { width: 1920, height: 1040 };
@@ -236,11 +238,16 @@ export class SceneManager {
     this.expressionManager = em;
   }
 
-  /** 設定 workArea（螢幕絕對座標，邏輯像素） */
+  /** 設定 workArea 資訊（螢幕絕對座標，邏輯像素）— 用於平面位置和角色活動範圍 */
   setWorkArea(x: number, y: number, width: number, height: number): void {
     this.workAreaOrigin = { x, y };
     this.workAreaSize = { width, height };
     this.createTaskbarPlatform();
+  }
+
+  /** 設定螢幕原點（用於 screenToWorld 座標轉換） */
+  setScreenOrigin(x: number, y: number): void {
+    this.screenOrigin = { x, y };
   }
 
   /** 更新當前角色位置（螢幕座標） */
@@ -710,8 +717,8 @@ export class SceneManager {
    */
   screenToWorld(screenX: number, screenY: number): { x: number; y: number } {
     const canvas = this.renderer.domElement;
-    const canvasX = screenX - this.workAreaOrigin.x;
-    const canvasY = screenY - this.workAreaOrigin.y;
+    const canvasX = screenX - this.screenOrigin.x;
+    const canvasY = screenY - this.screenOrigin.y;
     const canvasW = canvas.clientWidth || canvas.width;
     const canvasH = canvas.clientHeight || canvas.height;
 
@@ -729,10 +736,10 @@ export class SceneManager {
     // 模型原點在腳底 → 用 bounding box 的中下位置
     const feetScreenY = this.currentPosition.y + this.characterSize.height;
 
-    // 腳底不超過 canvas 底部（workArea 下緣）
+    // 腳底不超過 canvas 底部（螢幕底部）
     const canvas = this.renderer.domElement;
     const canvasH = canvas.clientHeight || canvas.height;
-    const feetCanvasY = feetScreenY - this.workAreaOrigin.y;
+    const feetCanvasY = feetScreenY - this.screenOrigin.y;
 
     if (feetCanvasY > canvasH) {
       this.currentPosition.y -= (feetCanvasY - canvasH);
@@ -746,17 +753,19 @@ export class SceneManager {
   }
 
   /** 簡單螢幕邊界 clamp（保留 20% 可見） */
+  /** 簡單螢幕邊界 clamp（基於 workArea 範圍，允許超出到螢幕邊緣） */
   private clampToScreen(pos: { x: number; y: number }): { x: number; y: number } {
     const canvas = this.renderer.domElement;
-    const canvasW = canvas.clientWidth || canvas.width;
-    const canvasH = canvas.clientHeight || canvas.height;
+    const screenH = canvas.clientHeight || canvas.height;
     const charW = this.characterSize.width;
     const charH = this.characterSize.height;
 
+    // X 活動範圍：workArea 內（保留 20% 可見）
     const minX = this.workAreaOrigin.x - charW * 0.8;
-    const maxX = this.workAreaOrigin.x + canvasW - charW * 0.2;
+    const maxX = this.workAreaOrigin.x + this.workAreaSize.width - charW * 0.2;
+    // Y 活動範圍：上限 = workArea 頂部，下限 = 螢幕底部（允許坐下時腳伸到工作列）
     const minY = this.workAreaOrigin.y - charH * 0.8;
-    const maxY = this.workAreaOrigin.y + canvasH - charH * 0.2;
+    const maxY = this.screenOrigin.y + screenH - charH * 0.2;
 
     return {
       x: Math.max(minX, Math.min(maxX, pos.x)),
