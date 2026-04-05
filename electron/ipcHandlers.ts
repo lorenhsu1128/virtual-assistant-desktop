@@ -1,6 +1,6 @@
 import { ipcMain, dialog, BrowserWindow, screen, app } from 'electron';
 import * as fileManager from './fileManager.js';
-import { WindowMonitor } from './windowMonitor.js';
+import { WindowMonitor, type WindowRect } from './windowMonitor.js';
 
 /** Display info returned to renderer */
 interface DisplayInfo {
