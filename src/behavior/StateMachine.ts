@@ -36,7 +36,8 @@ export class StateMachine {
   // sit 狀態
   private attachedWindowHwnd: number | null = null;
   private attachedWindowLastPos: { x: number; y: number } | null = null;
-  private sitPlatformId: string | null = null;
+  /** 當前坐在的平面 ID（未來用於多平面識別） */
+  sitPlatformId: string | null = null;
 
   // fall 狀態
   private fallSpeed = 0;
@@ -143,10 +144,25 @@ export class StateMachine {
     }
   }
 
+  /** 平面接觸判定閾值（px） */
+  private static readonly PLATFORM_THRESHOLD = 20;
+
   private tickWalk(input: BehaviorInput): void {
     if (!this.walkTarget) {
       this.enterState('idle');
       return;
+    }
+
+    // 平面接觸偵測：角色腳底接近平面時坐下
+    const feetY = input.currentPosition.y + input.characterBounds.height;
+    for (const platform of input.platforms) {
+      if (Math.abs(feetY - platform.screenY) < StateMachine.PLATFORM_THRESHOLD &&
+          input.currentPosition.x + input.characterBounds.width > platform.screenXMin &&
+          input.currentPosition.x < platform.screenXMax) {
+        this.sitPlatformId = platform.id;
+        this.enterState('sit');
+        return;
+      }
     }
 
     // 移動
@@ -156,12 +172,7 @@ export class StateMachine {
     const dist = Math.sqrt(dx * dx + dy * dy);
 
     if (dist <= speed || dist < 5) {
-      // 到達目標 — 如果有 sitPlatformId 則坐下
-      if (this.sitPlatformId) {
-        this.enterState('sit');
-      } else {
-        this.enterState('idle');
-      }
+      this.enterState('idle');
       return;
     }
 
@@ -213,31 +224,12 @@ export class StateMachine {
     const roll = Math.random();
     const probs = this.config.transitionProbabilities;
 
-    if (roll < probs.toWalk) {
+    // sit 不再由隨機觸發，而是走路碰到平面時自動觸發
+    if (roll < probs.toWalk + probs.toSit) {
       this.pickWalkTarget(input);
       this.enterState('walk');
-    } else if (roll < probs.toWalk + probs.toSit) {
-      this.tryEnterSit(input);
     } else if (roll < probs.toWalk + probs.toSit + probs.toPeek) {
       this.tryEnterPeek(input);
-    } else {
-      // 繼續 idle
-      this.enterState('idle');
-    }
-  }
-
-  private tryEnterSit(input: BehaviorInput): void {
-    // 使用平面系統（Platform）取代舊的視窗吸附
-    if (input.platforms.length > 0) {
-      const target = input.platforms[Math.floor(Math.random() * input.platforms.length)];
-      // 角色腳底走到平面 Y 座標 → 在平面上隨機 X 位置坐下
-      const sitX = target.screenXMin + Math.random() * (target.screenXMax - target.screenXMin - input.characterBounds.width);
-      this.walkTarget = {
-        x: Math.max(target.screenXMin, sitX),
-        y: target.screenY - input.characterBounds.height,
-      };
-      this.sitPlatformId = target.id;
-      this.enterState('walk'); // 先走過去
     } else {
       this.enterState('idle');
     }
