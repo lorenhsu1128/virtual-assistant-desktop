@@ -29,7 +29,7 @@ const FPS_MAP: Record<FpsMode, number> = {
  */
 export class SceneManager {
   private scene: THREE.Scene;
-  private camera: THREE.PerspectiveCamera;
+  private camera: THREE.OrthographicCamera;
   private renderer: THREE.WebGLRenderer;
   private clock: THREE.Clock;
 
@@ -74,12 +74,9 @@ export class SceneManager {
   private platforms: Platform[] = [];
   /** 工作列平面 3D Mesh（debug 可見） */
   private taskbarPlatformMesh: THREE.Mesh | null = null;
-  /** 像素到世界座標的轉換比例 */
-  private pixelToWorld = 0.003126;
-  /** 原始 canvas 高度基準（用於攝影機距離縮放） */
-  private static readonly BASE_CANVAS_HEIGHT = 600;
-  /** 原始攝影機距離 */
-  private static readonly BASE_CAMERA_DIST = 3.5;
+  /** 像素到世界座標的轉換比例（正交攝影機下為固定常數） */
+  private static readonly PIXEL_TO_WORLD = 0.003126;
+  private pixelToWorld = SceneManager.PIXEL_TO_WORLD;
   // BASE_CAMERA_Y removed: camera Y is now computed from visibleHeight
   // (遮擋系統已移除，未來重新開發)
 
@@ -112,9 +109,13 @@ export class SceneManager {
     // Scene
     this.scene = new THREE.Scene();
 
-    // Camera — 全螢幕覆蓋，距離按 canvas 高度等比縮放
-    this.camera = new THREE.PerspectiveCamera(30, canvas.width / canvas.height, 0.1, 100);
-    this.setupCameraForCanvas(canvas.clientHeight || canvas.height);
+    // Camera — 正交攝影機，無透視變形
+    const ch = canvas.clientHeight || canvas.height;
+    const cw = canvas.clientWidth || canvas.width;
+    const halfH = (ch * SceneManager.PIXEL_TO_WORLD) / 2;
+    const halfW = (cw * SceneManager.PIXEL_TO_WORLD) / 2;
+    this.camera = new THREE.OrthographicCamera(-halfW, halfW, halfH, -halfH, 0.1, 100);
+    this.setupCameraForCanvas(ch);
 
     // Renderer — 透明背景
     this.renderer = new THREE.WebGLRenderer({
@@ -292,9 +293,7 @@ export class SceneManager {
     const modelHeight = box.max.y - box.min.y;
     const modelWidth = box.max.x - box.min.x;
 
-    const vFov = this.camera.fov * (Math.PI / 180);
-    const camDist = this.camera.position.length();
-    const visibleHeight = 2 * Math.tan(vFov / 2) * camDist;
+    const visibleHeight = this.camera.top - this.camera.bottom;
 
     this.charViewportRatioH = modelHeight / visibleHeight;
     this.charAspectRatio = modelWidth / modelHeight;
@@ -689,24 +688,27 @@ export class SceneManager {
   // ── 全螢幕座標系統 ──
 
   /**
-   * 設定攝影機覆蓋全螢幕
+   * 設定正交攝影機覆蓋全螢幕
    *
-   * 距離按 canvas 高度等比縮放，維持模型在任何解析度下的螢幕像素大小一致。
+   * 使用固定 pixelToWorld 比例，模型在任何解析度下的螢幕像素大小一致。
+   * 正交投影無近大遠小效果，坐下動畫不會造成角色視覺放大。
    */
   private setupCameraForCanvas(canvasHeight: number): void {
-    const scaleFactor = canvasHeight / SceneManager.BASE_CANVAS_HEIGHT;
-    const cameraDist = SceneManager.BASE_CAMERA_DIST * scaleFactor;
-    const vFov = this.camera.fov * (Math.PI / 180);
-    const visibleHeight = 2 * cameraDist * Math.tan(vFov / 2);
+    const canvasWidth = window.innerWidth;
+    const visibleHeight = canvasHeight * this.pixelToWorld;
+    const visibleWidth = canvasWidth * this.pixelToWorld;
     const centerY = visibleHeight / 2;
 
-    this.camera.position.set(0, centerY, cameraDist);
-    this.camera.lookAt(0, centerY, 0);
-    this.camera.aspect = window.innerWidth / canvasHeight;
+    this.camera.left = -visibleWidth / 2;
+    this.camera.right = visibleWidth / 2;
+    this.camera.top = visibleHeight / 2;
+    this.camera.bottom = -visibleHeight / 2;
     this.camera.updateProjectionMatrix();
 
-    this.orbitRadius = cameraDist;
-    this.pixelToWorld = visibleHeight / canvasHeight;
+    this.camera.position.set(0, centerY, 10);
+    this.camera.lookAt(0, centerY, 0);
+
+    this.orbitRadius = 10;
   }
 
   /**
