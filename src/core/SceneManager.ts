@@ -85,7 +85,7 @@ export class SceneManager {
   private windowMeshManager: WindowMeshManager | null = null;
   private cachedWindowRects: WindowRect[] = [];
   /** 當前角色 Z 值（用於 debug 顯示） */
-  private currentCharacterZ = 9.5;
+  private currentCharacterZ = 8.0;
   /** 最近一次 StateMachine 輸出（供 resolveCharacterZ 使用） */
   private lastBehaviorOutput: BehaviorOutput | null = null;
   /** 拖曳後維持最上方，直到前景視窗改變時清除 */
@@ -844,15 +844,15 @@ export class SceneManager {
    *
    * peek → 目標視窗 Z - 0.25（在視窗後面）
    * sit → 吸附視窗 Z + 0.25（在視窗前面，但可被更上層視窗遮擋）
-   * drag → 9.5（最上方）+ 設定 forceTopAfterDrag
-   * 放下後 → 維持 9.5，直到使用者點擊其他視窗（前景視窗改變）
+   * drag → 8.0（最上方）+ 設定 forceTopAfterDrag
+   * 放下後 → 維持 8.0，直到使用者點擊其他視窗（前景視窗改變）
    * peek → 目標視窗 Z - 0.25（在視窗後面）
    * sit → 吸附視窗 Z（與視窗同層）
    * walk/idle/fall → 前景視窗 Z - 0.25（自動退到前景視窗後面）
-   *                  無前景視窗時 → 9.5（最前面）
+   *                  無前景視窗時 → 8.0（最前面）
    */
   private resolveCharacterZ(output: BehaviorOutput | null): number {
-    const DEFAULT_Z = 9.5;
+    const DEFAULT_Z = 8.0;
     if (!output || !this.windowMeshManager) return DEFAULT_Z;
 
     // 偵測前景視窗改變 → 清除拖曳後置頂

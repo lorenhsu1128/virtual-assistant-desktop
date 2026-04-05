@@ -24,7 +24,7 @@ interface MeshRecord {
  */
 export class WindowMeshManager {
   /** Z 軸常數 */
-  private static readonly Z_TOP = 9.0;
+  private static readonly Z_TOP = 8.0;
   private static readonly Z_SPACING = 0.5;
 
   private readonly meshMap = new Map<number, MeshRecord>();
@@ -135,7 +135,7 @@ export class WindowMeshManager {
   /**
    * 計算固定間距 Z 值
    *
-   * zOrder=0 → Z=9.0，zOrder=1 → Z=8.8，zOrder=2 → Z=8.6 ...
+   * zOrder=0 → Z=8.0，zOrder=1 → Z=7.5，zOrder=2 → Z=7.0 ...
    * 間距恆定 0.2，不受視窗數量影響。
    */
   private calcMeshZ(zOrder: number): number {
