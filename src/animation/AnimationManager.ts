@@ -52,6 +52,9 @@ export class AnimationManager {
   /** 當前播放中的系統動畫 action */
   private systemAction: THREE.AnimationAction | null = null;
 
+  /** 當前動畫的顯示名稱（.vrma 檔名或系統動畫名） */
+  private currentDisplayName: string | null = null;
+
   /** 系統動畫播放前保存的狀態（用於恢復） */
   private savedState: { clip: THREE.AnimationClip; loop: boolean; isAction: boolean } | null = null;
 
@@ -113,6 +116,7 @@ export class AnimationManager {
     if (!selected) return false;
 
     this.playClip(selected.clip, selected.entry.loop, category === 'action');
+    this.currentDisplayName = selected.entry.displayName || selected.entry.fileName;
     return true;
   }
 
@@ -124,6 +128,7 @@ export class AnimationManager {
     if (!anim) return false;
 
     this.playClip(anim.clip, anim.entry.loop, anim.entry.category === 'action');
+    this.currentDisplayName = anim.entry.displayName || anim.entry.fileName;
     return true;
   }
 
@@ -194,6 +199,7 @@ export class AnimationManager {
 
     this.systemAction = action;
     this.currentAction = action;
+    this.currentDisplayName = `SYS:${name}`;
     return true;
   }
 
@@ -236,9 +242,9 @@ export class AnimationManager {
     return this.currentAction?.getClip() ?? null;
   }
 
-  /** 取得當前播放的動畫名稱 */
+  /** 取得當前播放的動畫顯示名稱（.vrma 檔名或系統動畫名） */
   getCurrentAnimationName(): string | null {
-    return this.currentAction?.getClip().name ?? null;
+    return this.currentDisplayName;
   }
 
   /** 檢查是否有該分類的動畫 */
@@ -367,6 +373,7 @@ export class AnimationManager {
     if (selected) {
       // idle 輪播一律循環播放，避免 T-pose
       this.playClip(selected.clip, true, false);
+      this.currentDisplayName = selected.entry.displayName || selected.entry.fileName;
     }
   }
 
