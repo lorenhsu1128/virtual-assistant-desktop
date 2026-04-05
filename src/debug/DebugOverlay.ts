@@ -108,7 +108,7 @@ export class DebugOverlay {
       `MoveSpeed: ${info.baseMoveSpeed.toFixed(1)} px/s`,
       `Multiplier: ${info.moveSpeedMultiplier.toFixed(2)}x`,
       `Paused: ${info.paused ? 'Yes' : 'No'}`,
-      `OffScreen: ${info.isOffScreen ? 'YES' : 'No'}`,
+      `OffScreen: ${info.offScreenDir ?? 'No'}`,
       `Occluded: ${(info.occlusionRatio ?? 0) >= 0.8 ? 'YES' : 'No'} (${((info.occlusionRatio ?? 0) * 100).toFixed(0)}%)`,
     ];
 
@@ -214,8 +214,8 @@ export interface DebugInfo {
   currentAnimation?: string;
   /** 角色當前 Z 深度 */
   characterZ?: number;
-  /** 角色是否超出螢幕範圍 */
-  isOffScreen?: boolean;
+  /** 角色超出螢幕方向（null=在螢幕內，'LEFT'/'RIGHT'/'TOP'/'BOTTOM' 或組合） */
+  offScreenDir?: string | null;
   /** 角色被視窗覆蓋的最大比率（0~1） */
   occlusionRatio?: number;
   /** 遮擋 mesh 清單 */

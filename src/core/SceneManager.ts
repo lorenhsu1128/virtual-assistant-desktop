@@ -550,7 +550,7 @@ export class SceneManager {
         stepLength: this.analyzedStepLength,
         currentAnimation: this.animationManager?.getCurrentAnimationName() ?? undefined,
         characterZ: this.currentCharacterZ,
-        isOffScreen: this.isCharacterOffScreen(),
+        offScreenDir: this.getOffScreenDirection(),
         occlusionRatio: this.getOcclusionRatio(),
         occlusionMeshes: this.windowMeshManager?.getDebugInfo(),
       });
@@ -892,18 +892,17 @@ export class SceneManager {
     return DEFAULT_Z;
   }
 
-  /** 角色是否大部分超出 workArea（可見部分 < 20%），使用模型實際尺寸 */
-  private isCharacterOffScreen(): boolean {
-    if (!this.vrmController) return false;
+  /** 角色超出 workArea 的方向（可見部分 < 20% 時回傳方向，否則 null） */
+  private getOffScreenDirection(): string | null {
+    if (!this.vrmController) return null;
     const modelSize = this.vrmController.getModelWorldSize();
-    if (!modelSize) return false;
+    if (!modelSize) return null;
 
     const actualW = modelSize.width / this.pixelToWorld;
     const actualH = modelSize.height / this.pixelToWorld;
     const charArea = actualW * actualH;
-    if (charArea <= 0) return false;
+    if (charArea <= 0) return null;
 
-    // 模型中心 = characterSize bounding box 的中心
     const cx = this.currentPosition.x + this.characterSize.width / 2;
     const cy = this.currentPosition.y + this.characterSize.height / 2;
     const modelLeft = cx - actualW / 2;
@@ -913,7 +912,15 @@ export class SceneManager {
     const ws = this.workAreaSize;
     const overlapX = Math.max(0, Math.min(modelLeft + actualW, wa.x + ws.width) - Math.max(modelLeft, wa.x));
     const overlapY = Math.max(0, Math.min(modelTop + actualH, wa.y + ws.height) - Math.max(modelTop, wa.y));
-    return (overlapX * overlapY) / charArea < 0.2;
+    if ((overlapX * overlapY) / charArea >= 0.2) return null;
+
+    // 用模型中心判斷方向
+    const dirs: string[] = [];
+    if (cx < wa.x) dirs.push('LEFT');
+    if (cx > wa.x + ws.width) dirs.push('RIGHT');
+    if (cy < wa.y) dirs.push('TOP');
+    if (cy > wa.y + ws.height) dirs.push('BOTTOM');
+    return dirs.length > 0 ? dirs.join('+') : 'YES';
   }
 
   /** 角色螢幕位置被視窗覆蓋的最大比率（0~1），使用模型實際尺寸（不含邊距） */
