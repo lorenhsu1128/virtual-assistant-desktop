@@ -406,7 +406,7 @@ async function initializeBehaviorSystem(
     ipc.setWindowSize(w, h);
   });
 
-  // 遮擋更新 callback（邏輯像素 → 物理像素，SetWindowRgn 使用物理像素）
+  // 遮擋更新 callback — 矩形（fallback，邏輯像素 → 物理像素）
   sceneManager.setOcclusionSetter((rects) => {
     const mappedRects = rects.map((r) => ({
       x: Math.round(r.x * dpr),
@@ -415,6 +415,19 @@ async function initializeBehaviorSystem(
       height: Math.round(r.height * dpr),
     }));
     ipc.setWindowRegion(mappedRects);
+  });
+
+  // 遮擋更新 callback — 多邊形輪廓（精確 silhouette，邏輯像素 → 物理像素）
+  sceneManager.setOcclusionPolygonSetter((points) => {
+    if (points.length === 0) {
+      ipc.setWindowRegion([]); // 清除遮擋用矩形 API（傳空陣列）
+      return;
+    }
+    const mappedPoints = points.map((p) => ({
+      x: Math.round(p.x * dpr),
+      y: Math.round(p.y * dpr),
+    }));
+    ipc.setWindowPolygonRegion(mappedPoints);
   });
 
   // ── v0.3: 表情系統 ──

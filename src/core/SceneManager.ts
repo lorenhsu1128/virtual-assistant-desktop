@@ -8,6 +8,9 @@ import type { BehaviorAnimationBridge } from '../behavior/BehaviorAnimationBridg
 import type { ExpressionManager } from '../expression/ExpressionManager';
 import type { DebugOverlay, BoneDebugData, ContactDebugData } from '../debug/DebugOverlay';
 import type { Rect } from '../types/window';
+import type { Point } from '../types/occlusion';
+import { SilhouetteExtractor } from '../occlusion/SilhouetteExtractor';
+import { clipPolygonToRect } from '../occlusion/PolygonClip';
 
 /** 幀率模式 */
 type FpsMode = 'foreground' | 'background' | 'powerSave';
@@ -65,6 +68,9 @@ export class SceneManager {
   private positionSetter: ((x: number, y: number) => void) | null = null;
   private windowSizeSetter: ((w: number, h: number) => void) | null = null;
   private occlusionSetter: ((rects: Rect[]) => void) | null = null;
+  private occlusionPolygonSetter: ((points: Point[]) => void) | null = null;
+  private silhouetteExtractor: SilhouetteExtractor | null = null;
+  private silhouetteEnabled = true;
   private lastOcclusionUpdate = 0;
   private lastOcclusionHash = '';
 
@@ -225,9 +231,18 @@ export class SceneManager {
     this.windowSizeSetter = setter;
   }
 
-  /** 設定遮擋更新 callback */
+  /** 設定遮擋更新 callback（矩形，fallback 用） */
   setOcclusionSetter(setter: (rects: Rect[]) => void): void {
     this.occlusionSetter = setter;
+  }
+
+  /** 設定多邊形遮擋更新 callback（精確輪廓） */
+  setOcclusionPolygonSetter(setter: (points: Point[]) => void): void {
+    this.occlusionPolygonSetter = setter;
+    // 有 polygon setter 時建立 silhouette extractor
+    if (!this.silhouetteExtractor) {
+      this.silhouetteExtractor = new SilhouetteExtractor(this.renderer);
+    }
   }
 
   /** 更新當前視窗位置（由外部同步） */
@@ -459,38 +474,35 @@ export class SceneManager {
     this.updateCameraDirection(moveDx, moveDy);
     this.applyOrbitInterpolation();
 
-    // 遮擋更新：穿越視窗或 debug mode 時啟用（拖曳時不遮擋）
-    if (this.collisionSystem && this.occlusionSetter && now - this.lastOcclusionUpdate > OCCLUSION_UPDATE_INTERVAL) {
+    // 遮擋判定（Phase 1: 判定需要遮擋的視窗，render 後再提取輪廓）
+    let pendingOcclusionRects: Rect[] | null = null;
+    let pendingOcclusionWindowRect: Rect | null = null;
+
+    if (this.collisionSystem && (this.occlusionSetter || this.occlusionPolygonSetter) && now - this.lastOcclusionUpdate > OCCLUSION_UPDATE_INTERVAL) {
       const isDragging = this.stateMachine?.getState() === 'drag';
       const traversingHwnd = this.stateMachine?.getTraversingWindowHwnd() ?? null;
       const isDebug = this.debugOverlay?.isEnabled() ?? false;
-      let occlusionRects: Rect[];
 
       if (isDragging) {
-        // 拖曳中：角色最上層顯示，不遮擋
-        occlusionRects = [];
+        pendingOcclusionRects = [];
       } else if (traversingHwnd !== null) {
-        // 穿越中：只遮擋穿越的視窗
-        occlusionRects = this.collisionSystem.getOcclusionRectsForWindow(this.getCharacterBounds(), traversingHwnd);
+        pendingOcclusionRects = this.collisionSystem.getOcclusionRectsForWindow(this.getCharacterBounds(), traversingHwnd);
+        // 取得穿越視窗的螢幕座標（供多邊形裁切用）
+        const wr = this.collisionSystem.getWindowRects().find(w => w.hwnd === traversingHwnd);
+        if (wr) {
+          pendingOcclusionWindowRect = { x: wr.x, y: wr.y, width: wr.width, height: wr.height };
+        }
       } else if (isDebug) {
-        // Debug mode：只遮擋前景視窗（方便手動測試穿越效果）
-        // 前景視窗最大化時不遮擋（角色顯示在最大化視窗上）
         const fgWindow = this.collisionSystem.getWindowRects().find(w => w.isForeground);
         if (fgWindow && !fgWindow.isMaximized) {
-          occlusionRects = this.collisionSystem.getOcclusionRectsForWindow(this.getCharacterBounds(), fgWindow.hwnd);
+          pendingOcclusionRects = this.collisionSystem.getOcclusionRectsForWindow(this.getCharacterBounds(), fgWindow.hwnd);
+          pendingOcclusionWindowRect = { x: fgWindow.x, y: fgWindow.y, width: fgWindow.width, height: fgWindow.height };
         } else {
-          occlusionRects = [];
+          pendingOcclusionRects = [];
         }
       } else {
-        occlusionRects = [];
+        pendingOcclusionRects = [];
       }
-
-      const hash = this.hashOcclusionRects(occlusionRects);
-      if (hash !== this.lastOcclusionHash) {
-        this.lastOcclusionHash = hash;
-        this.occlusionSetter(occlusionRects);
-      }
-      this.lastOcclusionUpdate = now;
     }
 
     // Step 3: Animation update
@@ -657,10 +669,76 @@ export class SceneManager {
 
     // Step 6: Render
     this.renderer.render(this.scene, this.camera);
+
+    // 遮擋套用（Phase 2: render 後提取輪廓或 fallback 到矩形）
+    if (pendingOcclusionRects !== null) {
+      this.applyOcclusion(pendingOcclusionRects, pendingOcclusionWindowRect);
+      this.lastOcclusionUpdate = now;
+    }
   };
 
+  /**
+   * 套用遮擋效果（render 後呼叫）
+   *
+   * 優先使用多邊形輪廓，失敗則 fallback 到矩形。
+   */
+  private applyOcclusion(fallbackRects: Rect[], windowRect: Rect | null): void {
+    // 無遮擋需求（空矩形 = 清除遮擋）
+    if (fallbackRects.length === 0) {
+      const hash = '0';
+      if (hash !== this.lastOcclusionHash) {
+        this.lastOcclusionHash = hash;
+        if (this.occlusionPolygonSetter) {
+          this.occlusionPolygonSetter([]);
+        } else {
+          this.occlusionSetter?.(fallbackRects);
+        }
+      }
+      return;
+    }
+
+    // 嘗試多邊形輪廓
+    if (this.silhouetteEnabled && this.silhouetteExtractor && this.occlusionPolygonSetter && windowRect) {
+      try {
+        const silhouette = this.silhouetteExtractor.extract();
+        if (silhouette && silhouette.length >= 3) {
+          // 將視窗螢幕座標轉為角色視窗本地座標（canvas CSS 像素）
+          const charBounds = this.getCharacterBounds();
+          const localClipRect: Rect = {
+            x: windowRect.x - charBounds.x,
+            y: windowRect.y - charBounds.y,
+            width: windowRect.width,
+            height: windowRect.height,
+          };
+
+          // 裁切輪廓與視窗的交集
+          const clipped = clipPolygonToRect(silhouette, localClipRect);
+          if (clipped.length >= 3) {
+            const hash = this.hashPoints(clipped);
+            if (hash !== this.lastOcclusionHash) {
+              this.lastOcclusionHash = hash;
+              this.occlusionPolygonSetter(clipped);
+            }
+            return;
+          }
+        }
+      } catch (e) {
+        // 輪廓提取失敗，永久降級到矩形
+        console.warn('[SceneManager] Silhouette extraction failed, falling back to rects:', e);
+        this.silhouetteEnabled = false;
+      }
+    }
+
+    // Fallback: 矩形遮擋
+    const hash = this.hashOcclusionData(fallbackRects);
+    if (hash !== this.lastOcclusionHash) {
+      this.lastOcclusionHash = hash;
+      this.occlusionSetter?.(fallbackRects);
+    }
+  }
+
   /** 遮擋矩形的簡易 hash（避免 JSON.stringify 的 GC 壓力） */
-  private hashOcclusionRects(rects: Rect[]): string {
+  private hashOcclusionData(rects: Rect[]): string {
     if (rects.length === 0) return '0';
     let hash = rects.length;
     for (const r of rects) {
@@ -669,7 +747,17 @@ export class SceneManager {
       hash = ((hash << 5) - hash + r.width) | 0;
       hash = ((hash << 5) - hash + r.height) | 0;
     }
-    return String(hash);
+    return 'r' + String(hash);
+  }
+
+  /** 多邊形頂點的簡易 hash */
+  private hashPoints(points: Point[]): string {
+    let hash = points.length;
+    for (const p of points) {
+      hash = ((hash << 5) - hash + Math.round(p.x)) | 0;
+      hash = ((hash << 5) - hash + Math.round(p.y)) | 0;
+    }
+    return 'p' + String(hash);
   }
 
   /** 重置攝影機到預設視角 */

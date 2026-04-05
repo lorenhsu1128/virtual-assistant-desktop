@@ -1,7 +1,7 @@
 import { ipcMain, dialog, BrowserWindow, screen, app } from 'electron';
 import * as fileManager from './fileManager.js';
 import { WindowMonitor, type WindowRect } from './windowMonitor.js';
-import { setWindowRegion, type Rect } from './windowRegion.js';
+import { setWindowRegion, setWindowPolygonRegion, type Rect } from './windowRegion.js';
 
 /** Display info returned to renderer */
 interface DisplayInfo {
@@ -85,6 +85,10 @@ export function registerIpcHandlers(
 
   ipcMain.handle('set_window_region', (_event, excludeRects: Rect[]) => {
     setWindowRegion(mainWindow, excludeRects);
+  });
+
+  ipcMain.handle('set_window_polygon_region', (_event, points: Array<{ x: number; y: number }>) => {
+    setWindowPolygonRegion(mainWindow, points);
   });
 
   // ── Display Info ──

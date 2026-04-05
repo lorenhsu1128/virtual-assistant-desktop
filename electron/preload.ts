@@ -27,6 +27,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // ── Window Region ──
   setWindowRegion: (excludeRects: unknown) => ipcRenderer.invoke('set_window_region', excludeRects),
+  setWindowPolygonRegion: (points: unknown) => ipcRenderer.invoke('set_window_polygon_region', points),
 
   // ── Display Info ──
   getDisplayInfo: () => ipcRenderer.invoke('get_display_info'),
