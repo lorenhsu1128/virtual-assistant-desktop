@@ -50,6 +50,9 @@ export class SceneManager {
   private frameCount = 0;
   private lastFpsTime = 0;
   private currentFps = 0;
+  private windowListFetcher: (() => Promise<Array<{ title: string; width: number; height: number; zOrder: number }>>) | null = null;
+  private lastWindowListUpdate = 0;
+  private static readonly WINDOW_LIST_INTERVAL = 1000;
   /** 步伐分析結果（步伐長度，世界單位，scale=1 基準） */
   private analyzedStepLength = 0;
   /** 基礎移動速度（px/s，scale=1 基準，來自步伐分析） */
@@ -193,6 +196,11 @@ export class SceneManager {
   /** 設定 Debug Overlay */
   setDebugOverlay(overlay: DebugOverlay): void {
     this.debugOverlay = overlay;
+  }
+
+  /** 設定視窗清單取得函式（供 debug overlay 使用） */
+  setWindowListFetcher(fetcher: () => Promise<Array<{ title: string; width: number; height: number; zOrder: number }>>): void {
+    this.windowListFetcher = fetcher;
   }
 
   /** 設定步伐分析結果（供 debug overlay 顯示） */
@@ -463,6 +471,20 @@ export class SceneManager {
         paused: this.stateMachine?.isPaused() ?? false,
         stepLength: this.analyzedStepLength,
       });
+
+      // 視窗清單（每秒更新一次）
+      if (this.windowListFetcher && now - this.lastWindowListUpdate > SceneManager.WINDOW_LIST_INTERVAL) {
+        this.lastWindowListUpdate = now;
+        this.windowListFetcher().then((windows) => {
+          const dpr = window.devicePixelRatio || 1;
+          this.debugOverlay?.updateWindowList(windows.map(w => ({
+            title: w.title,
+            zOrder: w.zOrder,
+            width: Math.round(w.width / dpr),
+            height: Math.round(w.height / dpr),
+          })));
+        }).catch(() => { /* 忽略錯誤 */ });
+      }
     }
 
     // Step 6: Render

@@ -1,12 +1,13 @@
 /**
  * Debug Overlay
  *
- * 在桌寵視窗上顯示角色狀態資訊和紅虛線外框。
+ * 在桌寵視窗上顯示角色狀態資訊、桌面視窗清單和紅虛線外框。
  * 使用 HTML 元素疊加在 canvas 上，不影響 3D 渲染。
  */
 export class DebugOverlay {
   private enabled = false;
   private panel: HTMLDivElement | null = null;
+  private windowPanel: HTMLDivElement | null = null;
   private border: HTMLDivElement | null = null;
 
   /** 建立 overlay 元素 */
@@ -32,6 +33,28 @@ export class DebugOverlay {
       display: none;
     `;
     document.body.appendChild(this.panel);
+
+    // 視窗清單面板（左下角）
+    this.windowPanel = document.createElement('div');
+    this.windowPanel.style.cssText = `
+      position: fixed;
+      bottom: 8px;
+      left: 8px;
+      background: rgba(0, 0, 0, 0.7);
+      color: #0ff;
+      font-family: monospace;
+      font-size: 11px;
+      padding: 8px 12px;
+      border-radius: 4px;
+      pointer-events: none;
+      z-index: 9999;
+      white-space: pre;
+      line-height: 1.4;
+      max-height: 40vh;
+      overflow: hidden;
+      display: none;
+    `;
+    document.body.appendChild(this.windowPanel);
 
     // 紅虛線外框
     this.border = document.createElement('div');
@@ -59,6 +82,9 @@ export class DebugOverlay {
 
     if (this.panel) {
       this.panel.style.display = enabled ? 'block' : 'none';
+    }
+    if (this.windowPanel) {
+      this.windowPanel.style.display = enabled ? 'block' : 'none';
     }
     if (this.border) {
       this.border.style.display = enabled ? 'block' : 'none';
@@ -94,11 +120,36 @@ export class DebugOverlay {
     this.panel.textContent = lines.join('\n');
   }
 
+  /** 更新桌面視窗清單 */
+  updateWindowList(windows: WindowListEntry[]): void {
+    if (!this.enabled || !this.windowPanel) return;
+
+    if (windows.length === 0) {
+      this.windowPanel.textContent = '-- No windows --';
+      return;
+    }
+
+    const header = `Desktop Windows (${windows.length})`;
+    const separator = '-'.repeat(50);
+    const rows = windows.slice(0, 15).map((w, i) => {
+      const title = w.title.length > 25 ? w.title.substring(0, 22) + '...' : w.title;
+      return `${String(i + 1).padStart(2)}. z=${String(w.zOrder).padStart(3)} ${String(w.width).padStart(5)}x${String(w.height).padEnd(5)} ${title}`;
+    });
+
+    if (windows.length > 15) {
+      rows.push(`   ... +${windows.length - 15} more`);
+    }
+
+    this.windowPanel.textContent = [header, separator, ...rows].join('\n');
+  }
+
   /** 銷毀 overlay 元素 */
   dispose(): void {
     this.panel?.remove();
+    this.windowPanel?.remove();
     this.border?.remove();
     this.panel = null;
+    this.windowPanel = null;
     this.border = null;
   }
 }
@@ -117,4 +168,12 @@ export interface DebugInfo {
   paused: boolean;
   /** 步伐長度（世界單位，scale=1 基準） */
   stepLength?: number;
+}
+
+/** 視窗清單條目 */
+export interface WindowListEntry {
+  title: string;
+  zOrder: number;
+  width: number;
+  height: number;
 }
