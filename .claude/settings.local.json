@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx electron:*)",
+      "Bash(npx tsc:*)",
+      "Bash(taskkill //F //IM electron.exe)",
+      "Bash(npx kill-port:*)",
+      "Bash(pnpm dev:*)",
+      "Bash(taskkill //F //IM \"electron.exe\")",
+      "Bash(pnpm build:electron)"
+    ]
+  }
+}
