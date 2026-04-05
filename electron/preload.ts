@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   readAnimationMeta: () => ipcRenderer.invoke('read_animation_meta'),
   writeAnimationMeta: (meta: unknown) => ipcRenderer.invoke('write_animation_meta', meta),
   scanAnimations: (folderPath: string) => ipcRenderer.invoke('scan_animations', folderPath),
+  scanVrmFiles: (folderPath: string) => ipcRenderer.invoke('scan_vrm_files', folderPath),
 
   // ── File Pickers ──
   pickVrmFile: () => ipcRenderer.invoke('pick_vrm_file'),
@@ -38,6 +39,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // ── Mouse Passthrough ──
   setIgnoreCursorEvents: (ignore: boolean) => ipcRenderer.invoke('set_ignore_cursor_events', ignore),
+
+  // ── App Path ──
+  getAppPath: () => ipcRenderer.invoke('get_app_path'),
 
   // ── App Control ──
   closeWindow: () => ipcRenderer.invoke('close_window'),

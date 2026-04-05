@@ -29,28 +29,62 @@ function debugLog(msg: string): void {
 
 async function main(): Promise<void> {
   debugLog('main() started');
+
+  // 取得 app 根目錄，用於解析相對路徑
+  const appPath = await ipc.getAppPath();
+  debugLog(`appPath=${appPath}`);
+
   const configExists = await ipc.getConfigExists();
   debugLog(`configExists=${configExists}`);
 
   let config: AppConfig;
 
   if (!configExists) {
-    // 首次啟動流程
-    const result = await runFirstRunWizard();
-    if (!result) return; // 使用者中途放棄
-    config = result;
+    // 首次啟動：使用系統預設資產，跳過引導精靈
+    config = { ...DEFAULT_CONFIG };
+    const defaults = await resolveSystemAssets(appPath, config.systemAssetsDir);
+    if (defaults.vrmPath) {
+      config.vrmModelPath = defaults.vrmPath;
+    }
+    if (defaults.vrmaDir) {
+      config.animationFolderPath = defaults.vrmaDir;
+      await ipc.scanAnimations(defaults.vrmaDir);
+    }
+    await ipc.writeConfig(config);
+
+    // 若系統目錄沒有預設 VRM，才引導使用者手動選擇
+    if (!config.vrmModelPath) {
+      const result = await runFirstRunWizard();
+      if (!result) return;
+      config = result;
+    }
   } else {
     debugLog('reading existing config...');
-    // 讀取既有設定
     const loaded = await ipc.readConfig();
     config = loaded ?? { ...DEFAULT_CONFIG };
 
     // 檢查 VRM 模型路徑是否仍有效
     if (!config.vrmModelPath) {
-      const modelPath = await promptForModel();
-      if (!modelPath) return;
-      config.vrmModelPath = modelPath;
-      await ipc.writeConfig(config);
+      // 先嘗試系統預設
+      const defaults = await resolveSystemAssets(appPath, config.systemAssetsDir);
+      if (defaults.vrmPath) {
+        config.vrmModelPath = defaults.vrmPath;
+        await ipc.writeConfig(config);
+      } else {
+        const modelPath = await promptForModel();
+        if (!modelPath) return;
+        config.vrmModelPath = modelPath;
+        await ipc.writeConfig(config);
+      }
+    }
+    // 若沒有動畫資料夾，嘗試系統預設
+    if (!config.animationFolderPath) {
+      const defaults = await resolveSystemAssets(appPath, config.systemAssetsDir);
+      if (defaults.vrmaDir) {
+        config.animationFolderPath = defaults.vrmaDir;
+        await ipc.scanAnimations(defaults.vrmaDir);
+        await ipc.writeConfig(config);
+      }
     }
   }
 
@@ -544,6 +578,30 @@ async function initializeBehaviorSystem(
     debugOverlay.dispose();
     sceneManager.dispose();
   });
+}
+
+// ── System Assets ──
+
+/**
+ * 解析系統預設資產目錄，回傳第一個 VRM 路徑和 VRMA 資料夾路徑
+ */
+async function resolveSystemAssets(
+  appPath: string,
+  systemAssetsDir: string,
+): Promise<{ vrmPath: string | null; vrmaDir: string | null }> {
+  const base = `${appPath}/${systemAssetsDir}`.replace(/\\/g, '/');
+  const vrmDir = `${base}/vrm`;
+  const vrmaDir = `${base}/vrma`;
+
+  // 掃描 VRM 目錄，取第一個 .vrm 作為預設模型
+  const vrmFiles = await ipc.scanVrmFiles(vrmDir);
+  const vrmPath = vrmFiles.length > 0 ? vrmFiles[0] : null;
+  debugLog(`System VRM: ${vrmPath ?? 'none'}`);
+
+  // VRMA 目錄直接回傳路徑（由 scanAnimations 掃描 .vrma）
+  debugLog(`System VRMA dir: ${vrmaDir}`);
+
+  return { vrmPath, vrmaDir };
 }
 
 // ── Utility functions ──

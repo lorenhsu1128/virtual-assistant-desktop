@@ -17,6 +17,8 @@ export interface AppConfig {
   animationLoopEnabled: boolean;
   autoExpressionEnabled: boolean;
   allowedAutoExpressions: string[];
+  animationSpeed: number;
+  systemAssetsDir: string;
 }
 
 /** Animation entry metadata */
@@ -48,6 +50,8 @@ const DEFAULT_CONFIG: AppConfig = {
   animationLoopEnabled: true,
   autoExpressionEnabled: true,
   allowedAutoExpressions: [],
+  animationSpeed: 1.0,
+  systemAssetsDir: 'assets/system',
 };
 
 /** Get config directory path (~/.virtual-assistant-desktop/) */
@@ -132,6 +136,18 @@ export function writeAnimationMeta(meta: AnimationMeta): void {
   ensureConfigDir();
   const content = JSON.stringify(meta, null, 2);
   fs.writeFileSync(getAnimationMetaPath(), content, 'utf-8');
+}
+
+/** Scan .vrm files in specified folder, returns full paths */
+export function scanVrmFiles(folderPath: string): string[] {
+  if (!fs.existsSync(folderPath) || !fs.statSync(folderPath).isDirectory()) {
+    return [];
+  }
+
+  return fs.readdirSync(folderPath)
+    .filter((f) => f.toLowerCase().endsWith('.vrm'))
+    .sort()
+    .map((f) => path.join(folderPath, f));
 }
 
 /** Scan .vrma files in specified folder */

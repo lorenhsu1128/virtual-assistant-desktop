@@ -15,6 +15,7 @@ interface ElectronAPI {
   readAnimationMeta(): Promise<AnimationMeta>;
   writeAnimationMeta(meta: AnimationMeta): Promise<void>;
   scanAnimations(folderPath: string): Promise<AnimationMeta>;
+  scanVrmFiles(folderPath: string): Promise<string[]>;
   pickVrmFile(): Promise<string | null>;
   pickAnimationFolder(): Promise<string | null>;
   getWindowList(): Promise<WindowRect[]>;
@@ -26,6 +27,7 @@ interface ElectronAPI {
   getWindowSize(): Promise<{ width: number; height: number }>;
   setIgnoreCursorEvents(ignore: boolean): Promise<void>;
   closeWindow(): Promise<void>;
+  getAppPath(): Promise<string>;
   onWindowLayoutChanged(callback: (rects: WindowRect[]) => void): () => void;
   onTrayAction(callback: (actionId: string) => void): () => void;
   onRequestMenuData(callback: () => void): () => void;
@@ -142,6 +144,20 @@ class ElectronIPC {
     } catch (e) {
       console.warn('[ElectronIPC] scanAnimations failed:', e);
       return null;
+    }
+  }
+
+  /**
+   * Scan VRM files in a directory
+   *
+   * Returns full paths to .vrm files.
+   */
+  async scanVrmFiles(folderPath: string): Promise<string[]> {
+    try {
+      return await window.electronAPI.scanVrmFiles(folderPath);
+    } catch (e) {
+      console.warn('[ElectronIPC] scanVrmFiles failed:', e);
+      return [];
     }
   }
 
@@ -287,6 +303,18 @@ class ElectronIPC {
       await window.electronAPI.setIgnoreCursorEvents(ignore);
     } catch (e) {
       console.warn('[ElectronIPC] setIgnoreCursorEvents failed:', e);
+    }
+  }
+
+  /**
+   * Get application root path
+   */
+  async getAppPath(): Promise<string> {
+    try {
+      return await window.electronAPI.getAppPath();
+    } catch (e) {
+      console.warn('[ElectronIPC] getAppPath failed:', e);
+      return '.';
     }
   }
 

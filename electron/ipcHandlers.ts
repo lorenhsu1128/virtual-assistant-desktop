@@ -1,4 +1,4 @@
-import { ipcMain, dialog, BrowserWindow, screen } from 'electron';
+import { ipcMain, dialog, BrowserWindow, screen, app } from 'electron';
 import * as fileManager from './fileManager.js';
 import { WindowMonitor, type WindowRect } from './windowMonitor.js';
 import { setWindowRegion, type Rect } from './windowRegion.js';
@@ -48,6 +48,10 @@ export function registerIpcHandlers(
 
   ipcMain.handle('scan_animations', (_event, folderPath: string) => {
     return fileManager.scanAnimations(folderPath);
+  });
+
+  ipcMain.handle('scan_vrm_files', (_event, folderPath: string) => {
+    return fileManager.scanVrmFiles(folderPath);
   });
 
   // ── File Pickers ──
@@ -128,6 +132,12 @@ export function registerIpcHandlers(
 
   ipcMain.handle('set_ignore_cursor_events', (_event, ignore: boolean) => {
     mainWindow.setIgnoreMouseEvents(ignore, { forward: true });
+  });
+
+  // ── App Path ──
+
+  ipcMain.handle('get_app_path', () => {
+    return app.getAppPath();
   });
 
   // ── App Control ──
