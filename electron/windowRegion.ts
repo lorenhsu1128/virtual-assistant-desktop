@@ -133,7 +133,7 @@ export function setWindowPolygonRegion(mainWindow: BrowserWindow, points: Polygo
     return;
   }
 
-  if (points.length < 3) return;
+  if (points.length < 3 || points.length > 500) return;
 
   // Get window size
   const rect = { left: 0, top: 0, right: 0, bottom: 0 };
@@ -153,7 +153,11 @@ export function setWindowPolygonRegion(mainWindow: BrowserWindow, points: Polygo
     }
 
     const polyRegion = CreatePolygonRgn!(buf, points.length, WINDING);
-    if (!polyRegion) return;
+    if (!polyRegion) {
+      // Fallback: reset to full window
+      SetWindowRgn!(hwnd, 0, 1);
+      return;
+    }
 
     // Create full window region, then subtract polygon
     const fullRegion = CreateRectRgn!(0, 0, w, h);
