@@ -758,7 +758,8 @@ export class SceneManager {
       }
     } else {
       this.modelFacingActive = true;
-      this.modelTargetTheta = Math.atan2(-dx, dy);
+      // 模型直接旋轉（非攝影機觀察），方向與攝影機方式相反
+      this.modelTargetTheta = Math.atan2(dx, -dy);
     }
 
     // 平滑插值
