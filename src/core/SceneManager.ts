@@ -892,29 +892,29 @@ export class SceneManager {
     return DEFAULT_Z;
   }
 
-  /** 角色是否完全超出螢幕範圍 */
+  /** 角色是否大部分超出 workArea（可見部分 < 20%） */
   private isCharacterOffScreen(): boolean {
     const pos = this.currentPosition;
     const cw = this.characterSize.width;
     const ch = this.characterSize.height;
-    const canvas = this.renderer.domElement;
-    const sw = canvas.clientWidth || canvas.width;
-    const sh = canvas.clientHeight || canvas.height;
-    return pos.x + cw < 0 || pos.x > sw || pos.y + ch < 0 || pos.y > sh;
+    const wa = this.workAreaOrigin;
+    const ws = this.workAreaSize;
+    // 計算角色與 workArea 的重疊區域
+    const overlapX = Math.max(0, Math.min(pos.x + cw, wa.x + ws.width) - Math.max(pos.x, wa.x));
+    const overlapY = Math.max(0, Math.min(pos.y + ch, wa.y + ws.height) - Math.max(pos.y, wa.y));
+    const overlapArea = overlapX * overlapY;
+    const charArea = cw * ch;
+    return charArea > 0 && overlapArea / charArea < 0.2;
   }
 
-  /** 角色是否被任一前方視窗完全遮住 */
+  /** 角色螢幕位置是否被任一視窗完全覆蓋（不考慮 Z 深度） */
   private isCharacterFullyOccluded(): boolean {
-    if (!this.windowMeshManager) return false;
     const pos = this.currentPosition;
     const charRight = pos.x + this.characterSize.width;
     const charBottom = pos.y + this.characterSize.height;
     const dpr = window.devicePixelRatio || 1;
 
     for (const win of this.cachedWindowRects) {
-      const winZ = this.windowMeshManager.getWindowZ(win.hwnd);
-      if (winZ === null || winZ <= this.currentCharacterZ) continue;
-      // 視窗在角色前面，檢查是否完全包含角色 rect
       const wx = win.x / dpr;
       const wy = win.y / dpr;
       const wr = wx + win.width / dpr;
