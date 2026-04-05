@@ -249,6 +249,10 @@ async function initializeApp(config: AppConfig, appPath: string): Promise<void> 
       'drag',
       `${sysVrmaDir}/SYS_DRAGGING.vrma`,
     );
+    await animationManager.loadSystemAnimation(
+      'walk',
+      `${sysVrmaDir}/SYS_WALK.vrma`,
+    );
     debugLog('System animations loaded');
   }
 
@@ -450,10 +454,8 @@ async function initializeBehaviorSystem(
     onDragUnlock: () => hitTestManager.unlockDrag(),
     onDragStart: () => {
       stateMachine.forceState('drag');
-      animationManager?.playSystemAnimation('drag');
     },
     onDragEnd: (position, snappedWindow) => {
-      animationManager?.stopSystemAnimation();
       sceneManager.setCurrentPosition(position);
       if (snappedWindow) {
         stateMachine.setAttachedWindow(snappedWindow.hwnd, {

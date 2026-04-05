@@ -8,6 +8,8 @@ function makeMockAnimationManager() {
     playByCategory: vi.fn().mockReturnValue(true),
     hasCategory: vi.fn().mockReturnValue(true),
     isSystemAnimationPlaying: vi.fn().mockReturnValue(false),
+    playSystemAnimation: vi.fn().mockReturnValue(true),
+    stopSystemAnimation: vi.fn(),
   } as unknown as AnimationManager;
 }
 
@@ -70,22 +72,32 @@ describe('BehaviorAnimationBridge', () => {
     expect(manager.playByCategory).toHaveBeenCalledWith('peek');
   });
 
-  it('should use idle animation for walk state', () => {
+  it('should play system animation for walk state', () => {
     const manager = makeMockAnimationManager();
     const bridge = new BehaviorAnimationBridge(manager);
 
     bridge.update(makeOutput({ currentState: 'walk', stateChanged: true }));
 
-    expect(manager.playByCategory).toHaveBeenCalledWith('idle');
+    expect(manager.playSystemAnimation).toHaveBeenCalledWith('walk');
   });
 
-  it('should use idle animation for drag state', () => {
+  it('should play system animation for drag state', () => {
     const manager = makeMockAnimationManager();
     const bridge = new BehaviorAnimationBridge(manager);
 
     bridge.update(makeOutput({ currentState: 'drag', stateChanged: true }));
 
-    expect(manager.playByCategory).toHaveBeenCalledWith('idle');
+    expect(manager.playSystemAnimation).toHaveBeenCalledWith('drag');
+  });
+
+  it('should stop system animation when leaving walk state', () => {
+    const manager = makeMockAnimationManager();
+    (manager.isSystemAnimationPlaying as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    const bridge = new BehaviorAnimationBridge(manager);
+
+    bridge.update(makeOutput({ currentState: 'idle', previousState: 'walk', stateChanged: true }));
+
+    expect(manager.stopSystemAnimation).toHaveBeenCalled();
   });
 
   it('should fallback to idle when target category has no animation', () => {

@@ -46,6 +46,7 @@ export class DebugOverlay {
   private container: HTMLElement;
   private panel: HTMLElement;
   private windowPanel: HTMLElement;
+  private cameraPanel: HTMLElement;
   private dots: Map<string, HTMLElement> = new Map();
   private contactLines: HTMLElement[] = [];
   private windowBoxes: HTMLElement[] = [];
@@ -85,6 +86,18 @@ export class DebugOverlay {
       max-width: 420px;
     `;
     this.container.appendChild(this.windowPanel);
+
+    // 攝影機角度面板（左下角）
+    this.cameraPanel = document.createElement('div');
+    this.cameraPanel.style.cssText = `
+      position: absolute; bottom: 8px; left: 8px;
+      background: rgba(0,0,0,0.8); color: #e0e0e0;
+      font-family: 'Consolas','Courier New',monospace; font-size: 10px;
+      line-height: 1.6; padding: 8px 12px; border-radius: 6px;
+      border: 1px solid rgba(255,255,255,0.15); white-space: pre;
+      min-width: 200px;
+    `;
+    this.container.appendChild(this.cameraPanel);
 
     // 建立骨骼圓點
     for (const [boneName, style] of Object.entries(BONE_STYLE)) {
@@ -272,6 +285,20 @@ export class DebugOverlay {
       this.container.appendChild(marker);
       this.contactLines.push(line, marker);
     }
+  }
+
+  /** 更新攝影機角度面板 */
+  updateCamera(theta: number, phi: number, targetTheta: number | null): void {
+    if (!this.enabled) return;
+
+    const toDeg = (rad: number): string => ((rad * 180) / Math.PI).toFixed(1);
+    const targetStr = targetTheta !== null ? `${toDeg(targetTheta)}°` : 'none';
+
+    this.cameraPanel.textContent =
+      `📷 Camera\n` +
+      `θ: ${theta.toFixed(3)} rad (${toDeg(theta)}°)\n` +
+      `φ: ${phi.toFixed(3)} rad (${toDeg(phi)}°)\n` +
+      `target θ: ${targetStr}`;
   }
 
   /** 銷毀 overlay */

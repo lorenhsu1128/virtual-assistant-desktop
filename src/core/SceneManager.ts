@@ -89,6 +89,10 @@ export class SceneManager {
   private orbitStartY = 0;
   private orbitMoved = false;
 
+  // 移動方向攝影機追蹤
+  private targetOrbitTheta: number | null = null;
+  private isMovementCameraActive = false;
+
   constructor(canvas: HTMLCanvasElement, targetFps = 30) {
     this.targetFps = targetFps;
 
@@ -449,6 +453,12 @@ export class SceneManager {
       }
     }
 
+    // 攝影機方向追蹤（根據移動方向旋轉，停止時恢復正面）
+    const moveDx = this.currentPosition.x - this.previousPosition.x;
+    const moveDy = this.currentPosition.y - this.previousPosition.y;
+    this.updateCameraDirection(moveDx, moveDy);
+    this.applyOrbitInterpolation();
+
     // 遮擋更新：穿越視窗或 debug mode 時啟用（拖曳時不遮擋）
     if (this.collisionSystem && this.occlusionSetter && now - this.lastOcclusionUpdate > OCCLUSION_UPDATE_INTERVAL) {
       const isDragging = this.stateMachine?.getState() === 'drag';
@@ -559,6 +569,13 @@ export class SceneManager {
       }));
 
       this.debugOverlay.updateBones(boneData);
+
+      // 攝影機角度面板
+      this.debugOverlay.updateCamera(
+        this.orbitTheta,
+        this.orbitPhi,
+        this.targetOrbitTheta,
+      );
 
       // 骨骼與視窗邊緣的接觸檢測（Z-order 遮擋感知）
       if (this.collisionSystem) {
@@ -674,6 +691,58 @@ export class SceneManager {
     const z = t.z + this.orbitRadius * Math.sin(this.orbitPhi) * Math.cos(this.orbitTheta);
     this.camera.position.set(x, y, z);
     this.camera.lookAt(t.x, t.y, t.z);
+  }
+
+  /**
+   * 根據移動方向更新攝影機目標角度
+   *
+   * 用 atan2 計算連續角度（支援斜向移動）。
+   * 停止移動時平滑恢復到正面角度。
+   */
+  private updateCameraDirection(dx: number, dy: number): void {
+    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) {
+      // 停止移動 → 恢復正面
+      if (this.isMovementCameraActive) {
+        this.targetOrbitTheta = 0;
+        this.isMovementCameraActive = false;
+      }
+      return;
+    }
+
+    this.isMovementCameraActive = true;
+    // 螢幕座標：dx>0=右, dy<0=上（螢幕Y軸向下）
+    // 目標：左=π/2, 右=-π/2, 上（dy<0）=π（背面）, 下（dy>0）=0（正面）
+    this.targetOrbitTheta = Math.atan2(-dx, dy);
+  }
+
+  /** 平滑插值攝影機角度到目標 */
+  private applyOrbitInterpolation(): void {
+    if (this.targetOrbitTheta === null) return;
+
+    let diff = this.targetOrbitTheta - this.orbitTheta;
+    // 處理角度跨 -π/π 邊界的最短路徑
+    while (diff > Math.PI) diff -= 2 * Math.PI;
+    while (diff < -Math.PI) diff += 2 * Math.PI;
+
+    if (Math.abs(diff) < 0.001) {
+      this.orbitTheta = this.targetOrbitTheta;
+      // 恢復正面完成後清除目標
+      if (!this.isMovementCameraActive) {
+        this.targetOrbitTheta = null;
+      }
+    } else {
+      this.orbitTheta += diff * 0.08;
+    }
+    this.updateCameraFromOrbit();
+  }
+
+  /** 取得當前攝影機角度（供 Debug overlay 使用） */
+  getCameraAngles(): { theta: number; phi: number; targetTheta: number | null } {
+    return {
+      theta: this.orbitTheta,
+      phi: this.orbitPhi,
+      targetTheta: this.targetOrbitTheta,
+    };
   }
 
   private onOrbitMouseDown = (e: MouseEvent): void => {

@@ -5,11 +5,17 @@ import type { AnimationCategory } from '../types/animation';
 /** 行為狀態→動畫分類映射 */
 const STATE_TO_CATEGORY: Record<BehaviorState, AnimationCategory> = {
   idle: 'idle',
-  walk: 'idle', // 行走時使用 idle 動畫（移動是視窗層級，非 3D 動畫）
+  walk: 'idle', // walk 由系統動畫處理，fallback 到 idle
   sit: 'sit',
   peek: 'peek',
   fall: 'fall',
-  drag: 'idle', // 拖曳時使用 idle 動畫
+  drag: 'idle', // drag 由系統動畫處理，fallback 到 idle
+};
+
+/** 需要系統動畫的狀態 */
+const STATE_TO_SYSTEM_ANIMATION: Partial<Record<BehaviorState, string>> = {
+  walk: 'walk',
+  drag: 'drag',
 };
 
 /**
@@ -35,15 +41,26 @@ export class BehaviorAnimationBridge {
    * 僅在狀態變化時觸發動畫切換。
    */
   update(output: BehaviorOutput): void {
-    // 系統動畫播放中，跳過一般狀態→動畫切換
-    if (this.animationManager.isSystemAnimationPlaying()) return;
-
-    // 狀態變化時切換動畫
     if (!output.stateChanged) return;
 
-    const category = STATE_TO_CATEGORY[output.currentState];
+    // 檢查是否需要系統動畫
+    const systemAnim = STATE_TO_SYSTEM_ANIMATION[output.currentState];
+    if (systemAnim) {
+      // 進入需要系統動畫的狀態
+      if (!this.animationManager.isSystemAnimationPlaying()) {
+        this.animationManager.playSystemAnimation(systemAnim);
+      }
+      return;
+    }
 
-    // 嘗試播放對應分類；無動畫時 fallback 到 idle
+    // 離開系統動畫狀態 → 停止系統動畫
+    if (this.animationManager.isSystemAnimationPlaying()) {
+      this.animationManager.stopSystemAnimation();
+      return; // stopSystemAnimation 會恢復先前動畫
+    }
+
+    // 一般狀態→動畫分類映射
+    const category = STATE_TO_CATEGORY[output.currentState];
     if (!this.animationManager.playByCategory(category)) {
       if (category !== 'idle') {
         this.animationManager.playByCategory('idle');
