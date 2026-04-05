@@ -247,6 +247,21 @@ export class VRMController {
     }
   }
 
+  /**
+   * 取得 hips 骨骼的世界 Y 座標（相對於模型原點）
+   *
+   * 用於 sit 狀態定位：讓臀部對齊平面。
+   * 回傳值 = hips 骨骼世界 Y - 模型 scene.position.y
+   */
+  getHipOffsetY(): number | null {
+    if (!this.vrm?.humanoid) return null;
+    const hips = this.vrm.humanoid.getNormalizedBoneNode('hips');
+    if (!hips) return null;
+    hips.getWorldPosition(VRMController._tempWorldPos);
+    // 回傳相對於模型腳底的偏移量
+    return VRMController._tempWorldPos.y - this.vrm.scene.position.y;
+  }
+
   /** 取得模型的世界空間包圍盒尺寸 */
   getModelWorldSize(): { width: number; height: number } | null {
     if (!this.vrm) return null;

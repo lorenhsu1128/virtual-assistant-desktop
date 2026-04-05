@@ -749,10 +749,17 @@ export class SceneManager {
     const bottomY = this.currentPosition.y + this.characterSize.height;
     const world = this.screenToWorld(centerX, bottomY);
 
+    // sit 狀態：讓臀部（hips 骨骼）對齊平面，而非腳底
+    if (this.stateMachine?.getState() === 'sit') {
+      const hipOffset = this.vrmController.getHipOffsetY();
+      if (hipOffset !== null) {
+        world.y -= hipOffset;
+      }
+    }
+
     this.vrmController.setWorldPosition(world.x, world.y);
   }
 
-  /** 簡單螢幕邊界 clamp（保留 20% 可見） */
   /** 簡單螢幕邊界 clamp（基於 workArea 範圍，允許超出到螢幕邊緣） */
   private clampToScreen(pos: { x: number; y: number }): { x: number; y: number } {
     const canvas = this.renderer.domElement;

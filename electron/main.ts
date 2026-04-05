@@ -88,6 +88,10 @@ function createMainWindow(): BrowserWindow {
     },
   });
 
+  // 強制覆蓋整個螢幕（含工作列），避免 Windows 自動限制到 workArea
+  win.setBounds({ x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height });
+  win.setAlwaysOnTop(true, 'screen-saver');
+
   // DevTools: auto-open for debugging
   if (isDev) {
     win.webContents.openDevTools({ mode: 'detach' });
