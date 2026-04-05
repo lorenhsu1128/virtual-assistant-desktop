@@ -787,17 +787,6 @@ export class SceneManager {
 
     // currentPosition 是 bounding box 左上角的螢幕座標
     // 模型原點在腳底 → 用 bounding box 的中下位置
-    const feetScreenY = this.currentPosition.y + this.characterSize.height;
-
-    // 腳底不超過 canvas 底部（螢幕底部）
-    const canvas = this.renderer.domElement;
-    const canvasH = canvas.clientHeight || canvas.height;
-    const feetCanvasY = feetScreenY - this.screenOrigin.y;
-
-    if (feetCanvasY > canvasH) {
-      this.currentPosition.y -= (feetCanvasY - canvasH);
-    }
-
     const centerX = this.currentPosition.x + this.characterSize.width / 2;
     const bottomY = this.currentPosition.y + this.characterSize.height;
     const world = this.screenToWorld(centerX, bottomY);
@@ -823,9 +812,9 @@ export class SceneManager {
     // X 活動範圍：workArea 內（保留 20% 可見）
     const minX = this.workAreaOrigin.x - charW * 0.8;
     const maxX = this.workAreaOrigin.x + this.workAreaSize.width - charW * 0.2;
-    // Y 活動範圍：上限 = workArea 頂部，下限 = 螢幕底部（允許坐下時腳伸到工作列）
+    // Y 活動範圍：上限 = workArea 頂部，下限 = 允許下半身超出 canvas（膝蓋可觸及 ground）
     const minY = this.workAreaOrigin.y - charH * 0.8;
-    const maxY = this.screenOrigin.y + screenH - charH * 0.2;
+    const maxY = this.screenOrigin.y + screenH - charH * 0.3;
 
     return {
       x: Math.max(minX, Math.min(maxX, pos.x)),
