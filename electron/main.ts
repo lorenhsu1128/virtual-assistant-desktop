@@ -4,6 +4,7 @@ import {
   globalShortcut,
   protocol,
   net,
+  screen,
 } from 'electron';
 import * as path from 'node:path';
 import * as url from 'node:url';
@@ -59,11 +60,16 @@ protocol.registerSchemesAsPrivileged([
   },
 ]);
 
-/** Create the main transparent window */
+/** Create the main transparent fullscreen window covering the workArea */
 function createMainWindow(): BrowserWindow {
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const workArea = primaryDisplay.workArea;
+
   const win = new BrowserWindow({
-    width: 400,
-    height: 600,
+    x: workArea.x,
+    y: workArea.y,
+    width: workArea.width,
+    height: workArea.height,
     transparent: true,
     frame: false,
     thickFrame: false,
@@ -72,7 +78,6 @@ function createMainWindow(): BrowserWindow {
     skipTaskbar: true,
     resizable: false,
     hasShadow: false,
-    center: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,

@@ -59,14 +59,20 @@ export class SceneManager {
   private static readonly WINDOW_LIST_INTERVAL = 1000; // 1 秒更新一次
   private static readonly CONTACT_THRESHOLD = 10; // 骨骼與視窗邊緣接觸判定閾值（像素）
 
-  // 視窗位置管理
+  // 角色位置管理（全螢幕模式：角色在 canvas 內移動，視窗不動）
   private currentPosition = { x: 0, y: 0 };
   private previousPosition = { x: 0, y: 0 };
-  private windowSize = { width: 400, height: 600 };
-  /** workArea 下緣（邏輯像素），用於限制腳底不超出 */
-  private groundY: number | null = null;
-  private positionSetter: ((x: number, y: number) => void) | null = null;
-  private windowSizeSetter: ((w: number, h: number) => void) | null = null;
+  /** 角色 bounding box 尺寸（螢幕像素） */
+  private characterSize = { width: 300, height: 500 };
+  /** workArea 原點（螢幕絕對座標，邏輯像素） */
+  private workAreaOrigin = { x: 0, y: 0 };
+  /** 像素到世界座標的轉換比例 */
+  private pixelToWorld = 0.003126;
+  /** 原始 canvas 高度基準（用於攝影機距離縮放） */
+  private static readonly BASE_CANVAS_HEIGHT = 600;
+  /** 原始攝影機距離 */
+  private static readonly BASE_CAMERA_DIST = 3.5;
+  // BASE_CAMERA_Y removed: camera Y is now computed from visibleHeight
   private occlusionSetter: ((rects: Rect[]) => void) | null = null;
   private occlusionPolygonSetter: ((points: Point[]) => void) | null = null;
   private silhouetteExtractor: SilhouetteExtractor | null = null;
@@ -89,7 +95,7 @@ export class SceneManager {
   private orbitTheta = 0; // 水平角（弧度）
   private orbitPhi = Math.PI / 2; // 垂直角（弧度），π/2 = 正面
   private orbitRadius = 3.5;
-  private orbitTarget = { x: 0, y: 0.8, z: 0 };
+  // orbitTarget removed: orbit center now follows model position
   private isOrbiting = false;
   private orbitStartX = 0;
   private orbitStartY = 0;
@@ -105,10 +111,9 @@ export class SceneManager {
     // Scene
     this.scene = new THREE.Scene();
 
-    // Camera
-    this.camera = new THREE.PerspectiveCamera(30, canvas.width / canvas.height, 0.1, 20);
-    this.camera.position.set(0, 0.8, 3.5);
-    this.camera.lookAt(0, 0.8, 0);
+    // Camera — 全螢幕覆蓋，距離按 canvas 高度等比縮放
+    this.camera = new THREE.PerspectiveCamera(30, canvas.width / canvas.height, 0.1, 100);
+    this.setupCameraForCanvas(canvas.clientHeight || canvas.height);
 
     // Renderer — 透明背景
     this.renderer = new THREE.WebGLRenderer({
@@ -221,14 +226,9 @@ export class SceneManager {
     this.windowListFetcher = fetcher;
   }
 
-  /** 設定位置更新 callback（fire-and-forget） */
-  setPositionSetter(setter: (x: number, y: number) => void): void {
-    this.positionSetter = setter;
-  }
-
-  /** 設定視窗大小更新 callback */
-  setWindowSizeSetter(setter: (w: number, h: number) => void): void {
-    this.windowSizeSetter = setter;
+  /** 設定 workArea 原點（螢幕絕對座標，邏輯像素） */
+  setWorkAreaOrigin(x: number, y: number): void {
+    this.workAreaOrigin = { x, y };
   }
 
   /** 設定遮擋更新 callback（矩形，fallback 用） */
@@ -251,14 +251,9 @@ export class SceneManager {
     this.currentPosition = pos;
   }
 
-  /** 設定視窗大小 */
-  setWindowSize(size: { width: number; height: number }): void {
-    this.windowSize = size;
-  }
-
-  /** 設定地面 Y 座標（workArea 下緣，邏輯像素） */
-  setGroundY(y: number): void {
-    this.groundY = y;
+  /** 設定角色 bounding box 尺寸（螢幕像素） */
+  setCharacterSize(size: { width: number; height: number }): void {
+    this.characterSize = size;
   }
 
   /** Debug: 觸發方向移動（由 global shortcut 呼叫） */
@@ -271,8 +266,8 @@ export class SceneManager {
     return {
       x: this.currentPosition.x,
       y: this.currentPosition.y,
-      width: this.windowSize.width,
-      height: this.windowSize.height,
+      width: this.characterSize.width,
+      height: this.characterSize.height,
     };
   }
 
@@ -280,8 +275,7 @@ export class SceneManager {
   private charViewportRatioH = 0.5;
   /** 角色寬高比（3D 模型） */
   private charAspectRatio = 0.4;
-  /** 螢幕邏輯像素高度 */
-  private screenLogicalHeight = 1080;
+  // screenLogicalHeight removed: fullscreen mode uses canvas dimensions directly
 
   /** 計算角色在 viewport 中的比例和寬高比（模型載入後呼叫一次） */
   computeCharacterViewportRatio(): void {
@@ -302,34 +296,19 @@ export class SceneManager {
     console.log(`[SceneManager] modelH=${modelHeight.toFixed(2)} modelW=${modelWidth.toFixed(2)} aspect=${this.charAspectRatio.toFixed(3)} vpRatio=${this.charViewportRatioH.toFixed(3)}`);
   }
 
-  /** 設定螢幕邏輯像素高度 */
-  setScreenHeight(logicalHeight: number): void {
-    this.screenLogicalHeight = logicalHeight;
-  }
-
-  /** 視窗高度邊距倍率（容納頭髮/配飾不被切掉） */
-  private static readonly HEIGHT_PADDING = 1.3;
+  // setScreenHeight / HEIGHT_PADDING removed: fullscreen mode handles sizing differently
 
   /** 設定角色縮放（0.5–2.0） */
   setScale(scale: number): void {
     this.scale = Math.max(0.5, Math.min(2.0, scale));
 
-    // 目標：角色螢幕高度 = 螢幕高度 × 40% × scale
-    const targetCharH = this.screenLogicalHeight * 0.4 * this.scale;
-    const targetCharW = targetCharH * this.charAspectRatio;
-
-    // 視窗加邊距，model scale 補償以保持角色大小不變
-    const padding = SceneManager.HEIGHT_PADDING;
-    const newH = Math.round(targetCharH / this.charViewportRatioH * padding);
-    const newW = Math.round(targetCharW * 3);
-
-    // 補償 model scale = 1/padding，抵消視窗變大導致角色放大
+    // 全螢幕模式：只調整模型 scale，不改視窗大小
     if (this.vrmController) {
-      this.vrmController.setModelScale(1.0 / padding);
+      this.vrmController.setModelScale(this.scale);
     }
 
-    this.windowSize = { width: newW, height: newH };
-    this.windowSizeSetter?.(newW, newH);
+    // 更新 characterSize（基於模型世界尺寸和 pixelToWorld）
+    this.updateCharacterSize();
   }
 
   /** 取得角色縮放 */
@@ -402,14 +381,13 @@ export class SceneManager {
 
     // Debug 移動（Ctrl+方向鍵 global shortcut，debug mode 時有效）
     if (this.debugMoveDir && this.debugOverlay?.isEnabled()) {
-      const step = 30; // 每次按鍵移動 30px
+      const step = 30;
       switch (this.debugMoveDir) {
         case 'left': this.currentPosition.x -= step; break;
         case 'right': this.currentPosition.x += step; break;
         case 'up': this.currentPosition.y -= step; break;
         case 'down': this.currentPosition.y += step; break;
       }
-      this.positionSetter?.(Math.round(this.currentPosition.x), Math.round(this.currentPosition.y));
       this.debugMoveDir = null;
     }
 
@@ -437,29 +415,11 @@ export class SceneManager {
       if (output.targetPosition) {
         const clamped = this.collisionSystem.clampToScreen(
           output.targetPosition,
-          this.windowSize.width,
-          this.windowSize.height,
+          this.characterSize.width,
+          this.characterSize.height,
         );
 
-        // 腳底不超過 groundY（workArea 下緣）
-        if (this.groundY !== null && this.vrmController) {
-          const canvas = this.renderer.domElement;
-          const footPositions = this.vrmController.getBoneScreenPositions(
-            ['leftFoot', 'rightFoot'], this.camera, canvas.clientWidth, canvas.clientHeight,
-          );
-          let maxFootY = 0;
-          for (const [, pos] of footPositions) {
-            if (pos.y > maxFootY) maxFootY = pos.y;
-          }
-          // 腳底螢幕 Y = 視窗 Y + 骨骼 canvas Y
-          const footScreenY = clamped.y + maxFootY;
-          if (footScreenY > this.groundY) {
-            clamped.y -= footScreenY - this.groundY;
-          }
-        }
-
         this.currentPosition = clamped;
-        this.positionSetter?.(clamped.x, clamped.y);
       }
 
       // BehaviorAnimationBridge 更新
@@ -535,30 +495,12 @@ export class SceneManager {
       }
     }
 
-    // Step 5: VRM update (SpringBone etc.)
-    // 反向微移：將視窗移動量轉為 3D 空間偏移，讓 SpringBone 偵測到移動
+    // Step 5: VRM update (SpringBone etc.) + 模型世界座標定位
     if (this.vrmController) {
-      const dxPx = this.currentPosition.x - this.previousPosition.x;
-      const dyPx = this.currentPosition.y - this.previousPosition.y;
+      // 將角色螢幕座標轉換為 3D 世界座標並定位模型
+      this.updateModelWorldPosition();
 
-      if (dxPx !== 0 || dyPx !== 0) {
-        // 像素 → 3D 世界座標：基於攝影機視野和 canvas 尺寸
-        const canvas = this.renderer.domElement;
-        const vFov = this.camera.fov * (Math.PI / 180);
-        const camDist = this.camera.position.length(); // 使用距離而非 z（考慮 orbit）
-        const worldHeight = 2 * Math.tan(vFov / 2) * camDist;
-        const pxToWorld = worldHeight / canvas.clientHeight;
-
-        // 反向偏移（視窗向右移 → 模型向左移，模擬慣性）
-        const offsetX = -dxPx * pxToWorld;
-        const offsetY = dyPx * pxToWorld; // Y 軸反轉（螢幕 Y 向下，3D Y 向上）
-
-        this.vrmController.applySceneOffset(offsetX, offsetY);
-        this.vrmController.update(deltaTime);
-        this.vrmController.clearSceneOffset(offsetX, offsetY);
-      } else {
-        this.vrmController.update(deltaTime);
-      }
+      this.vrmController.update(deltaTime);
 
       this.previousPosition.x = this.currentPosition.x;
       this.previousPosition.y = this.currentPosition.y;
@@ -619,8 +561,9 @@ export class SceneManager {
 
         for (const bone of boneData) {
           if (!bone.screen) continue;
-          const boneScreenX = this.currentPosition.x + bone.screen.x;
-          const boneScreenY = this.currentPosition.y + bone.screen.y;
+          // 全螢幕模式：bone.screen 已是 canvas 座標 = workArea 相對座標
+          const boneScreenX = this.workAreaOrigin.x + bone.screen.x;
+          const boneScreenY = this.workAreaOrigin.y + bone.screen.y;
 
           for (const lw of logicalWindows) {
             const inVertRange = boneScreenY >= lw.top - threshold && boneScreenY <= lw.bottom + threshold;
@@ -701,13 +644,20 @@ export class SceneManager {
     const isTraversing = this.stateMachine?.getTraversingWindowHwnd() !== null;
     if (isTraversing && this.silhouetteEnabled && this.silhouetteExtractor && this.occlusionPolygonSetter && windowRect) {
       try {
-        const silhouette = this.silhouetteExtractor.extract();
+        // 全螢幕模式：只讀取角色所在的子區域（canvas CSS 座標）
+        const charBounds = this.getCharacterBounds();
+        const extractRegion = {
+          x: charBounds.x - this.workAreaOrigin.x,
+          y: charBounds.y - this.workAreaOrigin.y,
+          width: charBounds.width,
+          height: charBounds.height,
+        };
+        const silhouette = this.silhouetteExtractor.extract(128, 2.0, 200, 4, extractRegion);
         if (silhouette && silhouette.length >= 3) {
-          // 將視窗螢幕座標轉為角色視窗本地座標（canvas CSS 像素）
-          const charBounds = this.getCharacterBounds();
+          // 視窗螢幕座標轉為 canvas 本地座標（用於裁切）
           const localClipRect: Rect = {
-            x: windowRect.x - charBounds.x,
-            y: windowRect.y - charBounds.y,
+            x: windowRect.x - this.workAreaOrigin.x,
+            y: windowRect.y - this.workAreaOrigin.y,
             width: windowRect.width,
             height: windowRect.height,
           };
@@ -765,7 +715,9 @@ export class SceneManager {
   resetCamera(): void {
     this.orbitTheta = 0;
     this.orbitPhi = Math.PI / 2;
-    this.updateCameraFromOrbit();
+    // 恢復到全螢幕基礎攝影機位置
+    const canvas = this.renderer.domElement;
+    this.setupCameraForCanvas(canvas.clientHeight || canvas.height);
   }
 
   /** 是否正在 orbit 旋轉（供 ContextMenu 判斷） */
@@ -773,9 +725,15 @@ export class SceneManager {
     return this.orbitMoved;
   }
 
-  /** 從球座標更新攝影機位置 */
+  /** 從球座標更新攝影機位置（軌道中心跟隨模型） */
   private updateCameraFromOrbit(): void {
-    const t = this.orbitTarget;
+    // 軌道中心 = 模型目前的世界座標（胸部高度）
+    const modelWorld = this.screenToWorld(
+      this.currentPosition.x + this.characterSize.width / 2,
+      this.currentPosition.y + this.characterSize.height / 2,
+    );
+    const t = { x: modelWorld.x, y: modelWorld.y, z: 0 };
+
     const x = t.x + this.orbitRadius * Math.sin(this.orbitPhi) * Math.sin(this.orbitTheta);
     const y = t.y + this.orbitRadius * Math.cos(this.orbitPhi);
     const z = t.z + this.orbitRadius * Math.sin(this.orbitPhi) * Math.cos(this.orbitTheta);
@@ -898,9 +856,9 @@ export class SceneManager {
   private onResize = (): void => {
     const width = window.innerWidth;
     const height = window.innerHeight;
-    this.camera.aspect = width / height;
-    this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height);
+    this.setupCameraForCanvas(height);
+    this.updateCharacterSize();
   };
 
   /** 視窗可見性變化 → 切換幀率模式 */
@@ -911,4 +869,86 @@ export class SceneManager {
       this.fpsMode = 'foreground';
     }
   };
+
+  // ── 全螢幕座標系統 ──
+
+  /**
+   * 設定攝影機覆蓋全螢幕
+   *
+   * 距離按 canvas 高度等比縮放，維持模型在任何解析度下的螢幕像素大小一致。
+   */
+  private setupCameraForCanvas(canvasHeight: number): void {
+    const scaleFactor = canvasHeight / SceneManager.BASE_CANVAS_HEIGHT;
+    const cameraDist = SceneManager.BASE_CAMERA_DIST * scaleFactor;
+    const vFov = this.camera.fov * (Math.PI / 180);
+    const visibleHeight = 2 * cameraDist * Math.tan(vFov / 2);
+    const centerY = visibleHeight / 2;
+
+    this.camera.position.set(0, centerY, cameraDist);
+    this.camera.lookAt(0, centerY, 0);
+    this.camera.aspect = window.innerWidth / canvasHeight;
+    this.camera.updateProjectionMatrix();
+
+    this.orbitRadius = cameraDist;
+    this.pixelToWorld = visibleHeight / canvasHeight;
+  }
+
+  /**
+   * 螢幕座標 → 3D 世界座標
+   *
+   * 輸入：螢幕絕對座標（邏輯像素）
+   * 輸出：Three.js 世界座標（模型深度 z=0 平面上）
+   */
+  screenToWorld(screenX: number, screenY: number): { x: number; y: number } {
+    const canvas = this.renderer.domElement;
+    const canvasX = screenX - this.workAreaOrigin.x;
+    const canvasY = screenY - this.workAreaOrigin.y;
+    const canvasW = canvas.clientWidth || canvas.width;
+    const canvasH = canvas.clientHeight || canvas.height;
+
+    return {
+      x: (canvasX - canvasW / 2) * this.pixelToWorld,
+      y: (canvasH - canvasY) * this.pixelToWorld,
+    };
+  }
+
+  /** 更新模型在 3D 世界中的位置（基於 currentPosition） */
+  private updateModelWorldPosition(): void {
+    if (!this.vrmController) return;
+
+    // currentPosition 是 bounding box 左上角的螢幕座標
+    // 模型原點在腳底 → 用 bounding box 的中下位置
+    const feetScreenY = this.currentPosition.y + this.characterSize.height;
+
+    // 腳底不超過 canvas 底部（workArea 下緣）
+    const canvas = this.renderer.domElement;
+    const canvasH = canvas.clientHeight || canvas.height;
+    const feetCanvasY = feetScreenY - this.workAreaOrigin.y;
+
+    if (feetCanvasY > canvasH) {
+      this.currentPosition.y -= (feetCanvasY - canvasH);
+    }
+
+    const centerX = this.currentPosition.x + this.characterSize.width / 2;
+    const bottomY = this.currentPosition.y + this.characterSize.height;
+    const world = this.screenToWorld(centerX, bottomY);
+
+    this.vrmController.setWorldPosition(world.x, world.y);
+  }
+
+  /** 更新角色 bounding box 尺寸（基於模型世界尺寸和縮放） */
+  private updateCharacterSize(): void {
+    if (!this.vrmController) return;
+    const modelSize = this.vrmController.getModelWorldSize();
+    if (!modelSize) return;
+
+    const charH = modelSize.height * this.scale / this.pixelToWorld;
+    const charW = modelSize.width * this.scale / this.pixelToWorld;
+
+    // 加邊距容納頭髮、配飾、手臂
+    this.characterSize = {
+      width: Math.round(charW * 2.5),
+      height: Math.round(charH * 1.3),
+    };
+  }
 }

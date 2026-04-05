@@ -2,8 +2,8 @@ import type { Rect, WindowRect } from '../types/window';
 
 /** DragHandler 的依賴注入介面 */
 export interface DragHandlerDeps {
-  getWindowPosition: () => Promise<{ x: number; y: number }>;
-  setWindowPosition: (x: number, y: number) => Promise<void>;
+  /** 取得角色目前位置（同步，螢幕座標） */
+  getCharacterPosition: () => { x: number; y: number };
   getSnappableWindows: (bounds: Rect, threshold: number) => WindowRect[];
   clampToScreen: (position: { x: number; y: number }, charWidth: number, charHeight: number) => { x: number; y: number };
   getCharacterSize: () => { width: number; height: number };
@@ -25,9 +25,8 @@ const SNAP_THRESHOLD = 20;
  */
 export class DragHandler {
   private isDragging = false;
-  private positionReady = false;
   private dragStartPos = { x: 0, y: 0 };
-  private windowStartPos = { x: 0, y: 0 };
+  private charStartPos = { x: 0, y: 0 };
   private deps: DragHandlerDeps;
   private canvas: HTMLCanvasElement;
 
@@ -66,14 +65,9 @@ export class DragHandler {
     if (e.button !== 0) return;
 
     this.isDragging = true;
-    this.positionReady = false;
     this.dragStartPos = { x: e.screenX, y: e.screenY };
-
-    // 取得當前視窗位置（async，mousemove 在解析前會被跳過）
-    this.deps.getWindowPosition().then((pos) => {
-      this.windowStartPos = pos;
-      this.positionReady = true;
-    });
+    // 同步取得角色位置（全螢幕模式不需 async IPC）
+    this.charStartPos = { ...this.deps.getCharacterPosition() };
 
     this.deps.onDragLock?.();
     this.deps.onDragStart();
@@ -81,13 +75,13 @@ export class DragHandler {
   }
 
   private onMouseMove(e: MouseEvent): void {
-    if (!this.isDragging || !this.positionReady) return;
+    if (!this.isDragging) return;
 
     const dx = e.screenX - this.dragStartPos.x;
     const dy = e.screenY - this.dragStartPos.y;
 
-    let newX = this.windowStartPos.x + dx;
-    let newY = this.windowStartPos.y + dy;
+    let newX = this.charStartPos.x + dx;
+    let newY = this.charStartPos.y + dy;
 
     // 邊緣夾限（保留 20% 可見）
     const charSize = this.deps.getCharacterSize();
@@ -95,8 +89,6 @@ export class DragHandler {
     newX = clamped.x;
     newY = clamped.y;
 
-    // fire-and-forget，不等待完成
-    this.deps.setWindowPosition(newX, newY);
     this.deps.onDragMove?.(newX, newY);
   }
 
@@ -108,8 +100,8 @@ export class DragHandler {
     const dx = e.screenX - this.dragStartPos.x;
     const dy = e.screenY - this.dragStartPos.y;
 
-    let finalX = this.windowStartPos.x + dx;
-    let finalY = this.windowStartPos.y + dy;
+    let finalX = this.charStartPos.x + dx;
+    let finalY = this.charStartPos.y + dy;
 
     // 邊緣夾限
     const charSize = this.deps.getCharacterSize();
@@ -128,14 +120,11 @@ export class DragHandler {
     const snappable = this.deps.getSnappableWindows(characterBounds, SNAP_THRESHOLD);
 
     if (snappable.length > 0) {
-      // 吸附到最近的視窗
       const target = snappable[0];
       finalX = target.x + target.width / 2 - charSize.width / 2;
       finalY = target.y - charSize.height;
-      this.deps.setWindowPosition(finalX, finalY);
       this.deps.onDragEnd({ x: finalX, y: finalY }, target);
     } else {
-      this.deps.setWindowPosition(finalX, finalY);
       this.deps.onDragEnd({ x: finalX, y: finalY }, null);
     }
   }

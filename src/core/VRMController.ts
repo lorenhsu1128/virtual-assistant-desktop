@@ -224,6 +224,29 @@ export class VRMController {
   }
 
   /**
+   * 設定模型在世界空間中的位置（全螢幕模式用）
+   *
+   * 將 VRM 模型平移到指定的世界座標，模型原點在腳底。
+   * 基礎旋轉 (Math.PI) 保留，只改變 position。
+   */
+  setWorldPosition(x: number, y: number): void {
+    if (this.vrm) {
+      this.vrm.scene.position.x = x;
+      this.vrm.scene.position.y = y;
+    }
+  }
+
+  /** 取得模型的世界空間包圍盒尺寸 */
+  getModelWorldSize(): { width: number; height: number } | null {
+    if (!this.vrm) return null;
+    const box = new THREE.Box3().setFromObject(this.vrm.scene);
+    return {
+      width: box.max.x - box.min.x,
+      height: box.max.y - box.min.y,
+    };
+  }
+
+  /**
    * 更新 VRM 內部邏輯（SpringBone 等）
    *
    * 由 SceneManager 的 render loop 呼叫。

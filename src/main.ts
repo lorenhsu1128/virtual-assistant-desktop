@@ -203,13 +203,8 @@ async function initializeApp(config: AppConfig, appPath: string): Promise<void> 
   // 計算角色在 viewport 中的比例
   sceneManager.computeCharacterViewportRatio();
 
-  // 設定螢幕高度（邏輯像素，用於角色大小計算：100% = 螢幕高度 30%）
-  sceneManager.setScreenHeight(screen.height);
-
-  // 設定縮放並初始化視窗大小
+  // 設定縮放（全螢幕模式不需 setWindowSize）
   sceneManager.setScale(config.scale);
-  const initBounds = sceneManager.getCharacterBounds();
-  await ipc.setWindowSize(initBounds.width, initBounds.height);
 
   // 初始化 FallbackAnimation
   const fallbackAnimation = new FallbackAnimation(vrmController);
@@ -295,11 +290,7 @@ async function initializeBehaviorSystem(
   canvas: HTMLCanvasElement,
   csRef: { current: CollisionSystem },
 ): Promise<void> {
-  // 取得視窗位置與大小
-  const initialPos = await ipc.getWindowPosition();
-  const initialSize = await ipc.getWindowSize();
-  sceneManager.setCurrentPosition(initialPos);
-  sceneManager.setWindowSize(initialSize);
+  // 全螢幕模式：視窗位置固定，角色起始位置 = workArea 中央
 
   // CollisionSystem
   const collisionSystem = csRef.current;
@@ -318,8 +309,15 @@ async function initializeBehaviorSystem(
       height: effectiveBounds.height,
     });
 
-    // 設定 groundY（workArea 下緣），腳底骨骼不可超過此值
-    sceneManager.setGroundY(effectiveBounds.y + effectiveBounds.height);
+    // 設定 workArea 原點（用於座標轉換）
+    sceneManager.setWorkAreaOrigin(effectiveBounds.x, effectiveBounds.y);
+
+    // 角色初始位置：workArea 中央
+    const charBounds = sceneManager.getCharacterBounds();
+    sceneManager.setCurrentPosition({
+      x: effectiveBounds.x + (effectiveBounds.width - charBounds.width) / 2,
+      y: effectiveBounds.y + (effectiveBounds.height - charBounds.height) / 2,
+    });
 
     // 從 bounds vs workArea 推算工作列位置
     if (primaryDisplay.workArea) {
@@ -394,17 +392,7 @@ async function initializeBehaviorSystem(
     sceneManager.setBehaviorAnimationBridge(bridge);
   }
 
-  // 位置更新 callback（fire-and-forget）
-  sceneManager.setPositionSetter((x, y) => {
-    if (Number.isFinite(x) && Number.isFinite(y)) {
-      ipc.setWindowPosition(Math.round(x), Math.round(y));
-    }
-  });
-
-  // 視窗大小更新 callback（縮放時同步調整）
-  sceneManager.setWindowSizeSetter((w, h) => {
-    ipc.setWindowSize(w, h);
-  });
+  // 全螢幕模式：位置和大小由 SceneManager 內部管理，不需 IPC
 
   // 遮擋更新 callback — 矩形（fallback，邏輯像素 → 物理像素）
   sceneManager.setOcclusionSetter((rects) => {
@@ -456,8 +444,10 @@ async function initializeBehaviorSystem(
   // ── 互動系統 ──
 
   const dragHandler = new DragHandler(canvas, {
-    getWindowPosition: () => ipc.getWindowPosition(),
-    setWindowPosition: (x, y) => ipc.setWindowPosition(x, y),
+    getCharacterPosition: () => {
+      const bounds = sceneManager.getCharacterBounds();
+      return { x: bounds.x, y: bounds.y };
+    },
     getSnappableWindows: (bounds, threshold) =>
       collisionSystem.getSnappableWindows(bounds, threshold),
     clampToScreen: (pos, w, h) => collisionSystem.clampToScreen(pos, w, h),
@@ -547,10 +537,10 @@ async function initializeBehaviorSystem(
         ipc.getDisplayInfo().then((displays) => {
           const d = displays[0] ?? { x: 0, y: 0, width: screen.width, height: screen.height };
           const wb = d.workArea ?? d;
-          const cx = wb.x + (wb.width - 400) / 2;
-          const cy = wb.y + (wb.height - 600) / 2;
+          const cb = sceneManager.getCharacterBounds();
+          const cx = wb.x + (wb.width - cb.width) / 2;
+          const cy = wb.y + (wb.height - cb.height) / 2;
           sceneManager.setCurrentPosition({ x: cx, y: cy });
-          ipc.setWindowPosition(cx, cy);
         });
         break;
       case 'change_model':
