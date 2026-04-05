@@ -82,7 +82,8 @@ export class StateMachine {
         break;
     }
 
-    const stateChanged = this.state !== prevState;
+    const stateChanged = this.state !== prevState || this.pendingStateChange;
+    this.pendingStateChange = false;
 
     // 進入 walk 時記錄已重疊的視窗（避免立即取消移動）
     if (stateChanged && this.state === 'walk') {
