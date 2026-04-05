@@ -236,6 +236,17 @@ export class VRMController {
     }
   }
 
+  /**
+   * 設定模型 Y 軸旋轉（移動方向追蹤用）
+   *
+   * 基礎旋轉 Math.PI（面向攝影機）+ 額外的方向旋轉。
+   */
+  setFacingRotationY(theta: number): void {
+    if (this.vrm) {
+      this.vrm.scene.rotation.y = Math.PI + theta;
+    }
+  }
+
   /** 取得模型的世界空間包圍盒尺寸 */
   getModelWorldSize(): { width: number; height: number } | null {
     if (!this.vrm) return null;

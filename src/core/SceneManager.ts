@@ -101,9 +101,7 @@ export class SceneManager {
   private orbitStartY = 0;
   private orbitMoved = false;
 
-  // 移動方向攝影機追蹤
-  private targetOrbitTheta: number | null = null;
-  private isMovementCameraActive = false;
+  // (移動方向追蹤已改為模型旋轉，見 updateModelFacingDirection)
 
   constructor(canvas: HTMLCanvasElement, targetFps = 30) {
     this.targetFps = targetFps;
@@ -428,11 +426,10 @@ export class SceneManager {
       }
     }
 
-    // 攝影機方向追蹤（根據移動方向旋轉，停止時恢復正面）
+    // 移動方向追蹤 → 模型 Y 軸旋轉（全螢幕模式不旋轉攝影機）
     const moveDx = this.currentPosition.x - this.previousPosition.x;
     const moveDy = this.currentPosition.y - this.previousPosition.y;
-    this.updateCameraDirection(moveDx, moveDy);
-    this.applyOrbitInterpolation();
+    this.updateModelFacingDirection(moveDx, moveDy);
 
     // 遮擋判定（Phase 1: 判定需要遮擋的視窗，render 後再提取輪廓）
     let pendingOcclusionRects: Rect[] | null = null;
@@ -528,7 +525,7 @@ export class SceneManager {
       this.debugOverlay.updateCamera(
         this.orbitTheta,
         this.orbitPhi,
-        this.targetOrbitTheta,
+        this.modelTargetTheta,
         this.stateMachine?.getSpeedMultiplier() ?? 1.0,
       );
 
@@ -741,47 +738,46 @@ export class SceneManager {
     this.camera.lookAt(t.x, t.y, t.z);
   }
 
+  /** 模型當前面朝角度 */
+  private modelFacingTheta = 0;
+  /** 模型目標面朝角度 */
+  private modelTargetTheta: number | null = null;
+  /** 是否正在追蹤移動方向 */
+  private modelFacingActive = false;
+
   /**
-   * 根據移動方向更新攝影機目標角度
+   * 根據移動方向旋轉模型 Y 軸（取代舊的攝影機方向追蹤）
    *
-   * 用 atan2 計算連續角度（支援斜向移動）。
-   * 停止移動時平滑恢復到正面角度。
+   * 全螢幕模式下攝影機固定，改為旋轉模型本身。
    */
-  private updateCameraDirection(dx: number, dy: number): void {
+  private updateModelFacingDirection(dx: number, dy: number): void {
     if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) {
-      // 停止移動 → 恢復正面
-      if (this.isMovementCameraActive) {
-        this.targetOrbitTheta = 0;
-        this.isMovementCameraActive = false;
-      }
-      return;
-    }
-
-    this.isMovementCameraActive = true;
-    // 螢幕座標：dx>0=右, dy<0=上（螢幕Y軸向下）
-    // 目標：左=π/2, 右=-π/2, 上（dy<0）=π（背面）, 下（dy>0）=0（正面）
-    this.targetOrbitTheta = Math.atan2(-dx, dy);
-  }
-
-  /** 平滑插值攝影機角度到目標 */
-  private applyOrbitInterpolation(): void {
-    if (this.targetOrbitTheta === null) return;
-
-    let diff = this.targetOrbitTheta - this.orbitTheta;
-    // 處理角度跨 -π/π 邊界的最短路徑
-    while (diff > Math.PI) diff -= 2 * Math.PI;
-    while (diff < -Math.PI) diff += 2 * Math.PI;
-
-    if (Math.abs(diff) < 0.001) {
-      this.orbitTheta = this.targetOrbitTheta;
-      // 恢復正面完成後清除目標
-      if (!this.isMovementCameraActive) {
-        this.targetOrbitTheta = null;
+      if (this.modelFacingActive) {
+        this.modelTargetTheta = 0;
+        this.modelFacingActive = false;
       }
     } else {
-      this.orbitTheta += diff * 0.08;
+      this.modelFacingActive = true;
+      this.modelTargetTheta = Math.atan2(-dx, dy);
     }
-    this.updateCameraFromOrbit();
+
+    // 平滑插值
+    if (this.modelTargetTheta !== null) {
+      let diff = this.modelTargetTheta - this.modelFacingTheta;
+      while (diff > Math.PI) diff -= 2 * Math.PI;
+      while (diff < -Math.PI) diff += 2 * Math.PI;
+
+      if (Math.abs(diff) < 0.001) {
+        this.modelFacingTheta = this.modelTargetTheta;
+        if (!this.modelFacingActive) {
+          this.modelTargetTheta = null;
+        }
+      } else {
+        this.modelFacingTheta += diff * 0.08;
+      }
+
+      this.vrmController?.setFacingRotationY(this.modelFacingTheta);
+    }
   }
 
   /** 取得當前攝影機角度（供 Debug overlay 使用） */
@@ -789,7 +785,7 @@ export class SceneManager {
     return {
       theta: this.orbitTheta,
       phi: this.orbitPhi,
-      targetTheta: this.targetOrbitTheta,
+      targetTheta: this.modelTargetTheta,
     };
   }
 
@@ -832,6 +828,14 @@ export class SceneManager {
   private onOrbitMouseUp = (e: MouseEvent): void => {
     if (e.button !== 2) return;
     this.isOrbiting = false;
+
+    // 全螢幕模式：軌道結束後恢復固定攝影機
+    if (this.orbitMoved) {
+      this.orbitTheta = 0;
+      this.orbitPhi = Math.PI / 2;
+      const canvas = this.renderer.domElement;
+      this.setupCameraForCanvas(canvas.clientHeight || canvas.height);
+    }
   };
 
   /** WebGL context lost 處理 */
