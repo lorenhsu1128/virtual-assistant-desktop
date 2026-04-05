@@ -33,6 +33,9 @@ export class StateMachine {
   // 速率倍率
   private speedMultiplier = 1.0;
 
+  // forceState 觸發的狀態變化（tick early return 時回報）
+  private pendingStateChange = false;
+
   // sit 狀態
   private attachedWindowHwnd: number | null = null;
   private attachedWindowLastPos: { x: number; y: number } | null = null;
@@ -54,7 +57,9 @@ export class StateMachine {
     const prevState = this.state;
 
     if (this.paused || this.state === 'drag') {
-      return this.makeOutput(false, null);
+      const changed = this.pendingStateChange;
+      this.pendingStateChange = false;
+      return this.makeOutput(changed, null);
     }
 
     this.stateTimer += input.deltaTime;
@@ -113,6 +118,7 @@ export class StateMachine {
   /** 強制切換狀態（由 DragHandler 等外部模組呼叫） */
   forceState(state: BehaviorState): void {
     this.enterState(state);
+    this.pendingStateChange = true;
   }
 
   /** 取得當前狀態 */
