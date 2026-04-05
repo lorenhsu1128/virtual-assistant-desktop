@@ -268,7 +268,7 @@ export class StateMachine {
     const minX = input.screenBounds.x + margin;
     const maxX = input.screenBounds.x + input.screenBounds.width - margin;
     const minY = input.screenBounds.y + input.screenBounds.height * 0.3;
-    const maxY = input.screenBounds.y + input.screenBounds.height - input.characterBounds.height * 0.3;
+    const maxY = input.screenBounds.y + input.screenBounds.height - input.characterBounds.height * 0.5;
 
     this.walkTarget = {
       x: minX + Math.random() * (maxX - minX),

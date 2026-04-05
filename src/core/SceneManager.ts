@@ -812,9 +812,9 @@ export class SceneManager {
     // X 活動範圍：workArea 內（保留 20% 可見）
     const minX = this.workAreaOrigin.x - charW * 0.8;
     const maxX = this.workAreaOrigin.x + this.workAreaSize.width - charW * 0.2;
-    // Y 活動範圍：上限 = workArea 頂部，下限 = 允許下半身超出 canvas（膝蓋可觸及 ground）
+    // Y 活動範圍：上限 = workArea 頂部，下限 = 保留上半身可見（下半身可超出 canvas）
     const minY = this.workAreaOrigin.y - charH * 0.8;
-    const maxY = this.screenOrigin.y + screenH - charH * 0.3;
+    const maxY = this.screenOrigin.y + screenH - charH * 0.5;
 
     return {
       x: Math.max(minX, Math.min(maxX, pos.x)),
