@@ -281,27 +281,46 @@ export class StateMachine {
   }
 
   private pickWalkTarget(input: BehaviorInput): void {
-    const margin = input.characterBounds.width;
-    const minX = input.screenBounds.x + margin;
-    const maxX = input.screenBounds.x + input.screenBounds.width - margin;
-    const screenTop = input.screenBounds.y + input.screenBounds.height * 0.3;
-    const screenBottom = input.screenBounds.y + input.screenBounds.height - input.characterBounds.height * 0.5;
+    const charW = input.characterBounds.width;
+    const charH = input.characterBounds.height;
+    const sb = input.screenBounds;
+    const pos = input.currentPosition;
 
-    // 角色在螢幕外（下方）時，強制走回桌面中央區域
-    const feetY = input.currentPosition.y + input.characterBounds.height;
-    const isOutsideScreen = feetY > input.screenBounds.y + input.screenBounds.height;
-    if (isOutsideScreen) {
-      const safeMaxY = input.screenBounds.y + input.screenBounds.height * 0.7;
+    // 螢幕活動範圍
+    const minX = sb.x;
+    const maxX = sb.x + sb.width - charW;
+    const minY = sb.y;
+    const maxY = sb.y + sb.height - charH;
+
+    // ── 邊界外偵測：超出時強制走回螢幕中央安全區域 ──
+    const outsideLeft = pos.x + charW < sb.x;                    // 整個身體超出左邊
+    const outsideRight = pos.x > sb.x + sb.width;                // 整個身體超出右邊
+    const outsideTop = pos.y + charH < sb.y;                     // 整個身體超出上邊
+    const outsideBottom = pos.y + charH * 0.5 > sb.y + sb.height; // 身體超出 50% 下方
+
+    if (outsideLeft || outsideRight || outsideTop || outsideBottom) {
+      // 安全區域：螢幕中央 60%（上下左右各留 20% margin）
+      const safeMinX = sb.x + sb.width * 0.2;
+      const safeMaxX = sb.x + sb.width * 0.8 - charW;
+      const safeMinY = sb.y + sb.height * 0.2;
+      const safeMaxY = sb.y + sb.height * 0.8 - charH;
       this.walkTarget = {
-        x: minX + Math.random() * (maxX - minX),
-        y: screenTop + Math.random() * (safeMaxY - screenTop),
+        x: safeMinX + Math.random() * Math.max(0, safeMaxX - safeMinX),
+        y: safeMinY + Math.random() * Math.max(0, safeMaxY - safeMinY),
       };
       return;
     }
 
+    // ── 正常行走：隨機方向角 + 隨機距離 ──
+    const angle = Math.random() * Math.PI * 2;         // 0-360° 均勻分佈
+    const distance = 200 + Math.random() * 400;        // 200-600px
+    const rawX = pos.x + Math.cos(angle) * distance;
+    const rawY = pos.y + Math.sin(angle) * distance;
+
+    // 超出螢幕 → clamp 到邊界
     this.walkTarget = {
-      x: minX + Math.random() * (maxX - minX),
-      y: screenTop + Math.random() * (screenBottom - screenTop),
+      x: Math.max(minX, Math.min(maxX, rawX)),
+      y: Math.max(minY, Math.min(maxY, rawY)),
     };
   }
 
