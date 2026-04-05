@@ -56,7 +56,7 @@ export class AnimationManager {
   private currentDisplayName: string | null = null;
 
   /** 系統動畫播放前保存的狀態（用於恢復） */
-  private savedState: { clip: THREE.AnimationClip; loop: boolean; isAction: boolean } | null = null;
+  private savedState: { clip: THREE.AnimationClip; loop: boolean; isAction: boolean; displayName: string | null } | null = null;
 
   constructor(mixer: THREE.AnimationMixer, loadAnimation: AnimationLoader) {
     this.mixer = mixer;
@@ -177,6 +177,7 @@ export class AnimationManager {
         clip: this.currentAction.getClip(),
         loop: this.currentAction.loop === THREE.LoopRepeat,
         isAction: this.isPlayingAction,
+        displayName: this.currentDisplayName,
       };
     }
 
@@ -216,6 +217,7 @@ export class AnimationManager {
     // 恢復先前動畫
     if (this.savedState) {
       this.playClip(this.savedState.clip, this.savedState.loop, this.savedState.isAction);
+      this.currentDisplayName = this.savedState.displayName;
       this.savedState = null;
     } else {
       // 無保存狀態，回到 idle 輪播
@@ -235,6 +237,7 @@ export class AnimationManager {
       this.currentAction.fadeOut(CROSSFADE_DURATION);
       this.currentAction = null;
     }
+    this.currentDisplayName = null;
   }
 
   /** 取得當前播放的 clip */
