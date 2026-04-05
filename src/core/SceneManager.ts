@@ -697,8 +697,9 @@ export class SceneManager {
       return;
     }
 
-    // 嘗試多邊形輪廓
-    if (this.silhouetteEnabled && this.silhouetteExtractor && this.occlusionPolygonSetter && windowRect) {
+    // 嘗試多邊形輪廓（僅在實際穿越時使用，debug mode 用矩形即可）
+    const isTraversing = this.stateMachine?.getTraversingWindowHwnd() !== null;
+    if (isTraversing && this.silhouetteEnabled && this.silhouetteExtractor && this.occlusionPolygonSetter && windowRect) {
       try {
         const silhouette = this.silhouetteExtractor.extract();
         if (silhouette && silhouette.length >= 3) {

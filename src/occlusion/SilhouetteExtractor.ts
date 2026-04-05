@@ -172,8 +172,10 @@ export class SilhouetteExtractor {
   private gl: WebGLRenderingContext | null = null;
   private pixelBuffer: Uint8Array | null = null;
   private maskBuffer: Uint8Array | null = null;
-  private lastWidth = 0;
-  private lastHeight = 0;
+  private lastPixelW = 0;
+  private lastPixelH = 0;
+  private lastMaskW = 0;
+  private lastMaskH = 0;
 
   constructor(renderer: THREE.WebGLRenderer) {
     try {
@@ -191,9 +193,10 @@ export class SilhouetteExtractor {
    * @param alphaThreshold - alpha 二值化閾值（0-255），預設 128
    * @param simplifyTolerance - Douglas-Peucker 容差（像素），預設 2.0
    * @param maxPoints - 最大頂點數，預設 200
+   * @param sampleStride - 降採樣間隔（像素），預設 4。mask 尺寸縮為 1/stride²
    * @returns 輪廓頂點陣列（canvas CSS 像素座標），或 null
    */
-  extract(alphaThreshold = 128, simplifyTolerance = 2.0, maxPoints = 200): Point[] | null {
+  extract(alphaThreshold = 128, simplifyTolerance = 2.0, maxPoints = 200, sampleStride = 4): Point[] | null {
     if (!this.gl) return null;
 
     const gl = this.gl;
@@ -202,48 +205,66 @@ export class SilhouetteExtractor {
 
     if (width <= 0 || height <= 0) return null;
 
-    // 重新分配 buffer（尺寸變化時）
-    if (width !== this.lastWidth || height !== this.lastHeight) {
+    const stride = Math.max(1, Math.round(sampleStride));
+    const maskW = Math.ceil(width / stride);
+    const maskH = Math.ceil(height / stride);
+
+    // 重新分配 pixel buffer（全解析度，尺寸變化時）
+    if (width !== this.lastPixelW || height !== this.lastPixelH) {
       this.pixelBuffer = new Uint8Array(width * height * 4);
-      this.maskBuffer = new Uint8Array(width * height);
-      this.lastWidth = width;
-      this.lastHeight = height;
+      this.lastPixelW = width;
+      this.lastPixelH = height;
+    }
+
+    // 重新分配 mask buffer（降採樣尺寸，變化時）
+    if (maskW !== this.lastMaskW || maskH !== this.lastMaskH) {
+      this.maskBuffer = new Uint8Array(maskW * maskH);
+      this.lastMaskW = maskW;
+      this.lastMaskH = maskH;
     }
 
     try {
-      // 讀取所有像素 RGBA
       gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, this.pixelBuffer!);
     } catch (e) {
       console.warn('[SilhouetteExtractor] readPixels failed:', e);
       return null;
     }
 
-    // 二值化 alpha channel（WebGL Y 軸翻轉：底部 = row 0）
+    // 降採樣二值化（WebGL Y 軸翻轉 + stride 取樣）
     const pixels = this.pixelBuffer!;
     const mask = this.maskBuffer!;
 
-    for (let srcY = 0; srcY < height; srcY++) {
-      // WebGL row srcY → canvas row (height - 1 - srcY)
-      const dstY = height - 1 - srcY;
+    for (let my = 0; my < maskH; my++) {
+      // mask row my → 原始 canvas row (srcY)，WebGL Y 翻轉
+      const canvasY = my * stride;
+      const srcY = height - 1 - canvasY;
+      if (srcY < 0) continue;
       const srcRowStart = srcY * width * 4;
-      const dstRowStart = dstY * width;
+      const dstRowStart = my * maskW;
 
-      for (let x = 0; x < width; x++) {
-        const alpha = pixels[srcRowStart + x * 4 + 3];
-        mask[dstRowStart + x] = alpha >= alphaThreshold ? 1 : 0;
+      for (let mx = 0; mx < maskW; mx++) {
+        const srcX = mx * stride;
+        if (srcX >= width) continue;
+        const alpha = pixels[srcRowStart + srcX * 4 + 3];
+        mask[dstRowStart + mx] = alpha >= alphaThreshold ? 1 : 0;
       }
     }
 
-    // Marching Squares 輪廓追蹤
-    let contour = marchingSquares(mask, width, height);
+    // Marching Squares 在降採樣 mask 上執行
+    let contour = marchingSquares(mask, maskW, maskH);
     if (!contour || contour.length < 3) return null;
 
+    // 座標還原到物理像素
+    for (const p of contour) {
+      p.x *= stride;
+      p.y *= stride;
+    }
+
     // Douglas-Peucker 簡化
-    let tolerance = simplifyTolerance;
+    let tolerance = simplifyTolerance * stride;
     contour = douglasPeucker(contour, tolerance);
 
-    // 如果頂點過多，逐步增加 tolerance
-    while (contour.length > maxPoints && tolerance < 20) {
+    while (contour.length > maxPoints && tolerance < 20 * stride) {
       tolerance *= 1.5;
       contour = douglasPeucker(contour, tolerance);
     }
