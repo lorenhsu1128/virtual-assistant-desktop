@@ -10,6 +10,7 @@ import { HitTestManager } from './interaction/HitTestManager';
 import { DEFAULT_CONFIG, type AppConfig } from './types/config';
 import type { TrayMenuData } from './types/tray';
 import { ExpressionManager } from './expression/ExpressionManager';
+import { DebugOverlay } from './debug/DebugOverlay';
 
 /**
  * 應用程式進入點
@@ -327,6 +328,10 @@ async function initializeBehaviorSystem(
   }
   sceneManager.setExpressionManager(expressionManager);
 
+  // ── Debug Overlay ──
+  const debugOverlay = new DebugOverlay();
+  sceneManager.setDebugOverlay(debugOverlay);
+
   // ── Hit-Test 滑鼠穿透 ──
   const hitTestManager = new HitTestManager(canvas, sceneManager.getRenderer(), {
     setIgnoreCursorEvents: (ignore) => ipc.setIgnoreCursorEvents(ignore),
@@ -369,7 +374,7 @@ async function initializeBehaviorSystem(
       isPaused: stateMachine.isPaused(),
       isAutoExpressionEnabled: expressionManager.isAutoEnabled(),
       isLoopEnabled: animationManager?.isLoopEnabled() ?? true,
-      isDebugEnabled: false,
+      isDebugEnabled: debugOverlay.isEnabled(),
       currentExpression: expressionManager.getManualExpression(),
     };
     ipc.sendMenuData(menuData);
@@ -387,7 +392,7 @@ async function initializeBehaviorSystem(
   await ipc.onTrayAction((actionId) => {
     switch (actionId) {
       case 'toggle_debug':
-        // Debug overlay 已移除，未來重新開發
+        debugOverlay.setEnabled(!debugOverlay.isEnabled());
         break;
       case 'toggle_pause':
         if (stateMachine.isPaused()) { stateMachine.resume(); } else { stateMachine.pause(); }
@@ -482,6 +487,7 @@ async function initializeBehaviorSystem(
   window.addEventListener('beforeunload', () => {
     hitTestManager.dispose();
     dragHandler.dispose();
+    debugOverlay.dispose();
     sceneManager.dispose();
   });
 }

@@ -6,6 +6,7 @@ import type { StateMachine } from '../behavior/StateMachine';
 import type { BehaviorAnimationBridge } from '../behavior/BehaviorAnimationBridge';
 import type { ExpressionManager } from '../expression/ExpressionManager';
 import type { Rect } from '../types/window';
+import type { DebugOverlay } from '../debug/DebugOverlay';
 
 /** 幀率模式 */
 type FpsMode = 'foreground' | 'background' | 'powerSave';
@@ -44,7 +45,11 @@ export class SceneManager {
   private expressionManager: ExpressionManager | null = null;
   private lastAppliedExpression: string | null = null;
 
-  // (Debug overlay 已移除，未來重新開發)
+  // Debug
+  private debugOverlay: DebugOverlay | null = null;
+  private frameCount = 0;
+  private lastFpsTime = 0;
+  private currentFps = 0;
 
   // 角色位置管理（全螢幕模式：角色在 canvas 內移動，視窗不動）
   private currentPosition = { x: 0, y: 0 };
@@ -179,6 +184,11 @@ export class SceneManager {
   /** 設定 StateMachine (v0.2) */
   setStateMachine(sm: StateMachine): void {
     this.stateMachine = sm;
+  }
+
+  /** 設定 Debug Overlay */
+  setDebugOverlay(overlay: DebugOverlay): void {
+    this.debugOverlay = overlay;
   }
 
   /** 設定 BehaviorAnimationBridge (v0.2) */
@@ -417,6 +427,25 @@ export class SceneManager {
 
       this.previousPosition.x = this.currentPosition.x;
       this.previousPosition.y = this.currentPosition.y;
+    }
+
+    // Debug overlay 更新
+    if (this.debugOverlay?.isEnabled()) {
+      this.frameCount++;
+      if (now - this.lastFpsTime >= 1000) {
+        this.currentFps = this.frameCount * 1000 / (now - this.lastFpsTime);
+        this.frameCount = 0;
+        this.lastFpsTime = now;
+      }
+      this.debugOverlay.update({
+        state: this.stateMachine?.getState() ?? 'N/A',
+        posX: this.currentPosition.x,
+        posY: this.currentPosition.y,
+        scale: this.scale,
+        fps: this.currentFps,
+        moveSpeed: this.stateMachine?.getSpeedMultiplier() ?? 1.0,
+        paused: this.stateMachine?.isPaused() ?? false,
+      });
     }
 
     // Step 6: Render
