@@ -34,14 +34,15 @@ interface TrayMenuData {
 /**
  * System tray setup and management
  *
- * On Windows, setContextMenu() shows the menu on both left-click and right-click.
- * Renderer sends menu data updates via 'menu_data_response' IPC;
- * main process caches it and rebuilds the native Menu.
+ * On Windows, setContextMenu() shows the menu on right-click only.
+ * Left-click is handled via tray 'click' event + popUpContextMenu.
+ * Renderer pushes menu data updates; main process caches and rebuilds.
  */
 export class SystemTray {
   private tray: Tray | null = null;
   private mainWindow: BrowserWindow;
   private cachedData: TrayMenuData | null = null;
+  private currentMenu: Menu | null = null;
   private ipcHandler: ((_event: Electron.IpcMainEvent, data: TrayMenuData) => void) | null = null;
 
   constructor(mainWindow: BrowserWindow) {
@@ -58,7 +59,14 @@ export class SystemTray {
     this.tray = new Tray(icon);
     this.tray.setToolTip('Virtual Assistant Desktop');
 
-    // Build initial static menu (before renderer sends dynamic data)
+    // Left-click: show menu via popUpContextMenu
+    this.tray.on('click', () => {
+      if (this.tray && this.currentMenu) {
+        this.tray.popUpContextMenu(this.currentMenu);
+      }
+    });
+
+    // Build initial static menu
     this.rebuildMenu();
 
     // Listen for menu data updates from renderer
@@ -208,12 +216,14 @@ export class SystemTray {
       },
     });
 
-    const menu = Menu.buildFromTemplate(template);
-    this.tray.setContextMenu(menu);
+    // Store reference to prevent GC, and set for both left+right click
+    this.currentMenu = Menu.buildFromTemplate(template);
+    this.tray.setContextMenu(this.currentMenu);
   }
 
   /** Send action to renderer process */
   private emitAction(actionId: string): void {
+    console.log('[SystemTray] emitAction:', actionId);
     if (!this.mainWindow.isDestroyed()) {
       this.mainWindow.webContents.send('tray_action', actionId);
     }
