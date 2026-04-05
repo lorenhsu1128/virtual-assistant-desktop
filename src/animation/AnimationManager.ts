@@ -46,6 +46,15 @@ export class AnimationManager {
   private isPlayingAction = false;
   private loopEnabled = true;
 
+  /** 系統動畫（獨立於使用者動畫，優先級最高） */
+  private systemAnimations: Map<string, THREE.AnimationClip> = new Map();
+
+  /** 當前播放中的系統動畫 action */
+  private systemAction: THREE.AnimationAction | null = null;
+
+  /** 系統動畫播放前保存的狀態（用於恢復） */
+  private savedState: { clip: THREE.AnimationClip; loop: boolean; isAction: boolean } | null = null;
+
   constructor(mixer: THREE.AnimationMixer, loadAnimation: AnimationLoader) {
     this.mixer = mixer;
     this.loadAnimation = loadAnimation;
@@ -118,6 +127,97 @@ export class AnimationManager {
     return true;
   }
 
+  // ── 系統動畫 ──
+
+  /**
+   * 載入系統動畫
+   *
+   * 系統動畫獨立於使用者動畫，不進入分類索引、不出現在選單中。
+   * @param name 系統動畫識別名稱（如 'drag'）
+   * @param url 動畫檔案 URL
+   */
+  async loadSystemAnimation(name: string, url: string): Promise<boolean> {
+    try {
+      const clip = await this.loadAnimation(url);
+      if (!clip) {
+        console.warn(`[AnimationManager] System animation '${name}' produced no clip`);
+        return false;
+      }
+      this.systemAnimations.set(name, clip);
+      return true;
+    } catch (e) {
+      console.warn(`[AnimationManager] Failed to load system animation '${name}':`, e);
+      return false;
+    }
+  }
+
+  /**
+   * 播放系統動畫
+   *
+   * 自動保存當前動畫狀態，結束後可恢復。
+   * 優先級高於所有一般動畫。
+   */
+  playSystemAnimation(name: string, loop = true): boolean {
+    const clip = this.systemAnimations.get(name);
+    if (!clip) return false;
+
+    // 保存當前狀態（用於 stopSystemAnimation 恢復）
+    if (this.currentAction && !this.systemAction) {
+      this.savedState = {
+        clip: this.currentAction.getClip(),
+        loop: this.currentAction.loop === THREE.LoopRepeat,
+        isAction: this.isPlayingAction,
+      };
+    }
+
+    // 淡出當前動畫
+    if (this.currentAction) {
+      this.currentAction.fadeOut(CROSSFADE_DURATION);
+    }
+
+    // 播放系統動畫
+    const action = this.mixer.clipAction(clip);
+    action.reset();
+    if (loop) {
+      action.setLoop(THREE.LoopRepeat, Infinity);
+    } else {
+      action.setLoop(THREE.LoopOnce, 1);
+      action.clampWhenFinished = true;
+    }
+    action.fadeIn(CROSSFADE_DURATION);
+    action.play();
+
+    this.systemAction = action;
+    this.currentAction = action;
+    return true;
+  }
+
+  /**
+   * 停止系統動畫並恢復先前動畫
+   */
+  stopSystemAnimation(): void {
+    if (!this.systemAction) return;
+
+    // 淡出系統動畫
+    this.systemAction.fadeOut(CROSSFADE_DURATION);
+    this.systemAction = null;
+
+    // 恢復先前動畫
+    if (this.savedState) {
+      this.playClip(this.savedState.clip, this.savedState.loop, this.savedState.isAction);
+      this.savedState = null;
+    } else {
+      // 無保存狀態，回到 idle 輪播
+      this.playNextIdle();
+      this.resetIdleTimer();
+    }
+  }
+
+  /** 是否正在播放系統動畫 */
+  isSystemAnimationPlaying(): boolean {
+    return this.systemAction !== null;
+  }
+
   /** 停止當前動畫 */
   stopCurrent(): void {
     if (this.currentAction) {
@@ -170,6 +270,7 @@ export class AnimationManager {
    * 這裡只處理 idle 輪播邏輯。
    */
   update(deltaTime: number): void {
+    if (this.systemAction) return; // 系統動畫播放中，暫停 idle 輪播
     if (this.isPlayingAction) return;
     if (!this.loopEnabled) return;
 
@@ -195,8 +296,11 @@ export class AnimationManager {
   dispose(): void {
     this.mixer.removeEventListener('finished', this.onAnimationFinished);
     this.stopCurrent();
+    this.systemAction = null;
+    this.savedState = null;
     this.allAnimations = [];
     this.animationsByCategory.clear();
+    this.systemAnimations.clear();
   }
 
   /** 播放 clip */

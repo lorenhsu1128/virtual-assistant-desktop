@@ -7,6 +7,7 @@ function makeMockAnimationManager() {
   return {
     playByCategory: vi.fn().mockReturnValue(true),
     hasCategory: vi.fn().mockReturnValue(true),
+    isSystemAnimationPlaying: vi.fn().mockReturnValue(false),
   } as unknown as AnimationManager;
 }
 

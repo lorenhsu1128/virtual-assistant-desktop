@@ -35,6 +35,9 @@ export class BehaviorAnimationBridge {
    * 僅在狀態變化時觸發動畫切換。
    */
   update(output: BehaviorOutput): void {
+    // 系統動畫播放中，跳過一般狀態→動畫切換
+    if (this.animationManager.isSystemAnimationPlaying()) return;
+
     // 狀態變化時切換動畫
     if (!output.stateChanged) return;
 

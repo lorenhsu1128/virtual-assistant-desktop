@@ -90,7 +90,7 @@ async function main(): Promise<void> {
 
   // 初始化渲染系統
   debugLog(`calling initializeApp, vrmPath=${config.vrmModelPath?.substring(0, 50)}`);
-  await initializeApp(config);
+  await initializeApp(config, appPath);
   debugLog('initializeApp completed');
 }
 
@@ -158,7 +158,7 @@ async function promptForModel(): Promise<string | null> {
  *
  * 建立 SceneManager → VRMController → AnimationManager → 行為系統 → 互動系統 → 啟動 render loop
  */
-async function initializeApp(config: AppConfig): Promise<void> {
+async function initializeApp(config: AppConfig, appPath: string): Promise<void> {
   // 建立 canvas
   const canvas = document.createElement('canvas');
   canvas.width = window.innerWidth;
@@ -240,6 +240,16 @@ async function initializeApp(config: AppConfig): Promise<void> {
     }
   } else {
     sceneManager.setUseFallback(true);
+  }
+
+  // 載入系統動畫
+  if (animationManager) {
+    const sysVrmaDir = `${appPath}/${config.systemAssetsDir}/vrma`.replace(/\\/g, '/');
+    await animationManager.loadSystemAnimation(
+      'drag',
+      `${sysVrmaDir}/SYS_DRAGGING.vrma`,
+    );
+    debugLog('System animations loaded');
   }
 
   // 套用已儲存的動畫循環設定
@@ -440,8 +450,10 @@ async function initializeBehaviorSystem(
     onDragUnlock: () => hitTestManager.unlockDrag(),
     onDragStart: () => {
       stateMachine.forceState('drag');
+      animationManager?.playSystemAnimation('drag');
     },
     onDragEnd: (position, snappedWindow) => {
+      animationManager?.stopSystemAnimation();
       sceneManager.setCurrentPosition(position);
       if (snappedWindow) {
         stateMachine.setAttachedWindow(snappedWindow.hwnd, {
