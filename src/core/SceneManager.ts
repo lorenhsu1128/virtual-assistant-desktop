@@ -847,7 +847,7 @@ export class SceneManager {
    * drag → 9.5（最上方）+ 設定 forceTopAfterDrag
    * 放下後 → 維持 9.5，直到使用者點擊其他視窗（前景視窗改變）
    * peek → 目標視窗 Z - 0.25（在視窗後面）
-   * sit → 吸附視窗 Z + 0.25（在視窗前面）
+   * sit → 吸附視窗 Z（與視窗同層）
    * walk/idle/fall → 前景視窗 Z - 0.25（自動退到前景視窗後面）
    *                  無前景視窗時 → 9.5（最前面）
    */
@@ -877,7 +877,7 @@ export class SceneManager {
     if (output.currentState === 'sit' && output.attachedWindowHwnd !== null) {
       this.forceTopAfterDrag = false;
       const windowZ = this.windowMeshManager.getWindowZ(output.attachedWindowHwnd);
-      return windowZ !== null ? windowZ + 0.25 : DEFAULT_Z;
+      return windowZ !== null ? windowZ : DEFAULT_Z;
     }
 
     // 拖曳後置頂：放下後維持最上方
