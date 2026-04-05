@@ -167,7 +167,7 @@ export class AnimationManager {
    * 自動保存當前動畫狀態，結束後可恢復。
    * 優先級高於所有一般動畫。
    */
-  playSystemAnimation(name: string, loop = true): boolean {
+  playSystemAnimation(name: string, loop = true, fadeDuration = CROSSFADE_DURATION): boolean {
     const clip = this.systemAnimations.get(name);
     if (!clip) return false;
 
@@ -182,7 +182,7 @@ export class AnimationManager {
 
     // 淡出當前動畫
     if (this.currentAction) {
-      this.currentAction.fadeOut(CROSSFADE_DURATION);
+      this.currentAction.fadeOut(fadeDuration);
     }
 
     // 播放系統動畫
@@ -194,7 +194,7 @@ export class AnimationManager {
       action.setLoop(THREE.LoopOnce, 1);
       action.clampWhenFinished = true;
     }
-    action.fadeIn(CROSSFADE_DURATION);
+    action.fadeIn(fadeDuration);
     action.play();
 
     this.systemAction = action;

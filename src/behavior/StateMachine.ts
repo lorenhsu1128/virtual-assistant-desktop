@@ -144,8 +144,9 @@ export class StateMachine {
     }
   }
 
-  /** 平面接觸判定閾值（px） */
-  private static readonly PLATFORM_THRESHOLD = 20;
+  /** sit 冷卻時間（秒）— 防止站起來後立即又坐下 */
+  private sitCooldown = 0;
+  private static readonly SIT_COOLDOWN_DURATION = 5;
 
   private tickWalk(input: BehaviorInput): void {
     if (!this.walkTarget) {
@@ -153,15 +154,22 @@ export class StateMachine {
       return;
     }
 
-    // 平面接觸偵測：角色腳底接近平面時坐下
-    const feetY = input.currentPosition.y + input.characterBounds.height;
-    for (const platform of input.platforms) {
-      if (Math.abs(feetY - platform.screenY) < StateMachine.PLATFORM_THRESHOLD &&
-          input.currentPosition.x + input.characterBounds.width > platform.screenXMin &&
-          input.currentPosition.x < platform.screenXMax) {
-        this.sitPlatformId = platform.id;
-        this.enterState('sit');
-        return;
+    // 更新 sit 冷卻
+    if (this.sitCooldown > 0) {
+      this.sitCooldown -= input.deltaTime;
+    }
+
+    // 平面接觸偵測：角色腳底到達或超過平面時坐下（冷卻中不觸發）
+    if (this.sitCooldown <= 0) {
+      const feetY = input.currentPosition.y + input.characterBounds.height;
+      for (const platform of input.platforms) {
+        if (feetY >= platform.screenY &&
+            input.currentPosition.x + input.characterBounds.width > platform.screenXMin &&
+            input.currentPosition.x < platform.screenXMax) {
+          this.sitPlatformId = platform.id;
+          this.enterState('sit');
+          return;
+        }
       }
     }
 
@@ -191,6 +199,7 @@ export class StateMachine {
       this.sitPlatformId = null;
       this.attachedWindowHwnd = null;
       this.attachedWindowLastPos = null;
+      this.sitCooldown = StateMachine.SIT_COOLDOWN_DURATION;
       this.enterState('idle');
     }
   }

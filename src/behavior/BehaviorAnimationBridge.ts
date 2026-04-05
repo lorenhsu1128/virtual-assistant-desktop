@@ -48,10 +48,10 @@ export class BehaviorAnimationBridge {
   update(output: BehaviorOutput): void {
     if (!output.stateChanged) return;
 
-    // sit 狀態：隨機選取一個 sit 動畫
+    // sit 狀態：隨機選取一個 sit 動畫（較長 crossfade 讓過渡更平滑）
     if (output.currentState === 'sit') {
       const sitAnim = SIT_ANIMATION_NAMES[Math.floor(Math.random() * SIT_ANIMATION_NAMES.length)];
-      this.animationManager.playSystemAnimation(sitAnim);
+      this.animationManager.playSystemAnimation(sitAnim, true, 1.0);
       return;
     }
 
