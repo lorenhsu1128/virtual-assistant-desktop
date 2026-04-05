@@ -937,6 +937,11 @@ export class SceneManager {
 
     let maxOverlapArea = 0;
     for (const win of this.cachedWindowRects) {
+      // 只計算 Z 值高於角色的視窗（在角色前面的）
+      if (this.windowMeshManager) {
+        const winZ = this.windowMeshManager.getWindowZ(win.hwnd);
+        if (winZ !== null && winZ <= this.currentCharacterZ) continue;
+      }
       const wx = win.x / dpr;
       const wy = win.y / dpr;
       const overlapX = Math.max(0, Math.min(modelLeft + actualW, wx + win.width / dpr) - Math.max(modelLeft, wx));
