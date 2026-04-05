@@ -841,12 +841,15 @@ export class SceneManager {
    *
    * peek → 目標視窗 Z - 0.25（在視窗後面）
    * sit → 吸附視窗 Z + 0.25（在視窗前面，但可被更上層視窗遮擋）
-   * walk/idle/drag/fall → 前景視窗 Z - 0.25（自動退到使用者正在操作的視窗後面）
-   *                       無前景視窗時 → 9.5（最前面）
+   * drag → 9.5（最上方，確保拖曳時角色不被遮擋）
+   * walk/idle/fall → 前景視窗 Z - 0.25（自動退到使用者正在操作的視窗後面）
+   *                  無前景視窗時 → 9.5（最前面）
    */
   private resolveCharacterZ(output: BehaviorOutput | null): number {
     const DEFAULT_Z = 9.5;
     if (!output || !this.windowMeshManager) return DEFAULT_Z;
+
+    if (output.currentState === 'drag') return DEFAULT_Z;
 
     if (output.currentState === 'peek' && output.peekTargetHwnd !== null) {
       const windowZ = this.windowMeshManager.getWindowZ(output.peekTargetHwnd);
