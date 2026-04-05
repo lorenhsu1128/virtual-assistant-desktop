@@ -45,13 +45,16 @@ describe('BehaviorAnimationBridge', () => {
     expect(manager.playByCategory).toHaveBeenCalledWith('idle');
   });
 
-  it('should trigger sit animation on state change to sit', () => {
+  it('should trigger random sit system animation on state change to sit', () => {
     const manager = makeMockAnimationManager();
     const bridge = new BehaviorAnimationBridge(manager);
 
     bridge.update(makeOutput({ currentState: 'sit', stateChanged: true }));
 
-    expect(manager.playByCategory).toHaveBeenCalledWith('sit');
+    // sit 使用 playSystemAnimation 隨機選取 sit_01~sit_07
+    expect(manager.playSystemAnimation).toHaveBeenCalled();
+    const calledWith = (manager.playSystemAnimation as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    expect(calledWith).toMatch(/^sit_\d{2}$/);
   });
 
   it('should trigger fall animation on state change to fall', () => {
@@ -103,14 +106,14 @@ describe('BehaviorAnimationBridge', () => {
   it('should fallback to idle when target category has no animation', () => {
     const manager = makeMockAnimationManager();
     (manager.playByCategory as ReturnType<typeof vi.fn>)
-      .mockReturnValueOnce(false) // sit failed
+      .mockReturnValueOnce(false) // peek failed
       .mockReturnValueOnce(true); // idle succeeded
     const bridge = new BehaviorAnimationBridge(manager);
 
-    bridge.update(makeOutput({ currentState: 'sit', stateChanged: true }));
+    bridge.update(makeOutput({ currentState: 'peek', stateChanged: true }));
 
     expect(manager.playByCategory).toHaveBeenCalledTimes(2);
-    expect(manager.playByCategory).toHaveBeenNthCalledWith(1, 'sit');
+    expect(manager.playByCategory).toHaveBeenNthCalledWith(1, 'peek');
     expect(manager.playByCategory).toHaveBeenNthCalledWith(2, 'idle');
   });
 

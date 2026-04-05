@@ -247,7 +247,14 @@ async function initializeApp(config: AppConfig, appPath: string): Promise<void> 
       'walk',
       `${sysVrmaDir}/SYS_WALK.vrma`,
     );
-    debugLog('System animations loaded');
+
+    // 載入多個 sit 動畫（SYS_SIT_01 ~ SYS_SIT_07）
+    for (let i = 1; i <= 7; i++) {
+      const sitName = `sit_${String(i).padStart(2, '0')}`;
+      const sitFile = `SYS_SIT_${String(i).padStart(2, '0')}.vrma`;
+      await animationManager.loadSystemAnimation(sitName, `${sysVrmaDir}/${sitFile}`);
+    }
+    debugLog('System animations loaded (drag, walk, sit_01~07)');
 
     // 步伐分析：從行走動畫計算擬真移動速度
     const walkClip = animationManager.getSystemAnimationClip('walk');
@@ -306,7 +313,7 @@ async function initializeBehaviorSystem(
     const primaryDisplay = displays[0];
     const effectiveBounds = primaryDisplay.workArea ?? primaryDisplay;
 
-    sceneManager.setWorkAreaOrigin(effectiveBounds.x, effectiveBounds.y);
+    sceneManager.setWorkArea(effectiveBounds.x, effectiveBounds.y, effectiveBounds.width, effectiveBounds.height);
 
     // 角色初始位置：workArea 中央
     const charBounds = sceneManager.getCharacterBounds();
@@ -412,6 +419,7 @@ async function initializeBehaviorSystem(
     switch (actionId) {
       case 'toggle_debug':
         debugOverlay.setEnabled(!debugOverlay.isEnabled());
+        sceneManager.updatePlatformMeshVisibility();
         break;
       case 'toggle_pause':
         if (stateMachine.isPaused()) { stateMachine.resume(); } else { stateMachine.pause(); }

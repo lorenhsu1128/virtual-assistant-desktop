@@ -36,6 +36,7 @@ export class StateMachine {
   // sit 狀態
   private attachedWindowHwnd: number | null = null;
   private attachedWindowLastPos: { x: number; y: number } | null = null;
+  private sitPlatformId: string | null = null;
 
   // fall 狀態
   private fallSpeed = 0;
@@ -155,8 +156,12 @@ export class StateMachine {
     const dist = Math.sqrt(dx * dx + dy * dy);
 
     if (dist <= speed || dist < 5) {
-      // 到達目標
-      this.enterState('idle');
+      // 到達目標 — 如果有 sitPlatformId 則坐下
+      if (this.sitPlatformId) {
+        this.enterState('sit');
+      } else {
+        this.enterState('idle');
+      }
       return;
     }
 
@@ -169,30 +174,10 @@ export class StateMachine {
     }
   }
 
-  private tickSit(input: BehaviorInput): void {
-    if (this.attachedWindowHwnd === null) {
-      this.enterState('fall');
-      return;
-    }
-
-    // 檢查吸附的視窗是否仍存在
-    const attachedWindow = input.windowRects.find(
-      (w) => w.hwnd === this.attachedWindowHwnd,
-    );
-
-    if (!attachedWindow) {
-      // 視窗被關閉或最小化
-      this.attachedWindowHwnd = null;
-      this.attachedWindowLastPos = null;
-      this.enterState('fall');
-      return;
-    }
-
-    // 更新上次視窗位置（用於跟隨移動）
-    this.attachedWindowLastPos = { x: attachedWindow.x, y: attachedWindow.y };
-
-    // 超時離開
+  private tickSit(_input: BehaviorInput): void {
+    // 平面坐下：停留指定時間後站起來
     if (this.stateTimer >= this.stateDuration) {
+      this.sitPlatformId = null;
       this.attachedWindowHwnd = null;
       this.attachedWindowLastPos = null;
       this.enterState('idle');
@@ -242,27 +227,18 @@ export class StateMachine {
   }
 
   private tryEnterSit(input: BehaviorInput): void {
-    // 找一個可以坐的視窗
-    const sittableWindows = input.windowRects.filter((w) => {
-      // 視窗頂部在螢幕範圍內，且有足夠寬度
-      return (
-        w.y > input.screenBounds.y + 50 &&
-        w.width > input.characterBounds.width * 0.5
-      );
-    });
-
-    if (sittableWindows.length > 0) {
-      const target = sittableWindows[Math.floor(Math.random() * sittableWindows.length)];
-      // 先走到視窗頂部，然後坐下
+    // 使用平面系統（Platform）取代舊的視窗吸附
+    if (input.platforms.length > 0) {
+      const target = input.platforms[Math.floor(Math.random() * input.platforms.length)];
+      // 角色腳底走到平面 Y 座標 → 在平面上隨機 X 位置坐下
+      const sitX = target.screenXMin + Math.random() * (target.screenXMax - target.screenXMin - input.characterBounds.width);
       this.walkTarget = {
-        x: target.x + target.width / 2 - input.characterBounds.width / 2,
-        y: target.y - input.characterBounds.height,
+        x: Math.max(target.screenXMin, sitX),
+        y: target.screenY - input.characterBounds.height,
       };
-      this.attachedWindowHwnd = target.hwnd;
-      this.attachedWindowLastPos = { x: target.x, y: target.y };
-      this.enterState('walk'); // 先走過去，到達後由 walk 邏輯切到 sit
+      this.sitPlatformId = target.id;
+      this.enterState('walk'); // 先走過去
     } else {
-      // 沒有可坐的視窗，改為 idle
       this.enterState('idle');
     }
   }

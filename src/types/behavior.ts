@@ -27,12 +27,28 @@ export interface BehaviorOutput {
 }
 
 /**
+ * 3D 環境中的可站立平面
+ *
+ * 角色可以走到平面位置並坐下。純資料，不依賴 Three.js。
+ */
+export interface Platform {
+  /** 平面 ID */
+  id: string;
+  /** 平面的螢幕 Y 座標（角色腳底位置） */
+  screenY: number;
+  /** 平面的螢幕 X 範圍（左） */
+  screenXMin: number;
+  /** 平面的螢幕 X 範圍（右） */
+  screenXMax: number;
+}
+
+/**
  * StateMachine.tick() 的輸入
  *
  * 由 SceneManager 在每幀組裝並注入。
  */
 export interface BehaviorInput {
-  /** 當前視窗位置（px） */
+  /** 當前角色位置（px，螢幕座標） */
   currentPosition: { x: number; y: number };
   /** 角色的 bounding box */
   characterBounds: Rect;
@@ -40,6 +56,8 @@ export interface BehaviorInput {
   screenBounds: Rect;
   /** 當前可見的視窗清單 */
   windowRects: WindowRect[];
+  /** 可站立的平面清單 */
+  platforms: Platform[];
   /** 角色縮放比例 */
   scale: number;
   /** 幀間隔時間（秒） */

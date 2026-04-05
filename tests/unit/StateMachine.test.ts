@@ -8,6 +8,7 @@ function makeInput(overrides?: Partial<BehaviorInput>): BehaviorInput {
     characterBounds: { x: 500, y: 500, width: 400, height: 600 },
     screenBounds: { x: 0, y: 0, width: 1920, height: 1080 },
     windowRects: [],
+    platforms: [],
     scale: 1.0,
     deltaTime: 1 / 30,
     ...overrides,
@@ -101,15 +102,14 @@ describe('StateMachine', () => {
     vi.restoreAllMocks();
   });
 
-  it('should enter fall when attached window disappears in sit state', () => {
+  it('should return to idle after sit timeout', () => {
     sm.forceState('sit');
-    sm.setAttachedWindow(123, { x: 100, y: 200 });
 
-    // Window not in the list
-    const input = makeInput({ windowRects: [] });
+    // Simulate sit duration passing (default 10-30s, use large deltaTime)
+    const input = makeInput({ deltaTime: 35.0 });
     const output = sm.tick(input);
 
-    expect(output.currentState).toBe('fall');
+    expect(output.currentState).toBe('idle');
   });
 
   it('should return to idle after fall timeout', () => {

@@ -236,6 +236,11 @@ export class AnimationManager {
     return this.currentAction?.getClip() ?? null;
   }
 
+  /** 取得當前播放的動畫名稱 */
+  getCurrentAnimationName(): string | null {
+    return this.currentAction?.getClip().name ?? null;
+  }
+
   /** 檢查是否有該分類的動畫 */
   hasCategory(category: AnimationCategory): boolean {
     const list = this.animationsByCategory.get(category);

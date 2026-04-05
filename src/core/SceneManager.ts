@@ -6,6 +6,7 @@ import type { StateMachine } from '../behavior/StateMachine';
 import type { BehaviorAnimationBridge } from '../behavior/BehaviorAnimationBridge';
 import type { ExpressionManager } from '../expression/ExpressionManager';
 import type { Rect } from '../types/window';
+import type { Platform } from '../types/behavior';
 import type { DebugOverlay } from '../debug/DebugOverlay';
 
 /** 幀率模式 */
@@ -65,6 +66,12 @@ export class SceneManager {
   private characterSize = { width: 300, height: 500 };
   /** workArea 原點（螢幕絕對座標，邏輯像素） */
   private workAreaOrigin = { x: 0, y: 0 };
+  /** workArea 尺寸（邏輯像素） */
+  private workAreaSize = { width: 1920, height: 1040 };
+  /** 3D 平面清單（用於角色坐下） */
+  private platforms: Platform[] = [];
+  /** 工作列平面 3D Mesh（debug 可見） */
+  private taskbarPlatformMesh: THREE.Mesh | null = null;
   /** 像素到世界座標的轉換比例 */
   private pixelToWorld = 0.003126;
   /** 原始 canvas 高度基準（用於攝影機距離縮放） */
@@ -196,6 +203,16 @@ export class SceneManager {
   /** 設定 Debug Overlay */
   setDebugOverlay(overlay: DebugOverlay): void {
     this.debugOverlay = overlay;
+    // 同步平面 mesh 可見性
+    this.updatePlatformMeshVisibility();
+  }
+
+  /** 切換 debug 平面 mesh 可見性 */
+  updatePlatformMeshVisibility(): void {
+    const visible = this.debugOverlay?.isEnabled() ?? false;
+    if (this.taskbarPlatformMesh) {
+      this.taskbarPlatformMesh.visible = visible;
+    }
   }
 
   /** 設定視窗清單取得函式（供 debug overlay 使用） */
@@ -219,9 +236,11 @@ export class SceneManager {
     this.expressionManager = em;
   }
 
-  /** 設定 workArea 原點（螢幕絕對座標，邏輯像素） */
-  setWorkAreaOrigin(x: number, y: number): void {
+  /** 設定 workArea（螢幕絕對座標，邏輯像素） */
+  setWorkArea(x: number, y: number, width: number, height: number): void {
     this.workAreaOrigin = { x, y };
+    this.workAreaSize = { width, height };
+    this.createTaskbarPlatform();
   }
 
   /** 更新當前角色位置（螢幕座標） */
@@ -391,6 +410,7 @@ export class SceneManager {
           height: canvas.clientHeight || canvas.height,
         },
         windowRects: [],
+        platforms: this.platforms,
         scale: this.scale,
         deltaTime,
       });
@@ -470,6 +490,7 @@ export class SceneManager {
         moveSpeedMultiplier: this.stateMachine?.getSpeedMultiplier() ?? 1.0,
         paused: this.stateMachine?.isPaused() ?? false,
         stepLength: this.analyzedStepLength,
+        currentAnimation: this.animationManager?.getCurrentAnimationName() ?? undefined,
       });
 
       // 視窗清單（每秒更新一次）
@@ -758,5 +779,53 @@ export class SceneManager {
       width: Math.round(charW * 2.5),
       height: Math.round(charH * 1.3),
     };
+  }
+
+  /**
+   * 建立工作列平面（3D Mesh + 邏輯 Platform）
+   *
+   * 位於 workArea 下緣（= 工作列上緣）。
+   * Debug mode 可見（半透明綠色），一般模式隱藏。
+   */
+  private createTaskbarPlatform(): void {
+    // 移除舊的
+    if (this.taskbarPlatformMesh) {
+      this.scene.remove(this.taskbarPlatformMesh);
+      this.taskbarPlatformMesh.geometry.dispose();
+      (this.taskbarPlatformMesh.material as THREE.Material).dispose();
+      this.taskbarPlatformMesh = null;
+    }
+
+    // 平面螢幕座標
+    const platformScreenY = this.workAreaOrigin.y + this.workAreaSize.height;
+    const platformScreenXMin = this.workAreaOrigin.x;
+    const platformScreenXMax = this.workAreaOrigin.x + this.workAreaSize.width;
+
+    // 邏輯 Platform（給 StateMachine 用）
+    this.platforms = [{
+      id: 'taskbar',
+      screenY: platformScreenY,
+      screenXMin: platformScreenXMin,
+      screenXMax: platformScreenXMax,
+    }];
+
+    // 3D Mesh（螢幕座標 → 世界座標）
+    const leftWorld = this.screenToWorld(platformScreenXMin, platformScreenY);
+    const rightWorld = this.screenToWorld(platformScreenXMax, platformScreenY);
+    const platformWidth = rightWorld.x - leftWorld.x;
+    const platformHeight = 4 * this.pixelToWorld; // 4px 厚度
+    const centerX = (leftWorld.x + rightWorld.x) / 2;
+
+    const geometry = new THREE.BoxGeometry(platformWidth, platformHeight, 0.02);
+    const material = new THREE.MeshBasicMaterial({
+      color: 0x00ff88,
+      transparent: true,
+      opacity: 0.3,
+      depthTest: false,
+    });
+    this.taskbarPlatformMesh = new THREE.Mesh(geometry, material);
+    this.taskbarPlatformMesh.position.set(centerX, leftWorld.y, 0);
+    this.taskbarPlatformMesh.visible = this.debugOverlay?.isEnabled() ?? false;
+    this.scene.add(this.taskbarPlatformMesh);
   }
 }

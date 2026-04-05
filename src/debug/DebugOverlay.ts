@@ -110,6 +110,10 @@ export class DebugOverlay {
       `Paused: ${info.paused ? 'Yes' : 'No'}`,
     ];
 
+    if (info.currentAnimation) {
+      lines.push(`Anim: ${info.currentAnimation}`);
+    }
+
     if (info.stepLength !== undefined && info.stepLength > 0) {
       const effectiveStep = info.stepLength * info.scale;
       const effectiveSpeed = info.baseMoveSpeed * info.scale * info.moveSpeedMultiplier;
@@ -168,6 +172,8 @@ export interface DebugInfo {
   paused: boolean;
   /** 步伐長度（世界單位，scale=1 基準） */
   stepLength?: number;
+  /** 當前播放的動畫名稱 */
+  currentAnimation?: string;
 }
 
 /** 視窗清單條目 */

@@ -12,11 +12,16 @@ const STATE_TO_CATEGORY: Record<BehaviorState, AnimationCategory> = {
   drag: 'idle', // drag 由系統動畫處理，fallback 到 idle
 };
 
-/** 需要系統動畫的狀態 */
+/** 需要系統動畫的狀態（sit 使用隨機選取，見 pickSitAnimation） */
 const STATE_TO_SYSTEM_ANIMATION: Partial<Record<BehaviorState, string>> = {
   walk: 'walk',
   drag: 'drag',
 };
+
+/** sit 動畫名稱（隨機選取） */
+const SIT_ANIMATION_NAMES = [
+  'sit_01', 'sit_02', 'sit_03', 'sit_04', 'sit_05', 'sit_06', 'sit_07',
+];
 
 /**
  * 行為→動畫橋接
@@ -43,10 +48,16 @@ export class BehaviorAnimationBridge {
   update(output: BehaviorOutput): void {
     if (!output.stateChanged) return;
 
+    // sit 狀態：隨機選取一個 sit 動畫
+    if (output.currentState === 'sit') {
+      const sitAnim = SIT_ANIMATION_NAMES[Math.floor(Math.random() * SIT_ANIMATION_NAMES.length)];
+      this.animationManager.playSystemAnimation(sitAnim);
+      return;
+    }
+
     // 檢查是否需要系統動畫
     const systemAnim = STATE_TO_SYSTEM_ANIMATION[output.currentState];
     if (systemAnim) {
-      // 進入需要系統動畫的狀態
       if (!this.animationManager.isSystemAnimationPlaying()) {
         this.animationManager.playSystemAnimation(systemAnim);
       }
