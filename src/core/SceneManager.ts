@@ -907,21 +907,31 @@ export class SceneManager {
     return charArea > 0 && overlapArea / charArea < 0.2;
   }
 
-  /** 角色螢幕位置被視窗覆蓋的最大比率（0~1） */
+  /** 角色螢幕位置被視窗覆蓋的最大比率（0~1），使用模型實際尺寸（不含邊距） */
   private getOcclusionRatio(): number {
-    const pos = this.currentPosition;
-    const cw = this.characterSize.width;
-    const ch = this.characterSize.height;
-    const charArea = cw * ch;
+    if (!this.vrmController) return 0;
+    const modelSize = this.vrmController.getModelWorldSize();
+    if (!modelSize) return 0;
+
+    // 使用模型實際尺寸（不含 characterSize 的 2.5x/1.3x 邊距）
+    const actualW = modelSize.width / this.pixelToWorld;
+    const actualH = modelSize.height / this.pixelToWorld;
+    const charArea = actualW * actualH;
     if (charArea <= 0) return 0;
+
+    // 模型中心 = characterSize bounding box 的中心
+    const cx = this.currentPosition.x + this.characterSize.width / 2;
+    const cy = this.currentPosition.y + this.characterSize.height / 2;
+    const modelLeft = cx - actualW / 2;
+    const modelTop = cy - actualH / 2;
     const dpr = window.devicePixelRatio || 1;
 
     let maxOverlapArea = 0;
     for (const win of this.cachedWindowRects) {
       const wx = win.x / dpr;
       const wy = win.y / dpr;
-      const overlapX = Math.max(0, Math.min(pos.x + cw, wx + win.width / dpr) - Math.max(pos.x, wx));
-      const overlapY = Math.max(0, Math.min(pos.y + ch, wy + win.height / dpr) - Math.max(pos.y, wy));
+      const overlapX = Math.max(0, Math.min(modelLeft + actualW, wx + win.width / dpr) - Math.max(modelLeft, wx));
+      const overlapY = Math.max(0, Math.min(modelTop + actualH, wy + win.height / dpr) - Math.max(modelTop, wy));
       maxOverlapArea = Math.max(maxOverlapArea, overlapX * overlapY);
     }
     return maxOverlapArea / charArea;
