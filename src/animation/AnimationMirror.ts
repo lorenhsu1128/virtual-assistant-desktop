@@ -116,8 +116,9 @@ function parseTrackName(trackName: string): { nodeName: string; property: string
  * 原始 clip 不會被修改。
  *
  * 演算法：
- * 1. 配對骨骼（Left ↔ Right）：交換 track 數據 + quaternion mirror (x,-y,-z,w)
- * 2. 中軸骨骼：quaternion mirror only
+ * 1. 配對骨骼（Left ↔ Right）：交換 track 數據（不修改數值）
+ *    — VRM normalized bones 本地座標系已對稱，swap 即產生正確鏡像
+ * 2. 中軸骨骼：quaternion mirror (x,-y,-z,w)
  * 3. Hips translation：negate X
  * 4. Expression / unknown tracks：保持不變
  *
@@ -179,31 +180,26 @@ export function mirrorAnimationClip(
     const pairedNodeName = nodeSwapMap.get(nodeName);
 
     if (pairedNodeName) {
-      // ── 配對骨骼：swap + mirror ──
+      // ── 配對骨骼：swap only ──
+      // VRM normalized bones 的本地座標系已經是鏡像對稱的，
+      // 相同的 local rotation 在左右配對骨骼上自然產生鏡像視覺效果，
+      // 因此只需交換數據，不需要額外的 quaternion mirror。
       const pairedTrackName = `${pairedNodeName}.${property}`;
       const pairedOriginal = originalData.get(pairedTrackName);
 
       if (pairedOriginal && !processed.has(pairedTrackName)) {
-        // 雙側都有 track：交叉複製 + mirror
+        // 雙側都有 track：交叉複製（不修改數值）
         const thisOriginal = originalData.get(track.name)!;
 
-        // 此 track ← 對側原始數據（deep copy + mirror）
+        // 此 track ← 對側原始數據（deep copy）
         track.times = new Float32Array(pairedOriginal.times);
         track.values = new Float32Array(pairedOriginal.values);
 
-        // 對側 track ← 此側原始數據（deep copy + mirror）
+        // 對側 track ← 此側原始數據（deep copy）
         const pairedTrack = mirrored.tracks.find((t) => t.name === pairedTrackName);
         if (pairedTrack) {
           pairedTrack.times = new Float32Array(thisOriginal.times);
           pairedTrack.values = new Float32Array(thisOriginal.values);
-
-          if (property === 'quaternion') {
-            mirrorQuaternionValues(track.values);
-            mirrorQuaternionValues(pairedTrack.values);
-          } else if (property === 'position') {
-            mirrorTranslationValues(track.values);
-            mirrorTranslationValues(pairedTrack.values);
-          }
 
           newTracks.push(track);
           newTracks.push(pairedTrack);
@@ -211,16 +207,10 @@ export function mirrorAnimationClip(
           processed.add(pairedTrackName);
         }
       } else if (!pairedOriginal) {
-        // 只有單側有 track：搬到對側 + mirror
+        // 只有單側有 track：搬到對側（不修改數值）
         track.name = pairedTrackName;
         track.times = new Float32Array(track.times);
         track.values = new Float32Array(track.values);
-
-        if (property === 'quaternion') {
-          mirrorQuaternionValues(track.values);
-        } else if (property === 'position') {
-          mirrorTranslationValues(track.values);
-        }
 
         newTracks.push(track);
         processed.add(track.name);

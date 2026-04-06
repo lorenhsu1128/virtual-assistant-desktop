@@ -94,8 +94,8 @@ describe('AnimationMirror', () => {
     });
   });
 
-  describe('paired bone swap + mirror', () => {
-    it('should swap and mirror quaternion data between left and right', () => {
+  describe('paired bone swap only (no quaternion mirror)', () => {
+    it('should swap quaternion data between left and right without modification', () => {
       const mapping = createTestBoneMapping(['leftUpperArm', 'rightUpperArm']);
       const clip = makeClip('test', [
         quatTrack('Node_leftUpperArm', [0], [0.0, 0.707, 0.0, 0.707]),
@@ -106,13 +106,13 @@ describe('AnimationMirror', () => {
       const leftTrack = mirrored.tracks.find((t) => t.name === 'Node_leftUpperArm.quaternion')!;
       const rightTrack = mirrored.tracks.find((t) => t.name === 'Node_rightUpperArm.quaternion')!;
 
-      // left ← mirror(right's original): (0.1, 0.3, -0.5, 0.8)
-      expectArrayClose(leftTrack.values, [0.1, 0.3, -0.5, 0.8]);
-      // right ← mirror(left's original): (0.0, -0.707, 0.0, 0.707)
-      expectArrayClose(rightTrack.values, [0.0, -0.707, 0.0, 0.707]);
+      // left ← right's original (swap only, no mirror)
+      expectArrayClose(leftTrack.values, [0.1, -0.3, 0.5, 0.8]);
+      // right ← left's original (swap only, no mirror)
+      expectArrayClose(rightTrack.values, [0.0, 0.707, 0.0, 0.707]);
     });
 
-    it('should swap and mirror position data between paired bones', () => {
+    it('should swap position data between paired bones without modification', () => {
       const mapping = createTestBoneMapping(['leftHand', 'rightHand']);
       const clip = makeClip('test', [
         posTrack('Node_leftHand', [0], [1.0, 2.0, 3.0]),
@@ -123,10 +123,10 @@ describe('AnimationMirror', () => {
       const leftTrack = mirrored.tracks.find((t) => t.name === 'Node_leftHand.position')!;
       const rightTrack = mirrored.tracks.find((t) => t.name === 'Node_rightHand.position')!;
 
-      // left ← mirror(right's original): (1.0, 2.0, 3.0)
-      expectArrayClose(leftTrack.values, [1.0, 2.0, 3.0]);
-      // right ← mirror(left's original): (-1.0, 2.0, 3.0)
-      expectArrayClose(rightTrack.values, [-1.0, 2.0, 3.0]);
+      // left ← right's original (swap only)
+      expectArrayClose(leftTrack.values, [-1.0, 2.0, 3.0]);
+      // right ← left's original (swap only)
+      expectArrayClose(rightTrack.values, [1.0, 2.0, 3.0]);
     });
   });
 
@@ -150,7 +150,7 @@ describe('AnimationMirror', () => {
   });
 
   describe('single-side track edge case', () => {
-    it('should move track to opposite side when only one side exists', () => {
+    it('should move track to opposite side when only one side exists (no value modification)', () => {
       const mapping = createTestBoneMapping(['leftHand', 'rightHand']);
       const clip = makeClip('test', [
         quatTrack('Node_leftHand', [0], [0.0, 0.5, 0.3, 0.8]),
@@ -158,11 +158,11 @@ describe('AnimationMirror', () => {
       ]);
 
       const mirrored = mirrorAnimationClip(clip, mapping);
-      // leftHand track should be moved to rightHand (with mirror)
+      // leftHand track should be moved to rightHand (swap only, no mirror)
       expect(mirrored.tracks).toHaveLength(1);
       const track = mirrored.tracks[0];
       expect(track.name).toBe('Node_rightHand.quaternion');
-      expectArrayClose(track.values, [0.0, -0.5, -0.3, 0.8]);
+      expectArrayClose(track.values, [0.0, 0.5, 0.3, 0.8]);
     });
   });
 
@@ -231,13 +231,13 @@ describe('AnimationMirror', () => {
       const spineQ = mirrored.tracks.find((t) => t.name === 'Node_spine.quaternion')!;
       expectArrayClose(spineQ.values, [0.0, -0.3, -0.4, 0.85]);
 
-      // Paired: left ← mirror(right original)
+      // Paired: left ← right original (swap only)
       const leftQ = mirrored.tracks.find((t) => t.name === 'Node_leftUpperArm.quaternion')!;
-      expectArrayClose(leftQ.values, [0.4, -0.5, -0.6, 0.7]);
+      expectArrayClose(leftQ.values, [0.4, 0.5, 0.6, 0.7]);
 
-      // Paired: right ← mirror(left original)
+      // Paired: right ← left original (swap only)
       const rightQ = mirrored.tracks.find((t) => t.name === 'Node_rightUpperArm.quaternion')!;
-      expectArrayClose(rightQ.values, [0.1, -0.2, -0.3, 0.9]);
+      expectArrayClose(rightQ.values, [0.1, 0.2, 0.3, 0.9]);
 
       // Center: hips position mirrored
       const hipsP = mirrored.tracks.find((t) => t.name === 'Node_hips.position')!;
