@@ -115,10 +115,12 @@ export function analyzeWalkAnimation(
     stepsPerCycle = 2;
   }
 
-  const worldSpeed = (stepLength * stepsPerCycle) / duration;
+  // stepLength 是腳底完整擺盪距離（前→後），實際步伐 = 擺盪距離 / 2
+  const actualStepLength = stepLength / 2;
+  const worldSpeed = (actualStepLength * stepsPerCycle) / duration;
 
   return {
-    stepLength,
+    stepLength: actualStepLength,
     cycleDuration: duration,
     stepsPerCycle,
     worldSpeed,
