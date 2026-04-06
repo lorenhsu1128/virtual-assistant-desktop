@@ -216,7 +216,7 @@ export class StateMachine {
       pos.x > sb.x + sb.width ||
       pos.y + ch < sb.y ||
       pos.y > sb.y + sb.height;
-    if (this.sitCooldown <= 0 && !isOutsideScreen && !this.pendingHide) {
+    if (this.sitCooldown <= 0 && !isOutsideScreen && !this.pendingHide && !this.exitingPeek) {
       const feetY = pos.y + ch;
       const triggerY = input.hipScreenY ?? feetY;
       for (const platform of input.platforms) {
