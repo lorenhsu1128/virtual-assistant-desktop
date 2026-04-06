@@ -248,8 +248,13 @@ export class StateMachine {
         this.enterHideFromPending(input);
         return;
       }
-    } else if (!this.exitingPeek) {
-      // 被動隱藏偵測（非主動 hide 的 walk，且非 peek 離開中）
+    } else if (this.exitingPeek) {
+      // peek 離開中：角色脫離遮擋後清除 flag，恢復正常偵測
+      if (!input.isFullyOccluded && !input.isOffScreenLeft && !input.isOffScreenRight) {
+        this.exitingPeek = false;
+      }
+    } else {
+      // 被動隱藏偵測（非主動 hide 的 walk）
       if (this.checkPassiveHide(input)) return;
     }
 
@@ -370,7 +375,11 @@ export class StateMachine {
       this.clearHidePeekState();
 
       // 計算走出方向的目標 X
+      const sb = input.screenBounds;
+      const minX = sb.x;
+      const maxX = sb.x + sb.width - charW;
       let exitTargetX = input.currentPosition.x;
+
       if (savedHwnd !== null) {
         // 視窗 peek：往視窗外側走
         const targetWin = input.windowRects.find((w) => w.hwnd === savedHwnd);
@@ -378,22 +387,22 @@ export class StateMachine {
           const winLeft = targetWin.x / dpr;
           const winRight = (targetWin.x + targetWin.width) / dpr;
           if (savedSide === 'left') {
-            // 身體在左 → 往左走出視窗範圍
             exitTargetX = winLeft - charW * 1.5;
           } else {
-            // 身體在右 → 往右走出視窗範圍
             exitTargetX = winRight + charW * 0.5;
           }
         }
       } else {
         // 螢幕邊緣 peek：往螢幕內側走
-        const sb = input.screenBounds;
         if (savedSide === 'left') {
           exitTargetX = sb.x + charW * 0.5;
         } else {
           exitTargetX = sb.x + sb.width - charW * 1.5;
         }
       }
+
+      // Clamp 到螢幕範圍內
+      exitTargetX = Math.max(minX, Math.min(maxX, exitTargetX));
 
       // 設定 walk 目標並標記正在離開 peek
       this.walkTarget = { x: exitTargetX, y: input.currentPosition.y };
