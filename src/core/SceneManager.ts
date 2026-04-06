@@ -9,6 +9,7 @@ import type { Rect, WindowRect } from '../types/window';
 import type { BehaviorOutput, Platform } from '../types/behavior';
 import type { DebugOverlay } from '../debug/DebugOverlay';
 import type { WindowMeshManager } from '../occlusion/WindowMeshManager';
+import { CinematicRunner } from '../cinematic/CinematicRunner';
 
 /** 幀率模式 */
 type FpsMode = 'foreground' | 'background' | 'powerSave';
@@ -109,6 +110,17 @@ export class SceneManager {
   /** 拖曳後維持最上方，直到前景視窗改變時清除 */
   private forceTopAfterDrag = false;
   private lastForegroundHwnd: number | null = null;
+
+  /** 演出控制器（非 null 時演出進行中） */
+  private cinematicRunner: CinematicRunner | null = null;
+  /** 演出中最後套用的表情（用於清除） */
+  private cinematicLastExpression: string | null = null;
+  /** 演出前保存的狀態 */
+  private preCinematicState: {
+    position: { x: number; y: number };
+    scale: number;
+    timeScale: number;
+  } | null = null;
 
   private targetFps: number;
   private fpsMode: FpsMode = 'foreground';
@@ -418,6 +430,74 @@ export class SceneManager {
     return this.scale;
   }
 
+  /** 開始衝向鏡頭演出 */
+  startCinematic(): void {
+    if (this.cinematicRunner) return; // 已在演出中
+
+    const canvas = this.renderer.domElement;
+
+    // 保存狀態
+    this.preCinematicState = {
+      position: { ...this.currentPosition },
+      scale: this.scale,
+      timeScale: this.animationManager?.getTimeScale() ?? 1,
+    };
+
+    // 暫停自主移動
+    this.stateMachine?.pause();
+
+    // 取得可用表情清單
+    const expressions = this.vrmController?.getBlendShapes() ?? [];
+
+    // 建立演出控制器
+    this.cinematicRunner = new CinematicRunner({
+      screenWidth: canvas.clientWidth || canvas.width,
+      screenHeight: canvas.clientHeight || canvas.height,
+      characterWidth: this.characterSize.width,
+      characterHeight: this.characterSize.height,
+      originalPosition: { ...this.currentPosition },
+      originalScale: this.scale,
+      availableExpressions: expressions,
+    });
+
+    // 播放 walk 動畫
+    this.animationManager?.playSystemAnimation('walk', true, 0.3);
+  }
+
+  /** 結束演出，恢復原始狀態 */
+  private stopCinematic(): void {
+    if (!this.preCinematicState) return;
+
+    // 恢復位置和 scale
+    this.currentPosition = { ...this.preCinematicState.position };
+    this.setScale(this.preCinematicState.scale);
+
+    // 恢復動畫速率
+    this.animationManager?.setTimeScale(this.preCinematicState.timeScale);
+
+    // 停止 walk 系統動畫，恢復 idle
+    this.animationManager?.stopSystemAnimation();
+
+    // 恢復模型朝向
+    this.vrmController?.setFacingRotationY(0);
+
+    // 恢復自主移動
+    this.stateMachine?.resume();
+
+    // 清除演出表情
+    if (this.cinematicLastExpression && this.vrmController) {
+      this.vrmController.setBlendShape(this.cinematicLastExpression, 0);
+    }
+    this.cinematicLastExpression = null;
+    this.cinematicRunner = null;
+    this.preCinematicState = null;
+  }
+
+  /** 演出是否正在進行 */
+  isCinematicPlaying(): boolean {
+    return this.cinematicRunner !== null;
+  }
+
   /** 取得像素到世界座標的轉換比例 */
   getPixelToWorld(): number {
     return this.pixelToWorld;
@@ -507,6 +587,54 @@ export class SceneManager {
         case 'down': this.currentPosition.y += step; break;
       }
       this.debugMoveDir = null;
+    }
+
+    // 演出系統優先：覆蓋 position / scale / animation，跳過 StateMachine
+    if (this.cinematicRunner) {
+      const frame = this.cinematicRunner.tick(deltaTime);
+
+      if (frame.phase === 'done') {
+        this.stopCinematic();
+      } else {
+        // 套用 scale（baseScale × frame.scale）
+        if (this.vrmController) {
+          this.vrmController.setModelScale(this.baseScale * frame.scale);
+        }
+
+        // 套用位置
+        this.currentPosition.x = frame.positionX;
+        this.currentPosition.y = frame.positionY;
+
+        // 套用朝向（run-out 時轉身）
+        if (this.vrmController) {
+          this.vrmController.setFacingRotationY(frame.facingReversed ? Math.PI : 0);
+        }
+
+        // 套用動畫速率
+        if (this.animationManager) {
+          if (frame.walkSpeed > 0) {
+            this.animationManager.setTimeScale(frame.walkSpeed);
+          } else {
+            this.animationManager.setTimeScale(0);
+          }
+        }
+
+        // 套用表情
+        if (this.vrmController) {
+          if (frame.expression && frame.expression !== this.cinematicLastExpression) {
+            // 清除前一個表情
+            if (this.cinematicLastExpression) {
+              this.vrmController.setBlendShape(this.cinematicLastExpression, 0);
+            }
+            this.vrmController.setBlendShape(frame.expression, 1);
+            this.cinematicLastExpression = frame.expression;
+          } else if (!frame.expression && this.cinematicLastExpression) {
+            // 間隔期間清除表情
+            this.vrmController.setBlendShape(this.cinematicLastExpression, 0);
+            this.cinematicLastExpression = null;
+          }
+        }
+      }
     }
 
     // Step 1: StateMachine（碰撞/穿越已移除，僅保留基本狀態機）
@@ -985,6 +1113,8 @@ export class SceneManager {
 
   private resolveCharacterZ(output: BehaviorOutput | null): number {
     const DEFAULT_Z = 8.5;
+    // 演出中置頂
+    if (this.cinematicRunner) return DEFAULT_Z;
     if (!output || !this.windowMeshManager) return DEFAULT_Z;
 
     // 偵測前景視窗改變 → 清除拖曳後置頂
