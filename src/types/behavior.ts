@@ -1,7 +1,7 @@
 import type { Rect, WindowRect } from './window';
 
 /** 行為狀態 */
-export type BehaviorState = 'idle' | 'walk' | 'sit' | 'peek' | 'fall' | 'drag';
+export type BehaviorState = 'idle' | 'walk' | 'sit' | 'hide' | 'peek' | 'fall' | 'drag';
 
 /**
  * StateMachine.tick() 的輸出
@@ -70,6 +70,12 @@ export interface BehaviorInput {
   deltaTime: number;
   /** 臀部螢幕 Y 座標（hips 骨骼），用於平面接觸判定 */
   hipScreenY?: number;
+  /** 角色是否被視窗完全遮住（遮擋比率 >= 0.95 且在視窗 Z 後面） */
+  isFullyOccluded: boolean;
+  /** 角色是否完全在螢幕左側外 */
+  isOffScreenLeft: boolean;
+  /** 角色是否完全在螢幕右側外 */
+  isOffScreenRight: boolean;
 }
 
 /**
@@ -89,6 +95,8 @@ export interface BehaviorConfig {
   /** peek 停留時間範圍（秒） */
   peekDurationMin: number;
   peekDurationMax: number;
+  /** hide 移動速度倍率（相對於 moveSpeed） */
+  hideSpeedMultiplier: number;
   /** 狀態轉移機率 */
   transitionProbabilities: {
     toWalk: number;
@@ -105,8 +113,9 @@ export const DEFAULT_BEHAVIOR_CONFIG: BehaviorConfig = {
   idleDurationMax: 20,
   sitDurationMin: 10,
   sitDurationMax: 30,
-  peekDurationMin: 3,
-  peekDurationMax: 8,
+  peekDurationMin: 8,
+  peekDurationMax: 16,
+  hideSpeedMultiplier: 0.5,
   transitionProbabilities: {
     toWalk: 0.6,
     toSit: 0.2,
