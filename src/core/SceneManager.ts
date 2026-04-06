@@ -640,6 +640,7 @@ export class SceneManager {
         currentAnimation: this.animationManager?.getCurrentAnimationName() ?? undefined,
         characterZ: this.currentCharacterZ,
         offScreenDir: this.getOffScreenDirection(),
+        offScreenRatio: this.getOffScreenRatio(),
         occlusionRatio: this.getOcclusionRatio(),
         occlusionMeshes: this.windowMeshManager?.getDebugInfo(),
         platforms: this.platforms.map((p) => ({
@@ -994,6 +995,9 @@ export class SceneManager {
     }
     this.lastForegroundHwnd = currentFgHwnd;
 
+    // 角色大部分超出螢幕時置頂，避免被邊緣附近的視窗 depth mesh 裁切
+    if (this.getOffScreenRatio() > 0.5) return DEFAULT_Z;
+
     // drag 狀態：置頂 + 設定旗標
     if (output.currentState === 'drag') {
       this.forceTopAfterDrag = true;
@@ -1058,6 +1062,30 @@ export class SceneManager {
     return dirs.length > 0 ? dirs.join('+') : 'YES';
   }
 
+  /** 角色超出螢幕的面積比率（0~1），使用模型實際尺寸（不含邊距） */
+  private getOffScreenRatio(): number {
+    if (!this.vrmController) return 0;
+    const modelSize = this.vrmController.getModelWorldSize();
+    if (!modelSize) return 0;
+
+    const actualW = modelSize.width / this.pixelToWorld;
+    const actualH = modelSize.height / this.pixelToWorld;
+    const charArea = actualW * actualH;
+    if (charArea <= 0) return 0;
+
+    const cx = this.currentPosition.x + this.characterSize.width / 2;
+    const cy = this.currentPosition.y + this.characterSize.height / 2;
+    const modelLeft = cx - actualW / 2;
+    const modelTop = cy - actualH / 2;
+
+    const wa = this.workAreaOrigin;
+    const ws = this.workAreaSize;
+    const overlapX = Math.max(0, Math.min(modelLeft + actualW, wa.x + ws.width) - Math.max(modelLeft, wa.x));
+    const overlapY = Math.max(0, Math.min(modelTop + actualH, wa.y + ws.height) - Math.max(modelTop, wa.y));
+    const visibleArea = overlapX * overlapY;
+    return 1 - visibleArea / charArea;
+  }
+
   /** 角色螢幕位置被視窗覆蓋的最大比率（0~1），使用模型實際尺寸（不含邊距） */
   private getOcclusionRatio(): number {
     if (!this.vrmController) return 0;
@@ -1100,11 +1128,11 @@ export class SceneManager {
     const charW = this.characterSize.width;
     const charH = this.characterSize.height;
 
-    // X 活動範圍：workArea 內（保留 20% 可見）
-    const minX = this.workAreaOrigin.x - charW * 0.8;
-    const maxX = this.workAreaOrigin.x + this.workAreaSize.width - charW * 0.2;
-    // Y 活動範圍：上限 = workArea 頂部，下限 = 保留上半身可見（下半身可超出 canvas）
-    const minY = this.workAreaOrigin.y - charH * 0.8;
+    // X 活動範圍：左右各允許超出 1.5 倍角色寬度（考慮配件等額外空間）
+    const minX = this.workAreaOrigin.x - charW * 1.5;
+    const maxX = this.workAreaOrigin.x + this.workAreaSize.width + charW * 0.5;
+    // Y 活動範圍：上限 = 腳底剛離開螢幕頂部（1 倍角色高度），下限 = 保留上半身可見
+    const minY = this.workAreaOrigin.y - charH * 1.0;
     const maxY = this.screenOrigin.y + screenH - charH * 0.5;
 
     return {

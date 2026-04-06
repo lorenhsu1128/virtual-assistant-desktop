@@ -508,10 +508,10 @@ export class StateMachine {
     const minY = sb.y;
     const maxY = sb.y + sb.height - charH * 0.3;
 
-    // ── 邊界外偵測：超出時強制走回螢幕中央安全區域 ──
-    const outsideLeft = pos.x + charW < sb.x;                    // 整個身體超出左邊
-    const outsideRight = pos.x > sb.x + sb.width;                // 整個身體超出右邊
-    const outsideTop = pos.y + charH < sb.y;                     // 整個身體超出上邊
+    // ── 邊界外偵測：超出 clamp 範圍時強制走回螢幕中央安全區域 ──
+    const outsideLeft = pos.x < sb.x - charW * 1.5;              // 超出左側 1.5 倍寬度
+    const outsideRight = pos.x > sb.x + sb.width + charW * 0.5;  // 超出右側 1.5 倍寬度
+    const outsideTop = pos.y < sb.y - charH * 1.0;               // 超出上側 1 倍高度
     const outsideBottom = pos.y + charH * 0.5 > sb.y + sb.height; // 身體超出 50% 下方
 
     if (outsideLeft || outsideRight || outsideTop || outsideBottom) {

@@ -47,6 +47,13 @@ export class VRMController {
     // 需要旋轉模型使其面向攝影機
     vrm.scene.rotation.y = Math.PI;
 
+    // 關閉所有子 mesh 的 frustum culling，避免角色在螢幕邊緣時部分 mesh 消失
+    vrm.scene.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        child.frustumCulled = false;
+      }
+    });
+
     this.vrm = vrm;
     this.mixer = new THREE.AnimationMixer(vrm.scene);
     this.scene.add(vrm.scene);
