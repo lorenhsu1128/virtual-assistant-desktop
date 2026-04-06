@@ -523,6 +523,12 @@ export class SceneManager {
         }
       }
 
+      // 計算 hide 偵測欄位
+      const canvasW = canvas.clientWidth || canvas.width;
+      const isFullyOccluded = this.getOcclusionRatio() >= 0.95;
+      const isOffScreenLeft = this.currentPosition.x + this.characterSize.width <= this.workAreaOrigin.x;
+      const isOffScreenRight = this.currentPosition.x >= this.workAreaOrigin.x + canvasW;
+
       // StateMachine 更新
       const output = this.stateMachine.tick({
         currentPosition: this.currentPosition,
@@ -530,7 +536,7 @@ export class SceneManager {
         screenBounds: {
           x: this.workAreaOrigin.x,
           y: this.workAreaOrigin.y,
-          width: canvas.clientWidth || canvas.width,
+          width: canvasW,
           height: canvas.clientHeight || canvas.height,
         },
         windowRects: this.cachedWindowRects,
@@ -538,13 +544,19 @@ export class SceneManager {
         scale: this.scale,
         deltaTime,
         hipScreenY,
+        isFullyOccluded,
+        isOffScreenLeft,
+        isOffScreenRight,
       });
 
       this.lastBehaviorOutput = output;
 
-      // 套用目標位置（簡單螢幕邊界 clamp）
+      // 套用目標位置（hide 狀態不 clamp，允許完全超出螢幕）
       if (output.targetPosition) {
-        this.currentPosition = this.clampToScreen(output.targetPosition);
+        const skipClamp = output.currentState === 'hide' || output.currentState === 'walk';
+        this.currentPosition = skipClamp
+          ? output.targetPosition
+          : this.clampToScreen(output.targetPosition);
       }
 
       // BehaviorAnimationBridge 更新
@@ -988,14 +1000,14 @@ export class SceneManager {
       return DEFAULT_Z;
     }
 
-    if (output.currentState === 'peek') {
+    if (output.currentState === 'hide' || output.currentState === 'peek') {
       this.forceTopAfterDrag = false;
       if (output.peekTargetHwnd !== null) {
-        // 視窗 peek → 在視窗後面
+        // 視窗 hide/peek → 在視窗後面
         const windowZ = this.windowMeshManager.getWindowZ(output.peekTargetHwnd);
         return windowZ !== null ? windowZ - 0.5 : DEFAULT_Z;
       }
-      // 螢幕邊緣 peek → 最前面
+      // 螢幕邊緣 hide/peek → 最前面（角色在畫面外或邊緣）
       return DEFAULT_Z;
     }
     if (output.currentState === 'sit') {

@@ -11,6 +11,9 @@ function makeInput(overrides?: Partial<BehaviorInput>): BehaviorInput {
     platforms: [],
     scale: 1.0,
     deltaTime: 1 / 30,
+    isFullyOccluded: false,
+    isOffScreenLeft: false,
+    isOffScreenRight: false,
     ...overrides,
   };
 }
@@ -146,30 +149,127 @@ describe('StateMachine', () => {
   });
 
   it('should follow window in sit state', () => {
+    const dpr = (typeof window !== 'undefined' ? window.devicePixelRatio : 1) || 1;
     sm.forceState('sit');
-    sm.setAttachedWindow(456, { x: 100, y: 200 });
+    sm.setAttachedWindow(456, 100); // windowOffsetX = 100 (角色相對於視窗左邊的偏移)
+    sm.setSitPlatform('window:456');
 
     const windowRect = {
       hwnd: 456,
       title: 'Test Window',
-      x: 150, // window moved
+      x: 150, // window moved (physical pixels)
       y: 200,
       width: 800,
       height: 600,
       zOrder: 0,
     };
 
-    const input = makeInput({ windowRects: [windowRect] });
+    // Platform 對應視窗頂部
+    const platform = {
+      id: 'window:456',
+      screenY: windowRect.y / dpr,
+      screenXMin: windowRect.x / dpr,
+      screenXMax: (windowRect.x + windowRect.width) / dpr,
+    };
+
+    const input = makeInput({ windowRects: [windowRect], platforms: [platform] });
     const output = sm.tick(input);
 
     expect(output.currentState).toBe('sit');
     expect(output.targetPosition).not.toBeNull();
-    // Should follow window position
+    // Should follow window position: platform.screenXMin + sitWindowOffsetX
     if (output.targetPosition) {
-      expect(output.targetPosition.x).toBeCloseTo(
-        windowRect.x + windowRect.width / 2 - input.characterBounds.width / 2,
-        0,
-      );
+      expect(output.targetPosition.x).toBeCloseTo(platform.screenXMin + 100, 0);
     }
+  });
+
+  // ── hide / peek 測試 ──
+
+  it('should enter hide passively when fully occluded in idle', () => {
+    sm.forceState('idle');
+    const input = makeInput({ isFullyOccluded: true, windowRects: [{
+      hwnd: 100, title: 'Win', x: 400, y: 400, width: 800, height: 800, zOrder: 0,
+    }] });
+    const output = sm.tick(input);
+    expect(output.currentState).toBe('hide');
+    expect(output.peekTargetHwnd).toBe(100);
+    expect(output.peekSide).not.toBeNull();
+  });
+
+  it('should enter hide passively when off-screen left in idle', () => {
+    sm.forceState('idle');
+    const input = makeInput({
+      currentPosition: { x: -500, y: 500 },
+      isOffScreenLeft: true,
+    });
+    const output = sm.tick(input);
+    expect(output.currentState).toBe('hide');
+    expect(output.peekSide).toBe('left');
+    expect(output.peekTargetHwnd).toBeNull();
+  });
+
+  it('should enter hide passively when off-screen right in idle', () => {
+    sm.forceState('idle');
+    const input = makeInput({
+      currentPosition: { x: 2000, y: 500 },
+      isOffScreenRight: true,
+    });
+    const output = sm.tick(input);
+    expect(output.currentState).toBe('hide');
+    expect(output.peekSide).toBe('right');
+    expect(output.peekTargetHwnd).toBeNull();
+  });
+
+  it('should transition from hide to peek when touching screen edge (left)', () => {
+    sm.forceState('idle');
+    // 先進入 hide（螢幕左外側）
+    const input1 = makeInput({
+      currentPosition: { x: -500, y: 500 },
+      isOffScreenLeft: true,
+    });
+    sm.tick(input1);
+    expect(sm.getState()).toBe('hide');
+
+    // 模擬角色移動到螢幕左邊緣（charRight >= screenBounds.x）
+    // peekSide='left' → charRight = x + width = -10 + 400 = 390 >= 0
+    const input2 = makeInput({
+      currentPosition: { x: -10, y: 500 },
+      isOffScreenLeft: false,
+    });
+    const output = sm.tick(input2);
+    expect(output.currentState).toBe('peek');
+  });
+
+  it('should return to idle after hide safety timeout', () => {
+    sm.forceState('idle');
+    const input = makeInput({
+      currentPosition: { x: -500, y: 500 },
+      isOffScreenLeft: true,
+    });
+    sm.tick(input);
+    expect(sm.getState()).toBe('hide');
+
+    // 模擬 10 秒超時（不觸碰柱子）
+    const inputTimeout = makeInput({
+      currentPosition: { x: -500, y: 500 },
+      isOffScreenLeft: true,
+      deltaTime: 11,
+    });
+    const output = sm.tick(inputTimeout);
+    expect(output.currentState).toBe('idle');
+  });
+
+  it('should return to idle when target window disappears during hide', () => {
+    sm.forceState('idle');
+    const input1 = makeInput({ isFullyOccluded: true, windowRects: [{
+      hwnd: 200, title: 'Win', x: 400, y: 400, width: 800, height: 800, zOrder: 0,
+    }] });
+    sm.tick(input1);
+    expect(sm.getState()).toBe('hide');
+
+    // 視窗消失
+    const input2 = makeInput({ windowRects: [] });
+    const output = sm.tick(input2);
+    expect(output.currentState).toBe('idle');
   });
 });
