@@ -81,8 +81,8 @@ export class SceneManager {
   private static readonly PIXEL_TO_WORLD = 0.003126;
   private pixelToWorld = SceneManager.PIXEL_TO_WORLD;
   /** 角色在 100% 縮放時佔螢幕高度的比例 */
-  private static readonly TARGET_VIEWPORT_RATIO = 0.35;
-  /** 模型正規化基準縮放（使任何模型在 scale=1.0 時佔螢幕 35%） */
+  private static readonly TARGET_VIEWPORT_RATIO = 0.4;
+  /** 模型正規化基準縮放（使任何模型在 scale=1.0 時佔螢幕 40%） */
   private baseScale = 1.0;
   // BASE_CAMERA_Y removed: camera Y is now computed from visibleHeight
   // 3D 深度遮擋系統
