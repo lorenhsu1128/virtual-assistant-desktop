@@ -80,6 +80,10 @@ export class SceneManager {
   /** 像素到世界座標的轉換比例（正交攝影機下為固定常數） */
   private static readonly PIXEL_TO_WORLD = 0.003126;
   private pixelToWorld = SceneManager.PIXEL_TO_WORLD;
+  /** 角色在 100% 縮放時佔螢幕高度的比例 */
+  private static readonly TARGET_VIEWPORT_RATIO = 0.35;
+  /** 模型正規化基準縮放（使任何模型在 scale=1.0 時佔螢幕 35%） */
+  private baseScale = 1.0;
   // BASE_CAMERA_Y removed: camera Y is now computed from visibleHeight
   // 3D 深度遮擋系統
   private windowMeshManager: WindowMeshManager | null = null;
@@ -302,38 +306,46 @@ export class SceneManager {
     };
   }
 
-  /** 角色在 viewport 中佔的比例（高度） */
-  private charViewportRatioH = 0.5;
   /** 角色寬高比（3D 模型） */
   private charAspectRatio = 0.4;
   // screenLogicalHeight removed: fullscreen mode uses canvas dimensions directly
 
-  /** 計算角色在 viewport 中的比例和寬高比（模型載入後呼叫一次） */
+  /**
+   * 計算 baseScale 使模型在 scale=1.0 時佔螢幕高度 TARGET_VIEWPORT_RATIO (35%)。
+   * 模型載入後呼叫一次，必須在 setScale() 之前。
+   */
   computeCharacterViewportRatio(): void {
     if (!this.vrmController) return;
     const vrm = this.vrmController.getVRM();
     if (!vrm) return;
 
+    // 先重置為 1.0 以取得模型原始尺寸
+    this.vrmController.setModelScale(1.0);
     const box = new THREE.Box3().setFromObject(vrm.scene);
-    const modelHeight = box.max.y - box.min.y;
-    const modelWidth = box.max.x - box.min.x;
+    const nativeHeight = box.max.y - box.min.y;
+    const nativeWidth = box.max.x - box.min.x;
 
     const visibleHeight = this.camera.top - this.camera.bottom;
 
-    this.charViewportRatioH = modelHeight / visibleHeight;
-    this.charAspectRatio = modelWidth / modelHeight;
-    console.log(`[SceneManager] modelH=${modelHeight.toFixed(2)} modelW=${modelWidth.toFixed(2)} aspect=${this.charAspectRatio.toFixed(3)} vpRatio=${this.charViewportRatioH.toFixed(3)}`);
+    // 計算 baseScale：讓模型正好佔可見高度的 35%
+    this.baseScale = (SceneManager.TARGET_VIEWPORT_RATIO * visibleHeight) / nativeHeight;
+
+    // 套用 baseScale * 當前 userScale（安全處理重複呼叫的情況）
+    this.vrmController.setModelScale(this.baseScale * this.scale);
+
+    this.charAspectRatio = nativeWidth / nativeHeight;
+    console.log(`[SceneManager] nativeH=${nativeHeight.toFixed(2)} baseScale=${this.baseScale.toFixed(3)} targetRatio=${SceneManager.TARGET_VIEWPORT_RATIO} aspect=${this.charAspectRatio.toFixed(3)}`);
   }
 
   // setScreenHeight / HEIGHT_PADDING removed: fullscreen mode handles sizing differently
 
-  /** 設定角色縮放（0.5–2.0） */
+  /** 設定角色縮放（0.5–2.0），實際套用 baseScale * userScale */
   setScale(scale: number): void {
     this.scale = Math.max(0.5, Math.min(2.0, scale));
 
     // 全螢幕模式：只調整模型 scale，不改視窗大小
     if (this.vrmController) {
-      this.vrmController.setModelScale(this.scale);
+      this.vrmController.setModelScale(this.baseScale * this.scale);
     }
 
     // 更新 characterSize（基於模型世界尺寸和 pixelToWorld）
