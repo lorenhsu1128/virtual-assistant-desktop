@@ -40,11 +40,15 @@ export class StateMachine {
   /** 當前坐在的平面 ID（未來用於多平面識別） */
   sitPlatformId: string | null = null;
 
-  // peek 狀態
+  // hide / peek 狀態
   private peekTargetHwnd: number | null = null;
   private peekSide: 'left' | 'right' | null = null;
-  /** walk 結束後自動進入 peek 的暫存（walk 到達時觸發） */
-  private pendingPeek: { hwnd: number | null; side: 'left' | 'right' } | null = null;
+  /** walk 結束後自動進入 hide 的暫存（walk 途中偵測到隱藏條件時觸發） */
+  private pendingHide: { hwnd: number | null; side: 'left' | 'right' } | null = null;
+  /** hide 狀態移動目標 X（邊緣位置，邏輯像素） */
+  private hideEdgeTargetX: number | null = null;
+  /** peek 結束後正在走出遮擋區域（暫停被動隱藏偵測） */
+  private exitingPeek = false;
 
   // fall 狀態
   private fallSpeed = 0;
@@ -79,6 +83,9 @@ export class StateMachine {
         break;
       case 'sit':
         this.tickSit(input);
+        break;
+      case 'hide':
+        this.tickHide(input);
         break;
       case 'peek':
         this.tickPeek(input);
@@ -163,6 +170,9 @@ export class StateMachine {
   // ── 狀態更新邏輯 ──
 
   private tickIdle(input: BehaviorInput): void {
+    // 被動隱藏偵測：被視窗完全遮住或在螢幕左/右外側
+    if (this.checkPassiveHide(input)) return;
+
     if (this.stateTimer >= this.stateDuration) {
       this.transitionFromIdle(input);
     }
@@ -196,7 +206,7 @@ export class StateMachine {
       pos.x > sb.x + sb.width ||
       pos.y + ch < sb.y ||
       pos.y > sb.y + sb.height;
-    if (this.sitCooldown <= 0 && !isOutsideScreen && !this.pendingPeek) {
+    if (this.sitCooldown <= 0 && !isOutsideScreen && !this.pendingHide) {
       const feetY = pos.y + ch;
       const triggerY = input.hipScreenY ?? feetY;
       for (const platform of input.platforms) {
@@ -232,13 +242,21 @@ export class StateMachine {
     const dy = this.walkTarget.y - input.currentPosition.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
 
+    // pendingHide 路徑：walk 途中偵測到隱藏條件即進入 hide（不等到達 walkTarget）
+    if (this.pendingHide) {
+      if (input.isFullyOccluded || input.isOffScreenLeft || input.isOffScreenRight) {
+        this.enterHideFromPending(input);
+        return;
+      }
+    } else if (!this.exitingPeek) {
+      // 被動隱藏偵測（非主動 hide 的 walk，且非 peek 離開中）
+      if (this.checkPassiveHide(input)) return;
+    }
+
     if (dist <= speed || dist < 5) {
-      // walk 到達：如果有 pendingPeek 就進入 peek，否則 idle
-      if (this.pendingPeek) {
-        this.peekTargetHwnd = this.pendingPeek.hwnd;
-        this.peekSide = this.pendingPeek.side;
-        this.pendingPeek = null;
-        this.enterState('peek');
+      if (this.pendingHide) {
+        // 到達 walk 目標但條件未滿足（罕見情況），直接進入 hide
+        this.enterHideFromPending(input);
       } else {
         this.enterState('idle');
       }
@@ -250,7 +268,7 @@ export class StateMachine {
 
     // 超時也退出
     if (this.stateTimer >= this.stateDuration) {
-      this.pendingPeek = null;
+      this.pendingHide = null;
       this.enterState('idle');
     }
   }
@@ -277,23 +295,111 @@ export class StateMachine {
     }
   }
 
+  private tickHide(input: BehaviorInput): void {
+    const dpr = (typeof window !== 'undefined' ? window.devicePixelRatio : 1) || 1;
+
+    // 目標視窗消失 → 立即離開 hide
+    if (this.peekTargetHwnd !== null) {
+      const windowExists = input.windowRects.some((w) => w.hwnd === this.peekTargetHwnd);
+      if (!windowExists) {
+        this.clearHidePeekState();
+        this.enterState('idle');
+        return;
+      }
+    }
+
+    // 安全超時
+    if (this.stateTimer >= this.stateDuration) {
+      this.clearHidePeekState();
+      this.enterState('idle');
+      return;
+    }
+
+    // 碰柱子偵測：角色 bounding box 邊緣是否碰到視窗/螢幕邊緣
+    const charLeft = input.currentPosition.x;
+    const charRight = input.currentPosition.x + input.characterBounds.width;
+
+    if (this.peekTargetHwnd !== null) {
+      // 視窗邊緣 peek
+      const targetWin = input.windowRects.find((w) => w.hwnd === this.peekTargetHwnd);
+      if (targetWin) {
+        const winLeft = targetWin.x / dpr;
+        const winRight = (targetWin.x + targetWin.width) / dpr;
+        // peekSide='left'（身體在左）→ 往右邊移動 → charRight 碰到視窗右邊緣
+        // peekSide='right'（身體在右）→ 往左邊移動 → charLeft 碰到視窗左邊緣
+        const touching = this.peekSide === 'left'
+          ? charRight >= winRight
+          : charLeft <= winLeft;
+        if (touching) {
+          this.enterState('peek');
+          return;
+        }
+      }
+    } else {
+      // 螢幕邊緣 peek
+      // peekSide='left'（從螢幕左外側回來）→ charRight 碰到螢幕左邊
+      // peekSide='right'（從螢幕右外側回來）→ charLeft 碰到螢幕右邊
+      const touching = this.peekSide === 'left'
+        ? charRight >= input.screenBounds.x
+        : charLeft <= input.screenBounds.x + input.screenBounds.width;
+      if (touching) {
+        this.enterState('peek');
+        return;
+      }
+    }
+  }
+
   private tickPeek(input: BehaviorInput): void {
     // 目標視窗消失 → 立即離開 peek
     if (this.peekTargetHwnd !== null) {
       const windowExists = input.windowRects.some((w) => w.hwnd === this.peekTargetHwnd);
       if (!windowExists) {
-        this.peekTargetHwnd = null;
-        this.peekSide = null;
+        this.clearHidePeekState();
         this.enterState('idle');
         return;
       }
     }
 
     if (this.stateTimer >= this.stateDuration) {
-      this.peekTargetHwnd = null;
-      this.peekSide = null;
-      const nextState: BehaviorState = Math.random() < 0.5 ? 'walk' : 'idle';
-      this.enterState(nextState);
+      // 計算走出遮擋區域的目標位置，避免 walk/idle 立刻被 checkPassiveHide 抓回 hide
+      const charW = input.characterBounds.width;
+      const dpr = (typeof window !== 'undefined' ? window.devicePixelRatio : 1) || 1;
+      const savedSide = this.peekSide;
+      const savedHwnd = this.peekTargetHwnd;
+
+      this.clearHidePeekState();
+
+      // 計算走出方向的目標 X
+      let exitTargetX = input.currentPosition.x;
+      if (savedHwnd !== null) {
+        // 視窗 peek：往視窗外側走
+        const targetWin = input.windowRects.find((w) => w.hwnd === savedHwnd);
+        if (targetWin) {
+          const winLeft = targetWin.x / dpr;
+          const winRight = (targetWin.x + targetWin.width) / dpr;
+          if (savedSide === 'left') {
+            // 身體在左 → 往左走出視窗範圍
+            exitTargetX = winLeft - charW * 1.5;
+          } else {
+            // 身體在右 → 往右走出視窗範圍
+            exitTargetX = winRight + charW * 0.5;
+          }
+        }
+      } else {
+        // 螢幕邊緣 peek：往螢幕內側走
+        const sb = input.screenBounds;
+        if (savedSide === 'left') {
+          exitTargetX = sb.x + charW * 0.5;
+        } else {
+          exitTargetX = sb.x + sb.width - charW * 1.5;
+        }
+      }
+
+      // 設定 walk 目標並標記正在離開 peek
+      this.walkTarget = { x: exitTargetX, y: input.currentPosition.y };
+      this.facingDirection = exitTargetX > input.currentPosition.x ? 1 : -1;
+      this.exitingPeek = true;
+      this.enterState('walk');
     }
   }
 
@@ -318,52 +424,57 @@ export class StateMachine {
     const roll = Math.random();
     const probs = this.config.transitionProbabilities;
 
-    // sit 不再由隨機觸發，而是走路碰到平面時自動觸發
+    // sit 不再由隨機觸發，而是走��碰到平面時自動觸發
     if (roll < probs.toWalk + probs.toSit) {
       this.pickWalkTarget(input);
       this.enterState('walk');
     } else if (roll < probs.toWalk + probs.toSit + probs.toPeek) {
-      this.tryEnterPeek(input);
+      this.tryEnterHide(input);
     } else {
       this.enterState('idle');
     }
   }
 
-  private tryEnterPeek(input: BehaviorInput): void {
+  /**
+   * 主動 hide：隨機選視窗/螢幕邊緣，走到完全隱藏的位置
+   *
+   * Walk 目標設在視窗中央（確保被完全遮住）或螢幕外。
+   * walk 途中偵測到 isFullyOccluded / isOffScreen 時進�� hide。
+   */
+  private tryEnterHide(input: BehaviorInput): void {
     const charW = input.characterBounds.width;
     const dpr = (typeof window !== 'undefined' ? window.devicePixelRatio : 1) || 1;
     const sb = input.screenBounds;
 
     if (input.windowRects.length > 0) {
-      // 視窗邊緣 peek：隨機選視窗 + 隨機選邊
-      const target = input.windowRects[Math.floor(Math.random() * input.windowRects.length)];
+      // 過濾寬度足以完全遮住角色的視窗
+      const wideEnough = input.windowRects.filter((w) => w.width / dpr >= charW);
+      const candidates = wideEnough.length > 0 ? wideEnough : input.windowRects;
+      const target = candidates[Math.floor(Math.random() * candidates.length)];
       const side: 'left' | 'right' = Math.random() < 0.5 ? 'left' : 'right';
       const winLeft = target.x / dpr;
       const winRight = (target.x + target.width) / dpr;
+      const winCenterX = (winLeft + winRight) / 2;
 
-      // walkTarget = 視窗邊緣外側（身體在邊緣旁邊）
-      // side='right'（身體在右）→ 走到視窗左邊緣的右側
-      // side='left'（身體在左）→ 走到視窗右邊緣的左側
+      // walk 目標 = 視窗中央（確保完全被遮住）
       this.walkTarget = {
-        x: side === 'right'
-          ? winLeft - charW * 0.3  // 身體大部分在視窗右邊，少量露出左邊
-          : winRight - charW * 0.7, // 身體大部分在視窗左邊，少量露出右邊
-        y: input.currentPosition.y, // 保持當前 Y
+        x: winCenterX - charW / 2,
+        y: input.currentPosition.y,
       };
-      this.pendingPeek = { hwnd: target.hwnd, side };
+      this.pendingHide = { hwnd: target.hwnd, side };
     } else {
-      // 螢幕邊緣 peek：隨機選左右
+      // 螢幕邊緣：走到完全出畫面
       const side: 'left' | 'right' = Math.random() < 0.5 ? 'left' : 'right';
       this.walkTarget = {
         x: side === 'left'
-          ? sb.x - charW * 0.7     // 身體大部分超出螢幕左邊
-          : sb.x + sb.width - charW * 0.3, // 身體大部分超出螢幕右邊
+          ? sb.x - charW - 10       // 完全超出螢幕左邊
+          : sb.x + sb.width + 10,   // 完全超出螢幕右邊
         y: input.currentPosition.y,
       };
-      this.pendingPeek = { hwnd: null, side };
+      this.pendingHide = { hwnd: null, side };
     }
 
-    this.enterState('walk'); // 先走過去
+    this.enterState('walk');
   }
 
   private pickWalkTarget(input: BehaviorInput): void {
@@ -431,6 +542,11 @@ export class StateMachine {
     this.state = state;
     this.stateTimer = 0;
 
+    // peek 離開中的 walk 到達目標後切換狀態時清除 flag
+    if (state !== 'walk') {
+      this.exitingPeek = false;
+    }
+
     switch (state) {
       case 'idle':
         this.stateDuration = this.randomRange(
@@ -447,6 +563,9 @@ export class StateMachine {
           this.config.sitDurationMin,
           this.config.sitDurationMax,
         );
+        break;
+      case 'hide':
+        this.stateDuration = 10; // 安全超時
         break;
       case 'peek':
         this.stateDuration = this.randomRange(
@@ -479,6 +598,17 @@ export class StateMachine {
         return {
           x: input.currentPosition.x + dx * ratio,
           y: input.currentPosition.y + dy * ratio,
+        };
+      }
+      case 'hide': {
+        if (this.hideEdgeTargetX === null) return null;
+        const hideSpeed = this.config.moveSpeed * this.config.hideSpeedMultiplier * input.scale * this.speedMultiplier * input.deltaTime;
+        const hdx = this.hideEdgeTargetX - input.currentPosition.x;
+        if (Math.abs(hdx) < 1) return null;
+        const hRatio = Math.min(hideSpeed / Math.abs(hdx), 1);
+        return {
+          x: input.currentPosition.x + hdx * hRatio,
+          y: input.currentPosition.y,
         };
       }
       case 'sit': {
@@ -525,6 +655,141 @@ export class StateMachine {
       peekTargetHwnd: this.peekTargetHwnd,
       peekSide: this.peekSide,
     };
+  }
+
+  /**
+   * 被動隱藏偵測：角色被視窗完全遮住或在螢幕左/右外側時自動進入 hide
+   *
+   * @returns true 如果進入了 hide 狀態
+   */
+  private checkPassiveHide(input: BehaviorInput): boolean {
+    if (input.isFullyOccluded) {
+      this.enterHidePassive(input, 'occluded');
+      return true;
+    }
+    if (input.isOffScreenLeft) {
+      this.enterHidePassive(input, 'screen-left');
+      return true;
+    }
+    if (input.isOffScreenRight) {
+      this.enterHidePassive(input, 'screen-right');
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * 被動進入 hide：根據隱藏原因決定 peekSide、peekTargetHwnd、hideEdgeTargetX
+   */
+  private enterHidePassive(input: BehaviorInput, reason: 'occluded' | 'screen-left' | 'screen-right'): void {
+    const dpr = (typeof window !== 'undefined' ? window.devicePixelRatio : 1) || 1;
+    const charW = input.characterBounds.width;
+    const charCenterX = input.currentPosition.x + charW / 2;
+
+    if (reason === 'occluded') {
+      // 找出遮住角色的視窗（重疊面積最大者）
+      const occluder = this.findOccludingWindow(input, dpr);
+      if (occluder) {
+        const winLeft = occluder.x / dpr;
+        const winRight = (occluder.x + occluder.width) / dpr;
+        const winCenterX = (winLeft + winRight) / 2;
+        // 角色在視窗左半 → peekSide='left'，移向右邊緣
+        // 角色在視窗右半 → peekSide='right'，移向左邊緣
+        if (charCenterX <= winCenterX) {
+          this.peekSide = 'left';
+          this.hideEdgeTargetX = winRight - charW * 0.3;
+        } else {
+          this.peekSide = 'right';
+          this.hideEdgeTargetX = winLeft + charW * 0.3 - charW;
+        }
+        this.peekTargetHwnd = occluder.hwnd;
+      } else {
+        // 找不到遮擋視窗（理論上不應發生），fallback 到 idle
+        this.enterState('idle');
+        return;
+      }
+    } else if (reason === 'screen-left') {
+      this.peekSide = 'left';
+      this.peekTargetHwnd = null;
+      this.hideEdgeTargetX = input.screenBounds.x;
+    } else {
+      this.peekSide = 'right';
+      this.peekTargetHwnd = null;
+      this.hideEdgeTargetX = input.screenBounds.x + input.screenBounds.width - charW;
+    }
+
+    this.pendingHide = null;
+    this.enterState('hide');
+  }
+
+  /**
+   * 主動 hide 路徑：pendingHide walk 途中偵測到隱藏條件，進入 hide
+   */
+  private enterHideFromPending(input: BehaviorInput): void {
+    const dpr = (typeof window !== 'undefined' ? window.devicePixelRatio : 1) || 1;
+    const charW = input.characterBounds.width;
+
+    if (this.pendingHide) {
+      this.peekTargetHwnd = this.pendingHide.hwnd;
+      this.peekSide = this.pendingHide.side;
+
+      if (this.pendingHide.hwnd !== null) {
+        const targetWin = input.windowRects.find((w) => w.hwnd === this.pendingHide!.hwnd);
+        if (targetWin) {
+          const winLeft = targetWin.x / dpr;
+          const winRight = (targetWin.x + targetWin.width) / dpr;
+          // peekSide='left'（身體在左）→ 移向視窗右邊緣
+          // peekSide='right'（身體在右）→ 移向視窗左邊緣
+          this.hideEdgeTargetX = this.peekSide === 'left'
+            ? winRight - charW * 0.3
+            : winLeft + charW * 0.3 - charW;
+        } else {
+          this.hideEdgeTargetX = input.currentPosition.x;
+        }
+      } else {
+        // 螢幕邊緣
+        this.hideEdgeTargetX = this.peekSide === 'left'
+          ? input.screenBounds.x
+          : input.screenBounds.x + input.screenBounds.width - charW;
+      }
+      this.pendingHide = null;
+    }
+
+    this.enterState('hide');
+  }
+
+  /** 找出遮住角色最多面積的視窗 */
+  private findOccludingWindow(input: BehaviorInput, dpr: number): { hwnd: number; x: number; y: number; width: number; height: number } | null {
+    const charLeft = input.currentPosition.x;
+    const charTop = input.currentPosition.y;
+    const charRight = charLeft + input.characterBounds.width;
+    const charBottom = charTop + input.characterBounds.height;
+
+    let bestOverlap = 0;
+    let bestWin: typeof input.windowRects[0] | null = null;
+
+    for (const win of input.windowRects) {
+      const wx = win.x / dpr;
+      const wy = win.y / dpr;
+      const wr = wx + win.width / dpr;
+      const wb = wy + win.height / dpr;
+      const overlapX = Math.max(0, Math.min(charRight, wr) - Math.max(charLeft, wx));
+      const overlapY = Math.max(0, Math.min(charBottom, wb) - Math.max(charTop, wy));
+      const area = overlapX * overlapY;
+      if (area > bestOverlap) {
+        bestOverlap = area;
+        bestWin = win;
+      }
+    }
+
+    return bestWin;
+  }
+
+  /** 清除 hide/peek 相關狀態 */
+  private clearHidePeekState(): void {
+    this.peekTargetHwnd = null;
+    this.peekSide = null;
+    this.hideEdgeTargetX = null;
   }
 
   private randomRange(min: number, max: number): number {
