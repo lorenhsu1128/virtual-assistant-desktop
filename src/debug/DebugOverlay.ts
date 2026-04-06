@@ -150,6 +150,18 @@ export class DebugOverlay {
       }
     }
 
+    // 可站立平面清單
+    if (info.platforms && info.platforms.length > 0) {
+      lines.push(`--- Platforms (${info.platforms.length}) ---`);
+      for (const p of info.platforms.slice(0, 10)) {
+        const label = p.id.length > 25 ? p.id.substring(0, 22) + '...' : p.id;
+        lines.push(`  y=${Math.round(p.screenY)} w=${Math.round(p.width)} ${label}`);
+      }
+      if (info.platforms.length > 10) {
+        lines.push(`  ... +${info.platforms.length - 10} more`);
+      }
+    }
+
     this.panel.textContent = lines.join('\n');
   }
 
@@ -208,7 +220,7 @@ export interface DebugInfo {
   /** 速率倍率 */
   moveSpeedMultiplier: number;
   paused: boolean;
-  /** 步伐長度（世界單位，scale=1 基準） */
+  /** 步伐長���（世界單位，scale=1 基準） */
   stepLength?: number;
   /** 當前播放的動畫名稱 */
   currentAnimation?: string;
@@ -216,10 +228,19 @@ export interface DebugInfo {
   characterZ?: number;
   /** 角色超出螢幕方向（null=在螢幕內，'LEFT'/'RIGHT'/'TOP'/'BOTTOM' 或組合） */
   offScreenDir?: string | null;
-  /** 角色被視窗覆蓋的最大比率（0~1） */
+  /** 角色被視窗��蓋的最大比率（0~1） */
   occlusionRatio?: number;
-  /** 遮擋 mesh 清單 */
+  /** 遮擋 mesh 清�� */
   occlusionMeshes?: OcclusionDebugEntry[];
+  /** 可站立平面清單 */
+  platforms?: PlatformDebugEntry[];
+}
+
+/** Platform debug 條目 */
+export interface PlatformDebugEntry {
+  id: string;
+  screenY: number;
+  width: number;
 }
 
 /** 遮擋 mesh debug 條目 */

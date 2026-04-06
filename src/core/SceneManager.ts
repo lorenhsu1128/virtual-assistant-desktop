@@ -77,6 +77,12 @@ export class SceneManager {
   private taskbarPlatformMesh: THREE.Mesh | null = null;
   /** 地面觸發平面 3D Mesh（debug 可見，canvas 最底部） */
   private groundPlatformMesh: THREE.Mesh | null = null;
+  /** 視窗頂部 platform debug mesh（hwnd → Mesh） */
+  private windowPlatformMeshes = new Map<string, THREE.Mesh>();
+  /** 視窗 platform 共用 geometry */
+  private windowPlatformGeo: THREE.PlaneGeometry | null = null;
+  /** 視窗 platform 共用 material */
+  private windowPlatformMat: THREE.MeshBasicMaterial | null = null;
   /** 像素到世界座標的轉換比例（正交攝影機下為固定常數） */
   private static readonly PIXEL_TO_WORLD = 0.003126;
   private pixelToWorld = SceneManager.PIXEL_TO_WORLD;
@@ -235,6 +241,9 @@ export class SceneManager {
     if (this.groundPlatformMesh) {
       this.groundPlatformMesh.visible = visible;
     }
+    for (const mesh of this.windowPlatformMeshes.values()) {
+      mesh.visible = visible;
+    }
   }
 
   /** 設定 WindowMeshManager（3D 深度遮擋） */
@@ -245,11 +254,34 @@ export class SceneManager {
   /** 更新快取的視窗清單（由 IPC 事件觸發） */
   updateCachedWindowRects(rects: WindowRect[]): void {
     this.cachedWindowRects = rects;
+    this.rebuildWindowPlatforms();
   }
 
   /** 設定視窗清單取得函式（供 debug overlay 使用） */
   setWindowListFetcher(fetcher: () => Promise<Array<{ title: string; width: number; height: number; zOrder: number }>>): void {
     this.windowListFetcher = fetcher;
+  }
+
+  /** 取得當前可站立平面清單（供拖曳吸附判定） */
+  getPlatforms(): Platform[] {
+    return this.platforms;
+  }
+
+  /**
+   * 取得臀部的螢幕 Y 座標
+   *
+   * 供拖曳吸附判定使用。回傳 hips 骨骼的螢幕 Y，
+   * 若無法取得則用 bounding box 估算。
+   */
+  getHipScreenY(): number {
+    if (this.vrmController) {
+      const hips = this.vrmController.getBoneWorldPosition('hips');
+      if (hips) {
+        return this.worldToScreen(hips.x, hips.y).y;
+      }
+    }
+    // fallback：bounding box 中間偏下
+    return this.currentPosition.y + this.characterSize.height * 0.6;
   }
 
   /** 設定步伐分析結果（供 debug overlay 顯示） */
@@ -453,16 +485,12 @@ export class SceneManager {
       const characterBounds = this.getCharacterBounds();
       const canvas = this.renderer.domElement;
 
-      // 計算膝蓋螢幕 Y（取兩腳較低者 = 較大的螢幕 Y）
-      let kneeScreenY: number | undefined;
+      // 計算臀部螢幕 Y（hips 骨骼）
+      let hipScreenY: number | undefined;
       if (this.vrmController) {
-        const leftKnee = this.vrmController.getBoneWorldPosition('leftLowerLeg');
-        const rightKnee = this.vrmController.getBoneWorldPosition('rightLowerLeg');
-        if (leftKnee || rightKnee) {
-          const candidates: number[] = [];
-          if (leftKnee) candidates.push(this.worldToScreen(leftKnee.x, leftKnee.y).y);
-          if (rightKnee) candidates.push(this.worldToScreen(rightKnee.x, rightKnee.y).y);
-          kneeScreenY = Math.max(...candidates); // 螢幕 Y 越大 = 位置越低
+        const hips = this.vrmController.getBoneWorldPosition('hips');
+        if (hips) {
+          hipScreenY = this.worldToScreen(hips.x, hips.y).y;
         }
       }
 
@@ -480,7 +508,7 @@ export class SceneManager {
         platforms: this.platforms,
         scale: this.scale,
         deltaTime,
-        kneeScreenY,
+        hipScreenY,
       });
 
       this.lastBehaviorOutput = output;
@@ -565,6 +593,11 @@ export class SceneManager {
         offScreenDir: this.getOffScreenDirection(),
         occlusionRatio: this.getOcclusionRatio(),
         occlusionMeshes: this.windowMeshManager?.getDebugInfo(),
+        platforms: this.platforms.map((p) => ({
+          id: p.id,
+          screenY: p.screenY,
+          width: p.screenXMax - p.screenXMin,
+        })),
       });
 
       // 視窗清單（每秒更新一次）
@@ -859,7 +892,7 @@ export class SceneManager {
    * drag → 8.5（最上方）+ 設定 forceTopAfterDrag
    * 放下後 → 維持 8.5，直到使用者點擊其他視窗（前景視窗改變）
    * peek → 目標視窗 Z - 0.5（在視窗後面）
-   * sit → 吸附視窗 Z（與視窗同層）
+   * sit → 8.5（最前面，坐在視窗上時角色永遠可見）
    * walk/idle/fall → 前景視窗 Z - 0.5（自動退到前景視窗後面）
    *                  無前景視窗時 → 8.5（最前面）
    */
@@ -886,10 +919,9 @@ export class SceneManager {
       const windowZ = this.windowMeshManager.getWindowZ(output.peekTargetHwnd);
       return windowZ !== null ? windowZ - 0.5 : DEFAULT_Z;
     }
-    if (output.currentState === 'sit' && output.attachedWindowHwnd !== null) {
+    if (output.currentState === 'sit') {
       this.forceTopAfterDrag = false;
-      const windowZ = this.windowMeshManager.getWindowZ(output.attachedWindowHwnd);
-      return windowZ !== null ? windowZ : DEFAULT_Z;
+      return DEFAULT_Z;
     }
 
     // 拖曳後置頂：放下後維持最上方
@@ -990,21 +1022,173 @@ export class SceneManager {
     };
   }
 
-  /** 更新角色 bounding box 尺寸（基於模型世界尺寸） */
+  /** 更新角色 bounding box 尺寸（基於模型實際可見大小） */
   private updateCharacterSize(): void {
     if (!this.vrmController) return;
     const modelSize = this.vrmController.getModelWorldSize();
     if (!modelSize) return;
 
     // getModelWorldSize() 已包含 model scale，不需再乘 this.scale
-    const charH = modelSize.height / this.pixelToWorld;
-    const charW = modelSize.width / this.pixelToWorld;
-
-    // 加邊距容納頭髮、配飾、手臂
+    // 使用模型實際大小，不加邊距
     this.characterSize = {
-      width: Math.round(charW * 2.5),
-      height: Math.round(charH * 1.3),
+      width: Math.round(modelSize.width / this.pixelToWorld),
+      height: Math.round(modelSize.height / this.pixelToWorld),
     };
+  }
+
+  /**
+   * 根據 cachedWindowRects 重建視窗頂部 Platform 和 debug mesh
+   *
+   * 由 updateCachedWindowRects() 呼叫（IPC 事件驅動，~300ms）。
+   * 每個視窗頂部建立一個 Platform（角色走到時可坐下），
+   * 並建立對應的 debug mesh（藍色半透明，僅 debug mode 顯示）。
+   */
+  private rebuildWindowPlatforms(): void {
+    const dpr = window.devicePixelRatio || 1;
+    const debugVisible = this.debugOverlay?.isEnabled() ?? false;
+
+    // 共用 geometry/material（延遲建立）
+    if (!this.windowPlatformGeo) {
+      this.windowPlatformGeo = new THREE.PlaneGeometry(1, 1);
+    }
+    if (!this.windowPlatformMat) {
+      this.windowPlatformMat = new THREE.MeshBasicMaterial({
+        color: 0x4488ff,
+        transparent: true,
+        opacity: 0.4,
+        depthTest: false,
+        side: THREE.DoubleSide,
+      });
+    }
+
+    const meshThickness = 4 * this.pixelToWorld;
+    /** 最小視窗邏輯寬度（px），太小的視窗不建立 platform */
+    const MIN_PLATFORM_WIDTH = 100;
+
+    // 保留工作列 platform（index 0），清除舊的視窗 platform
+    const taskbarPlatform = this.platforms.find((p) => p.id === 'ground');
+    this.platforms = taskbarPlatform ? [taskbarPlatform] : [];
+
+    // 預先轉換所有視窗座標為邏輯像素（供遮擋判定使用）
+    const logicalRects = this.cachedWindowRects.map((r) => ({
+      hwnd: r.hwnd,
+      zOrder: r.zOrder,
+      left: r.x / dpr,
+      top: r.y / dpr,
+      right: (r.x + r.width) / dpr,
+      bottom: (r.y + r.height) / dpr,
+      width: r.width / dpr,
+    }));
+
+    // 清除所有舊的視窗 platform mesh（因為露出區段數量每次都可能改變）
+    const newMeshKeys = new Set<string>();
+
+    for (const lr of logicalRects) {
+      // 過濾：視窗太小
+      if (lr.width < MIN_PLATFORM_WIDTH) continue;
+
+      // 計算露出區段：從完整頂部邊緣 [left, right] 扣除更上層視窗的覆蓋
+      const occIntervals: Array<{ start: number; end: number }> = [];
+      for (const other of logicalRects) {
+        if (other.hwnd === lr.hwnd || other.zOrder >= lr.zOrder) continue;
+        if (other.top <= lr.top && other.bottom > lr.top) {
+          const overlapLeft = Math.max(other.left, lr.left);
+          const overlapRight = Math.min(other.right, lr.right);
+          if (overlapLeft < overlapRight) {
+            occIntervals.push({ start: overlapLeft, end: overlapRight });
+          }
+        }
+      }
+
+      // 從 [lr.left, lr.right] 扣除被遮擋的區間，得到露出區段
+      const exposed = this.subtractIntervals(lr.left, lr.right, occIntervals);
+
+      // 每個露出區段建立獨立的 Platform + mesh
+      for (let si = 0; si < exposed.length; si++) {
+        const seg = exposed[si];
+        if (seg.end - seg.start < MIN_PLATFORM_WIDTH) continue; // 露出太窄也跳過
+
+        const segKey = `${lr.hwnd}:${si}`;
+        newMeshKeys.add(segKey);
+
+        // Platform
+        this.platforms.push({
+          id: `window:${lr.hwnd}`,
+          screenY: lr.top,
+          screenXMin: seg.start,
+          screenXMax: seg.end,
+          sitTargetY: lr.top,
+        });
+
+        // Debug mesh
+        const worldLeft = this.screenToWorld(seg.start, lr.top);
+        const worldRight = this.screenToWorld(seg.end, lr.top);
+        const meshWidth = worldRight.x - worldLeft.x;
+        const meshCenterX = (worldLeft.x + worldRight.x) / 2;
+
+        const existing = this.windowPlatformMeshes.get(segKey);
+        if (existing) {
+          existing.position.set(meshCenterX, worldLeft.y, 0);
+          existing.scale.set(meshWidth, meshThickness, 1);
+        } else {
+          const mesh = new THREE.Mesh(this.windowPlatformGeo, this.windowPlatformMat);
+          mesh.name = `platform:window:${segKey}`;
+          mesh.position.set(meshCenterX, worldLeft.y, 0);
+          mesh.scale.set(meshWidth, meshThickness, 1);
+          mesh.visible = debugVisible;
+          this.scene.add(mesh);
+          this.windowPlatformMeshes.set(segKey, mesh);
+        }
+      }
+    }
+
+    // 移除已不存在的區段 mesh
+    for (const [key, mesh] of this.windowPlatformMeshes) {
+      if (!newMeshKeys.has(key)) {
+        this.scene.remove(mesh);
+        this.windowPlatformMeshes.delete(key);
+      }
+    }
+  }
+
+  /**
+   * 從區間 [left, right] 扣除一組遮擋區間，回傳剩餘的露出區段
+   *
+   * 用於計算視窗頂部邊緣的可見部分。
+   */
+  private subtractIntervals(
+    left: number,
+    right: number,
+    occlusions: Array<{ start: number; end: number }>,
+  ): Array<{ start: number; end: number }> {
+    if (occlusions.length === 0) return [{ start: left, end: right }];
+
+    // 合併遮擋區間
+    const sorted = [...occlusions].sort((a, b) => a.start - b.start);
+    const merged: Array<{ start: number; end: number }> = [sorted[0]];
+    for (let i = 1; i < sorted.length; i++) {
+      const last = merged[merged.length - 1];
+      if (sorted[i].start <= last.end) {
+        last.end = Math.max(last.end, sorted[i].end);
+      } else {
+        merged.push({ ...sorted[i] });
+      }
+    }
+
+    // 從 [left, right] 扣除合併後的遮擋區間
+    const result: Array<{ start: number; end: number }> = [];
+    let cursor = left;
+    for (const occ of merged) {
+      if (occ.start > cursor) {
+        result.push({ start: cursor, end: Math.min(occ.start, right) });
+      }
+      cursor = Math.max(cursor, occ.end);
+      if (cursor >= right) break;
+    }
+    if (cursor < right) {
+      result.push({ start: cursor, end: right });
+    }
+    return result;
   }
 
   /**

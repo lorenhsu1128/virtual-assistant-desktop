@@ -406,9 +406,38 @@ async function initializeBehaviorSystem(
     onDragStart: () => {
       stateMachine.forceState('drag');
     },
-    onDragEnd: (position) => {
+    onDragEnd: (position, mouseScreen) => {
       sceneManager.setCurrentPosition(position);
-      stateMachine.forceState('idle');
+
+      // 拖曳吸附：滑鼠指標 Y 在 platform ± 30px 內且 X 重疊 → sit
+      const mouseY = mouseScreen.y;
+      const mouseX = mouseScreen.x;
+      const SNAP_DISTANCE = 30;
+      let snapped = false;
+
+      for (const platform of sceneManager.getPlatforms()) {
+        if (Math.abs(mouseY - platform.screenY) <= SNAP_DISTANCE &&
+            mouseX > platform.screenXMin &&
+            mouseX < platform.screenXMax) {
+          stateMachine.setSitPlatform(platform.id);
+          if (platform.id.startsWith('window:')) {
+            const hwnd = parseInt(platform.id.substring(7), 10);
+            if (!isNaN(hwnd)) {
+              const windowOffsetX = position.x - platform.screenXMin;
+              stateMachine.setAttachedWindow(hwnd, windowOffsetX);
+            }
+          } else {
+            stateMachine.clearAttachedWindow();
+          }
+          stateMachine.forceState('sit');
+          snapped = true;
+          break;
+        }
+      }
+
+      if (!snapped) {
+        stateMachine.forceState('idle');
+      }
     },
   });
 

@@ -4,7 +4,7 @@ export interface DragHandlerDeps {
   getCharacterPosition: () => { x: number; y: number };
   getCharacterSize: () => { width: number; height: number };
   onDragStart: () => void;
-  onDragEnd: (position: { x: number; y: number }) => void;
+  onDragEnd: (position: { x: number; y: number }, mouseScreen: { x: number; y: number }) => void;
   onDragMove?: (x: number, y: number) => void;
   onDragLock?: () => void;
   onDragUnlock?: () => void;
@@ -90,6 +90,6 @@ export class DragHandler {
     const finalX = this.charStartPos.x + dx;
     const finalY = this.charStartPos.y + dy;
 
-    this.deps.onDragEnd({ x: finalX, y: finalY });
+    this.deps.onDragEnd({ x: finalX, y: finalY }, { x: e.screenX, y: e.screenY });
   }
 }

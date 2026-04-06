@@ -35,7 +35,8 @@ export class StateMachine {
 
   // sit 狀態
   private attachedWindowHwnd: number | null = null;
-  private attachedWindowLastPos: { x: number; y: number } | null = null;
+  /** sit 時角色相對於視窗左邊的 X 偏移（邏輯像素），用於跟隨視窗移動時保持相對位置 */
+  private sitWindowOffsetX = 0;
   /** 當前坐在的平面 ID（未來用於多平面識別） */
   sitPlatformId: string | null = null;
 
@@ -133,10 +134,27 @@ export class StateMachine {
     return { timer: this.stateTimer, duration: this.stateDuration };
   }
 
-  /** 設定吸附的視窗（由 DragHandler 在吸附時呼叫） */
-  setAttachedWindow(hwnd: number, position: { x: number; y: number }): void {
+  /**
+   * 設定吸附的視窗
+   *
+   * @param windowOffsetX 角色 bounding box 左邊相對於視窗左邊的偏移（邏輯像素）
+   */
+  setAttachedWindow(hwnd: number, windowOffsetX?: number): void {
     this.attachedWindowHwnd = hwnd;
-    this.attachedWindowLastPos = { ...position };
+    if (windowOffsetX !== undefined) {
+      this.sitWindowOffsetX = windowOffsetX;
+    }
+  }
+
+  /** 設定當前坐下的平面 ID（由拖曳吸附時呼叫） */
+  setSitPlatform(id: string): void {
+    this.sitPlatformId = id;
+  }
+
+  /** 清除吸附的視窗（坐在非視窗 platform 時呼叫） */
+  clearAttachedWindow(): void {
+    this.attachedWindowHwnd = null;
+    this.sitWindowOffsetX = 0;
   }
 
   // ── 狀態更新邏輯 ──
@@ -150,6 +168,8 @@ export class StateMachine {
   /** sit 冷卻時間（秒）— 防止站起來後立即又坐下 */
   private sitCooldown = 0;
   private static readonly SIT_COOLDOWN_DURATION = 5;
+  /** 本次 walk 中已拒絕坐下的 platform ID（不重複判定） */
+  private ignoredPlatforms = new Set<string>();
 
   private tickWalk(input: BehaviorInput): void {
     if (!this.walkTarget) {
@@ -162,7 +182,7 @@ export class StateMachine {
       this.sitCooldown -= input.deltaTime;
     }
 
-    // 平面接觸偵測：膝蓋到達或超過平面時坐下
+    // 平面接觸偵測：臀部到達或超過平面時坐下
     // 整個角色離開螢幕範圍時才跳過（避免在完全不可見時坐下）
     const pos = input.currentPosition;
     const cw = input.characterBounds.width;
@@ -175,11 +195,27 @@ export class StateMachine {
       pos.y > sb.y + sb.height;
     if (this.sitCooldown <= 0 && !isOutsideScreen) {
       const feetY = pos.y + ch;
-      const triggerY = input.kneeScreenY ?? feetY;
+      const triggerY = input.hipScreenY ?? feetY;
       for (const platform of input.platforms) {
+        // 已忽略的 platform（本次 walk 已拒絕坐下）不再重複判定
+        if (this.ignoredPlatforms.has(platform.id)) continue;
         if (triggerY >= platform.screenY &&
             input.currentPosition.x + input.characterBounds.width > platform.screenXMin &&
             input.currentPosition.x < platform.screenXMax) {
+          // 視窗 platform：40% 機率坐下，不坐則加入忽略清單
+          if (platform.id.startsWith('window:')) {
+            if (Math.random() >= 0.4) {
+              this.ignoredPlatforms.add(platform.id);
+              continue;
+            }
+            const hwnd = parseInt(platform.id.substring(7), 10);
+            if (!isNaN(hwnd)) {
+              this.attachedWindowHwnd = hwnd;
+
+              this.sitWindowOffsetX = input.currentPosition.x - platform.screenXMin;
+            }
+          }
+          // ground platform：100% 坐下
           this.sitPlatformId = platform.id;
           this.enterState('sit');
           return;
@@ -207,12 +243,23 @@ export class StateMachine {
     }
   }
 
-  private tickSit(_input: BehaviorInput): void {
+  private tickSit(input: BehaviorInput): void {
+    // 視窗消失（關閉/最小化）→ 進入 fall
+    if (this.attachedWindowHwnd !== null) {
+      const windowExists = input.windowRects.some((w) => w.hwnd === this.attachedWindowHwnd);
+      if (!windowExists) {
+        this.sitPlatformId = null;
+        this.attachedWindowHwnd = null;
+
+        this.enterState('fall');
+        return;
+      }
+    }
+
     // 平面坐下：停留指定時間後站起來
     if (this.stateTimer >= this.stateDuration) {
       this.sitPlatformId = null;
       this.attachedWindowHwnd = null;
-      this.attachedWindowLastPos = null;
       this.sitCooldown = StateMachine.SIT_COOLDOWN_DURATION;
       this.enterState('idle');
     }
@@ -326,10 +373,24 @@ export class StateMachine {
     const rawY = pos.y + Math.sin(angle) * distance;
 
     // 超出螢幕 → clamp 到邊界
-    this.walkTarget = {
-      x: Math.max(minX, Math.min(maxX, rawX)),
-      y: Math.max(minY, Math.min(maxY, rawY)),
-    };
+    const targetX = Math.max(minX, Math.min(maxX, rawX));
+    let targetY = Math.max(minY, Math.min(maxY, rawY));
+
+    // 目標落在視窗 platform 正下方時，70% 機率調到 platform 上方
+    // （讓角色自然走到視窗頂部觸發 sit，而非穿越視窗內部）
+    for (const platform of input.platforms) {
+      if (!platform.id.startsWith('window:')) continue;
+      if (targetY > platform.screenY &&
+          targetX + charW > platform.screenXMin &&
+          targetX < platform.screenXMax) {
+        if (Math.random() < 0.7) {
+          targetY = platform.screenY - charH;
+        }
+        break; // 只處理第一個匹配的 platform
+      }
+    }
+
+    this.walkTarget = { x: targetX, y: targetY };
   }
 
   // ── 輔助 ──
@@ -348,6 +409,7 @@ export class StateMachine {
         break;
       case 'walk':
         this.stateDuration = 30; // walk 最長 30 秒
+        this.ignoredPlatforms.clear();
         break;
       case 'sit':
         this.stateDuration = this.randomRange(
@@ -389,25 +451,16 @@ export class StateMachine {
         };
       }
       case 'sit': {
-        // 跟隨視窗移動
-        if (this.attachedWindowHwnd !== null && this.attachedWindowLastPos) {
-          const win = input.windowRects.find(
-            (w) => w.hwnd === this.attachedWindowHwnd,
-          );
-          if (win) {
-            return {
-              x: win.x + win.width / 2 - input.characterBounds.width / 2,
-              y: win.y - input.characterBounds.height,
-            };
-          }
-        }
-        // 平面坐下：定位到 sitTargetY（如工作列上緣）
         if (this.sitPlatformId) {
           const platform = input.platforms.find((p) => p.id === this.sitPlatformId);
           if (platform) {
             const sitY = platform.sitTargetY ?? platform.screenY;
+            // 視窗 platform：用 platform 左邊 + 相對偏移追蹤 X（視窗移動時自動跟隨）
+            const sitX = this.attachedWindowHwnd !== null
+              ? platform.screenXMin + this.sitWindowOffsetX
+              : input.currentPosition.x;
             return {
-              x: input.currentPosition.x,
+              x: sitX,
               y: sitY - input.characterBounds.height,
             };
           }
