@@ -255,7 +255,16 @@ async function initializeApp(config: AppConfig, appPath: string): Promise<void> 
       const sitFile = `SYS_SIT_${String(i).padStart(2, '0')}.vrma`;
       await animationManager.loadSystemAnimation(sitName, `${sysVrmaDir}/${sitFile}`);
     }
-    debugLog('System animations loaded (drag, walk, sit_01~07)');
+    // 載入 peek 動畫（左右探頭）
+    await animationManager.loadSystemAnimation(
+      'hide_show_loop_left',
+      `${sysVrmaDir}/SYS_HIDE_SHOW_LOOP_LEFT.vrma`,
+    );
+    await animationManager.loadSystemAnimation(
+      'hide_show_loop_right',
+      `${sysVrmaDir}/SYS_HIDE_SHOW_LOOP_RIGHT.vrma`,
+    );
+    debugLog('System animations loaded (drag, walk, sit_01~07, hide_show_loop_left/right)');
 
     // 步伐分析：從行走動畫計算擬真移動速度
     const walkClip = animationManager.getSystemAnimationClip('walk');

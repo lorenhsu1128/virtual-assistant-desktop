@@ -249,6 +249,17 @@ export class VRMController {
   }
 
   /**
+   * 偏移模型世界 X 座標（用於 peek 骨骼錨定）
+   *
+   * 在 setWorldPosition 之後呼叫，微調模型位置讓手對齊邊緣。
+   */
+  offsetWorldPositionX(dx: number): void {
+    if (this.vrm) {
+      this.vrm.scene.position.x += dx;
+    }
+  }
+
+  /**
    * 取得 hips 骨骼的世界 Y 座標（相對於模型原點）
    *
    * 用於 sit 狀態定位：讓臀部對齊平面。

@@ -83,6 +83,14 @@ export class SceneManager {
   private windowPlatformGeo: THREE.PlaneGeometry | null = null;
   /** 視窗 platform 共用 material */
   private windowPlatformMat: THREE.MeshBasicMaterial | null = null;
+  /** 視窗/螢幕邊緣柱狀 mesh（key = `{hwnd}:left`/`{hwnd}:right`/`screen:left`/`screen:right`） */
+  private edgePillarMeshes = new Map<string, THREE.Mesh>();
+  /** 邊緣柱共用 geometry */
+  private edgePillarGeo: THREE.PlaneGeometry | null = null;
+  /** 邊緣柱共用 material（橙色） */
+  private edgePillarMat: THREE.MeshBasicMaterial | null = null;
+  /** peek 骨骼錨定 X 偏移量（lerp 平滑用） */
+  private peekAnchorOffsetX = 0;
   /** 像素到世界座標的轉換比例（正交攝影機下為固定常數） */
   private static readonly PIXEL_TO_WORLD = 0.003126;
   private pixelToWorld = SceneManager.PIXEL_TO_WORLD;
@@ -244,6 +252,27 @@ export class SceneManager {
     for (const mesh of this.windowPlatformMeshes.values()) {
       mesh.visible = visible;
     }
+    for (const mesh of this.edgePillarMeshes.values()) {
+      mesh.visible = visible;
+    }
+  }
+
+  /**
+   * 取得邊緣柱的世界 X 座標（供骨骼錨定用）
+   *
+   * key 格式：`{hwnd}:{side}` 或 `screen:{side}`
+   * 會搜尋所有以該 key 為前綴的柱子（因為每個邊緣可能有多個露出區段），
+   * 回傳第一個匹配的柱子 world X（所有區段的 X 座標相同）。
+   */
+  getEdgePillarWorldX(key: string): number | null {
+    // 精確匹配（螢幕邊緣 key 沒有區段 index）
+    const exact = this.edgePillarMeshes.get(key);
+    if (exact) return exact.position.x;
+    // 前綴匹配（視窗邊緣 key 帶區段 index）
+    for (const [k, mesh] of this.edgePillarMeshes) {
+      if (k.startsWith(key + ':')) return mesh.position.x;
+    }
+    return null;
   }
 
   /** 設定 WindowMeshManager（3D 深度遮擋） */
@@ -565,6 +594,14 @@ export class SceneManager {
       this.updateModelWorldPosition();
 
       this.vrmController.update(deltaTime);
+
+      // Peek 骨骼錨定（VRM update 之後，手的位置是當前幀）
+      if (this.lastBehaviorOutput?.currentState === 'peek' && this.lastBehaviorOutput.peekSide) {
+        this.applyPeekBoneAnchor(this.lastBehaviorOutput);
+      } else if (this.peekAnchorOffsetX !== 0) {
+        // peek 結束，歸零錨定偏移
+        this.peekAnchorOffsetX = 0;
+      }
 
       this.previousPosition.x = this.currentPosition.x;
       this.previousPosition.y = this.currentPosition.y;
@@ -896,6 +933,43 @@ export class SceneManager {
    * walk/idle/fall → 前景視窗 Z - 0.5（自動退到前景視窗後面）
    *                  無前景視窗時 → 8.5（最前面）
    */
+
+  /**
+   * Peek 骨骼錨定：讓手部骨骼對齊邊緣柱子
+   *
+   * 在 VRM update 之後呼叫（手的位置已是當前幀）。
+   * 使用 lerp 平滑避免每幀微調導致的抖動。
+   */
+  private applyPeekBoneAnchor(output: BehaviorOutput): void {
+    if (!this.vrmController || !output.peekSide) return;
+
+    const side = output.peekSide;
+    const hwnd = output.peekTargetHwnd;
+
+    // 計算柱子 key：
+    // side='right'（身體在右）→ 抓左邊緣 → 視窗 left edge
+    // side='left'（身體在左）→ 抓右邊緣 → 視窗 right edge
+    let pillarKey: string;
+    if (hwnd !== null) {
+      pillarKey = `${hwnd}:${side === 'right' ? 'left' : 'right'}`;
+    } else {
+      pillarKey = `screen:${side}`;
+    }
+
+    const edgeWorldX = this.getEdgePillarWorldX(pillarKey);
+    if (edgeWorldX === null) return;
+
+    // 錨定骨骼：side='left'→rightHand, side='right'→leftHand
+    const anchorBone = side === 'left' ? 'rightHand' : 'leftHand';
+    const handWorld = this.vrmController.getBoneWorldPosition(anchorBone);
+    if (!handWorld) return;
+
+    const targetOffsetX = edgeWorldX - handWorld.x;
+    // lerp 平滑（0.7 保留 + 0.3 新值）
+    this.peekAnchorOffsetX = this.peekAnchorOffsetX * 0.7 + targetOffsetX * 0.3;
+    this.vrmController.offsetWorldPositionX(this.peekAnchorOffsetX);
+  }
+
   private resolveCharacterZ(output: BehaviorOutput | null): number {
     const DEFAULT_Z = 8.5;
     if (!output || !this.windowMeshManager) return DEFAULT_Z;
@@ -914,10 +988,15 @@ export class SceneManager {
       return DEFAULT_Z;
     }
 
-    if (output.currentState === 'peek' && output.peekTargetHwnd !== null) {
+    if (output.currentState === 'peek') {
       this.forceTopAfterDrag = false;
-      const windowZ = this.windowMeshManager.getWindowZ(output.peekTargetHwnd);
-      return windowZ !== null ? windowZ - 0.5 : DEFAULT_Z;
+      if (output.peekTargetHwnd !== null) {
+        // 視窗 peek → 在視窗後面
+        const windowZ = this.windowMeshManager.getWindowZ(output.peekTargetHwnd);
+        return windowZ !== null ? windowZ - 0.5 : DEFAULT_Z;
+      }
+      // 螢幕邊緣 peek → 最前面
+      return DEFAULT_Z;
     }
     if (output.currentState === 'sit') {
       this.forceTopAfterDrag = false;
@@ -1147,6 +1226,110 @@ export class SceneManager {
       if (!newMeshKeys.has(key)) {
         this.scene.remove(mesh);
         this.windowPlatformMeshes.delete(key);
+      }
+    }
+
+    // ── 邊緣柱狀 mesh（視窗左右邊緣 + 螢幕左右邊緣）──
+    if (!this.edgePillarGeo) {
+      this.edgePillarGeo = new THREE.PlaneGeometry(1, 1);
+    }
+    if (!this.edgePillarMat) {
+      this.edgePillarMat = new THREE.MeshBasicMaterial({
+        color: 0xff8800,
+        transparent: true,
+        opacity: 0.4,
+        depthTest: false,
+        side: THREE.DoubleSide,
+      });
+    }
+
+    const pillarWidth = 4 * this.pixelToWorld;
+    const newPillarKeys = new Set<string>();
+
+    // 視窗邊緣柱子（被更上層視窗覆蓋的邊緣不生成）
+    for (const lr of logicalRects) {
+      if (lr.width < MIN_PLATFORM_WIDTH) continue;
+      for (const edgeSide of ['left', 'right'] as const) {
+        const edgeX = edgeSide === 'left' ? lr.left : lr.right;
+
+        // 遮擋過濾：收集覆蓋此邊緣的更上層視窗垂直區間
+        const edgeOccIntervals: Array<{ start: number; end: number }> = [];
+        for (const other of logicalRects) {
+          if (other.hwnd === lr.hwnd || other.zOrder >= lr.zOrder) continue;
+          if (other.left <= edgeX && other.right >= edgeX) {
+            const overlapTop = Math.max(other.top, lr.top);
+            const overlapBot = Math.min(other.bottom, lr.bottom);
+            if (overlapTop < overlapBot) {
+              edgeOccIntervals.push({ start: overlapTop, end: overlapBot });
+            }
+          }
+        }
+        // 計算露出區段（扣除被遮擋的部分）
+        const edgeExposed = this.subtractIntervals(lr.top, lr.bottom, edgeOccIntervals);
+        if (edgeExposed.length === 0) continue;
+
+        // 每個露出區段各一個柱子 mesh
+        for (let si = 0; si < edgeExposed.length; si++) {
+          const seg = edgeExposed[si];
+          const pillarKey = `${lr.hwnd}:${edgeSide}:${si}`;
+          newPillarKeys.add(pillarKey);
+
+          const worldTop = this.screenToWorld(edgeX, seg.start);
+          const worldBot = this.screenToWorld(edgeX, seg.end);
+          const pillarHeight = Math.abs(worldTop.y - worldBot.y);
+          const pillarCenterY = (worldTop.y + worldBot.y) / 2;
+
+          const existing = this.edgePillarMeshes.get(pillarKey);
+          if (existing) {
+            existing.position.set(worldTop.x, pillarCenterY, 0);
+            existing.scale.set(pillarWidth, pillarHeight, 1);
+          } else {
+            const mesh = new THREE.Mesh(this.edgePillarGeo, this.edgePillarMat);
+            mesh.name = `edge:${pillarKey}`;
+            mesh.position.set(worldTop.x, pillarCenterY, 0);
+            mesh.scale.set(pillarWidth, pillarHeight, 1);
+            mesh.visible = debugVisible;
+            this.scene.add(mesh);
+            this.edgePillarMeshes.set(pillarKey, mesh);
+          }
+        }
+      }
+    }
+
+    // 螢幕邊緣柱子（固定 2 根）
+    const screenH = this.workAreaSize.height;
+    for (const edgeSide of ['left', 'right'] as const) {
+      const edgeX = edgeSide === 'left'
+        ? this.workAreaOrigin.x
+        : this.workAreaOrigin.x + this.workAreaSize.width;
+      const pillarKey = `screen:${edgeSide}`;
+      newPillarKeys.add(pillarKey);
+
+      const worldTop = this.screenToWorld(edgeX, this.workAreaOrigin.y);
+      const worldBot = this.screenToWorld(edgeX, this.workAreaOrigin.y + screenH);
+      const pillarHeight = Math.abs(worldTop.y - worldBot.y);
+      const pillarCenterY = (worldTop.y + worldBot.y) / 2;
+
+      const existing = this.edgePillarMeshes.get(pillarKey);
+      if (existing) {
+        existing.position.set(worldTop.x, pillarCenterY, 0);
+        existing.scale.set(pillarWidth, pillarHeight, 1);
+      } else {
+        const mesh = new THREE.Mesh(this.edgePillarGeo, this.edgePillarMat);
+        mesh.name = `edge:${pillarKey}`;
+        mesh.position.set(worldTop.x, pillarCenterY, 0);
+        mesh.scale.set(pillarWidth, pillarHeight, 1);
+        mesh.visible = debugVisible;
+        this.scene.add(mesh);
+        this.edgePillarMeshes.set(pillarKey, mesh);
+      }
+    }
+
+    // 移除消失的柱子
+    for (const [key, mesh] of this.edgePillarMeshes) {
+      if (!newPillarKeys.has(key)) {
+        this.scene.remove(mesh);
+        this.edgePillarMeshes.delete(key);
       }
     }
   }

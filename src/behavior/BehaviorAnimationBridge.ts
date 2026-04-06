@@ -34,6 +34,8 @@ const SIT_ANIMATION_NAMES = [
  */
 export class BehaviorAnimationBridge {
   private animationManager: AnimationManager;
+  /** 最新的 peekSide（用於系統動畫選擇） */
+  private lastPeekSide: 'left' | 'right' | null = null;
 
   constructor(animationManager: AnimationManager) {
     this.animationManager = animationManager;
@@ -46,7 +48,21 @@ export class BehaviorAnimationBridge {
    * 僅在狀態變化時觸發動畫切換。
    */
   update(output: BehaviorOutput): void {
+    // 追蹤最新 peekSide
+    if (output.peekSide !== undefined) {
+      this.lastPeekSide = output.peekSide;
+    }
+
     if (!output.stateChanged) return;
+
+    // peek 狀態：根據 peekSide 選擇左右系統動畫
+    if (output.currentState === 'peek' && this.lastPeekSide) {
+      const peekAnim = this.lastPeekSide === 'left'
+        ? 'hide_show_loop_left'
+        : 'hide_show_loop_right';
+      this.animationManager.playSystemAnimation(peekAnim, true, 0.5);
+      return;
+    }
 
     // sit 狀態：隨機選取一個 sit 動畫（較長 crossfade 讓過渡更平滑）
     if (output.currentState === 'sit') {

@@ -24,8 +24,10 @@ export interface BehaviorOutput {
   attachedWindowHwnd: number | null;
   /** 正在穿越的視窗 handle（walk traverse 時） */
   traversingWindowHwnd: number | null;
-  /** peek 狀態時躲在哪個視窗後面（hwnd），其他狀態為 null */
+  /** peek 狀態時躲在哪個視窗後面（hwnd），螢幕邊緣 peek 時為 null */
   peekTargetHwnd: number | null;
+  /** peek 時角色身體在邊緣的哪一側（'left'=身體在左, 'right'=身體在右） */
+  peekSide: 'left' | 'right' | null;
 }
 
 /**

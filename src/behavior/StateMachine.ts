@@ -42,6 +42,9 @@ export class StateMachine {
 
   // peek 狀態
   private peekTargetHwnd: number | null = null;
+  private peekSide: 'left' | 'right' | null = null;
+  /** walk 結束後自動進入 peek 的暫存（walk 到達時觸發） */
+  private pendingPeek: { hwnd: number | null; side: 'left' | 'right' } | null = null;
 
   // fall 狀態
   private fallSpeed = 0;
@@ -193,7 +196,7 @@ export class StateMachine {
       pos.x > sb.x + sb.width ||
       pos.y + ch < sb.y ||
       pos.y > sb.y + sb.height;
-    if (this.sitCooldown <= 0 && !isOutsideScreen) {
+    if (this.sitCooldown <= 0 && !isOutsideScreen && !this.pendingPeek) {
       const feetY = pos.y + ch;
       const triggerY = input.hipScreenY ?? feetY;
       for (const platform of input.platforms) {
@@ -230,7 +233,15 @@ export class StateMachine {
     const dist = Math.sqrt(dx * dx + dy * dy);
 
     if (dist <= speed || dist < 5) {
-      this.enterState('idle');
+      // walk 到達：如果有 pendingPeek 就進入 peek，否則 idle
+      if (this.pendingPeek) {
+        this.peekTargetHwnd = this.pendingPeek.hwnd;
+        this.peekSide = this.pendingPeek.side;
+        this.pendingPeek = null;
+        this.enterState('peek');
+      } else {
+        this.enterState('idle');
+      }
       return;
     }
 
@@ -239,6 +250,7 @@ export class StateMachine {
 
     // 超時也退出
     if (this.stateTimer >= this.stateDuration) {
+      this.pendingPeek = null;
       this.enterState('idle');
     }
   }
@@ -271,14 +283,15 @@ export class StateMachine {
       const windowExists = input.windowRects.some((w) => w.hwnd === this.peekTargetHwnd);
       if (!windowExists) {
         this.peekTargetHwnd = null;
+        this.peekSide = null;
         this.enterState('idle');
         return;
       }
     }
 
     if (this.stateTimer >= this.stateDuration) {
-      // peek 結束，隨機回到 walk 或 idle
       this.peekTargetHwnd = null;
+      this.peekSide = null;
       const nextState: BehaviorState = Math.random() < 0.5 ? 'walk' : 'idle';
       this.enterState(nextState);
     }
@@ -317,22 +330,40 @@ export class StateMachine {
   }
 
   private tryEnterPeek(input: BehaviorInput): void {
-    // 找一個可以躲的視窗
+    const charW = input.characterBounds.width;
+    const dpr = (typeof window !== 'undefined' ? window.devicePixelRatio : 1) || 1;
+    const sb = input.screenBounds;
+
     if (input.windowRects.length > 0) {
+      // 視窗邊緣 peek：隨機選視窗 + 隨機選邊
       const target = input.windowRects[Math.floor(Math.random() * input.windowRects.length)];
-      this.peekTargetHwnd = target.hwnd;
-      // 走到視窗邊緣
-      const side = Math.random() < 0.5 ? 'left' : 'right';
+      const side: 'left' | 'right' = Math.random() < 0.5 ? 'left' : 'right';
+      const winLeft = target.x / dpr;
+      const winRight = (target.x + target.width) / dpr;
+
+      // walkTarget = 視窗邊緣外側（身體在邊緣旁邊）
+      // side='right'（身體在右）→ 走到視窗左邊緣的右側
+      // side='left'（身體在左）→ 走到視窗右邊緣的左側
+      this.walkTarget = {
+        x: side === 'right'
+          ? winLeft - charW * 0.3  // 身體大部分在視窗右邊，少量露出左邊
+          : winRight - charW * 0.7, // 身體大部分在視窗左邊，少量露出右邊
+        y: input.currentPosition.y, // 保持當前 Y
+      };
+      this.pendingPeek = { hwnd: target.hwnd, side };
+    } else {
+      // 螢幕邊緣 peek：隨機選左右
+      const side: 'left' | 'right' = Math.random() < 0.5 ? 'left' : 'right';
       this.walkTarget = {
         x: side === 'left'
-          ? target.x - input.characterBounds.width * 0.5
-          : target.x + target.width - input.characterBounds.width * 0.5,
-        y: target.y + target.height / 2 - input.characterBounds.height / 2,
+          ? sb.x - charW * 0.7     // 身體大部分超出螢幕左邊
+          : sb.x + sb.width - charW * 0.3, // 身體大部分超出螢幕右邊
+        y: input.currentPosition.y,
       };
-      this.enterState('peek');
-    } else {
-      this.enterState('idle');
+      this.pendingPeek = { hwnd: null, side };
     }
+
+    this.enterState('walk'); // 先走過去
   }
 
   private pickWalkTarget(input: BehaviorInput): void {
@@ -492,6 +523,7 @@ export class StateMachine {
       attachedWindowHwnd: this.attachedWindowHwnd,
       traversingWindowHwnd: null,
       peekTargetHwnd: this.peekTargetHwnd,
+      peekSide: this.peekSide,
     };
   }
 
