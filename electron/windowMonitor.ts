@@ -33,6 +33,9 @@ const WS_EX_NOACTIVATE = 0x08000000;
 /** DWM cloaked attribute — filters hidden Windows 11 system UI */
 const DWMWA_CLOAKED = 14;
 
+/** DWM extended frame bounds — returns visible rect excluding invisible resize border */
+const DWMWA_EXTENDED_FRAME_BOUNDS = 9;
+
 // koffi bindings (loaded lazily)
 let koffiLoaded = false;
 // WINRECT struct type registered in koffi (used by name in func signatures)
@@ -143,6 +146,18 @@ function enumerateWindows(ownHwnd: number): WindowRect[] {
               const rect = { left: 0, top: 0, right: 0, bottom: 0 };
               const grResult = GetWindowRectFn!(hwnd, rect);
               if (grResult !== 0) {
+                // 嘗試用 EXTENDED_FRAME_BOUNDS 取得實際可見邊界
+                // （排除 Windows 10/11 隱形 resize border ~7px/side）
+                // 失敗時（如 console 視窗）fallback 到 GetWindowRect 值
+                const frameBuf = Buffer.alloc(16);
+                const hr = DwmGetWindowAttribute!(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, frameBuf, 16);
+                if (hr === 0) {
+                  rect.left = frameBuf.readInt32LE(0);
+                  rect.top = frameBuf.readInt32LE(4);
+                  rect.right = frameBuf.readInt32LE(8);
+                  rect.bottom = frameBuf.readInt32LE(12);
+                }
+
                 const w = rect.right - rect.left;
                 const h = rect.bottom - rect.top;
 
