@@ -116,7 +116,7 @@ function createMainWindow(): BrowserWindow {
   return win;
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   // Register protocol handler for local file access
   // Converts local-file://C:/path/to/file.vrm to actual file reads
   protocol.handle('local-file', (request) => {
@@ -132,7 +132,7 @@ app.whenReady().then(() => {
   });
 
   // Ensure config directory exists
-  ensureConfigDir();
+  await ensureConfigDir();
 
   // Create main window
   mainWindow = createMainWindow();

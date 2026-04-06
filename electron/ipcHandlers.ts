@@ -32,7 +32,7 @@ export function registerIpcHandlers(
   });
 
   ipcMain.handle('write_config', (_event, config: fileManager.AppConfig) => {
-    fileManager.writeConfig(config);
+    return fileManager.writeConfig(config);
   });
 
   // ── Animation Meta ──
@@ -42,7 +42,7 @@ export function registerIpcHandlers(
   });
 
   ipcMain.handle('write_animation_meta', (_event, meta: fileManager.AnimationMeta) => {
-    fileManager.writeAnimationMeta(meta);
+    return fileManager.writeAnimationMeta(meta);
   });
 
   ipcMain.handle('scan_animations', (_event, folderPath: string) => {

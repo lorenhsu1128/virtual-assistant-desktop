@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 
@@ -70,11 +71,9 @@ function getAnimationMetaPath(): string {
 }
 
 /** Ensure config directory exists */
-export function ensureConfigDir(): void {
+export async function ensureConfigDir(): Promise<void> {
   const dir = getConfigDir();
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
+  await fsp.mkdir(dir, { recursive: true });
 }
 
 /** Check if config.json exists */
@@ -83,49 +82,52 @@ export function getConfigExists(): boolean {
 }
 
 /** Read config.json, auto-backup and recreate if corrupted */
-export function readConfig(): AppConfig {
+export async function readConfig(): Promise<AppConfig> {
   const configPath = getConfigPath();
 
-  if (!fs.existsSync(configPath)) {
+  try {
+    await fsp.access(configPath);
+  } catch {
     return { ...DEFAULT_CONFIG };
   }
 
   try {
-    const content = fs.readFileSync(configPath, 'utf-8');
+    const content = await fsp.readFile(configPath, 'utf-8');
     const parsed = JSON.parse(content) as Partial<AppConfig>;
-    // Merge with defaults to fill missing fields
     return { ...DEFAULT_CONFIG, ...parsed };
   } catch (e) {
     console.warn(`[FileManager] config.json corrupted: ${e}. Backing up and recreating.`);
     const backupPath = path.join(getConfigDir(), 'config.json.bak');
     try {
-      fs.copyFileSync(configPath, backupPath);
+      await fsp.copyFile(configPath, backupPath);
     } catch {
       // Backup might fail if original is unreadable
     }
     const defaultConfig = { ...DEFAULT_CONFIG };
-    writeConfig(defaultConfig);
+    await writeConfig(defaultConfig);
     return defaultConfig;
   }
 }
 
 /** Write config.json */
-export function writeConfig(config: AppConfig): void {
-  ensureConfigDir();
+export async function writeConfig(config: AppConfig): Promise<void> {
+  await ensureConfigDir();
   const content = JSON.stringify(config, null, 2);
-  fs.writeFileSync(getConfigPath(), content, 'utf-8');
+  await fsp.writeFile(getConfigPath(), content, 'utf-8');
 }
 
 /** Read animations.json */
-export function readAnimationMeta(): AnimationMeta {
+export async function readAnimationMeta(): Promise<AnimationMeta> {
   const metaPath = getAnimationMetaPath();
 
-  if (!fs.existsSync(metaPath)) {
+  try {
+    await fsp.access(metaPath);
+  } catch {
     return { folderPath: '', entries: [] };
   }
 
   try {
-    const content = fs.readFileSync(metaPath, 'utf-8');
+    const content = await fsp.readFile(metaPath, 'utf-8');
     return JSON.parse(content) as AnimationMeta;
   } catch (e) {
     console.warn(`[FileManager] animations.json parse error: ${e}`);
@@ -134,36 +136,43 @@ export function readAnimationMeta(): AnimationMeta {
 }
 
 /** Write animations.json */
-export function writeAnimationMeta(meta: AnimationMeta): void {
-  ensureConfigDir();
+export async function writeAnimationMeta(meta: AnimationMeta): Promise<void> {
+  await ensureConfigDir();
   const content = JSON.stringify(meta, null, 2);
-  fs.writeFileSync(getAnimationMetaPath(), content, 'utf-8');
+  await fsp.writeFile(getAnimationMetaPath(), content, 'utf-8');
 }
 
 /** Scan .vrm files in specified folder, returns full paths */
-export function scanVrmFiles(folderPath: string): string[] {
-  if (!fs.existsSync(folderPath) || !fs.statSync(folderPath).isDirectory()) {
+export async function scanVrmFiles(folderPath: string): Promise<string[]> {
+  try {
+    const stat = await fsp.stat(folderPath);
+    if (!stat.isDirectory()) return [];
+  } catch {
     return [];
   }
 
-  return fs.readdirSync(folderPath)
+  const entries = await fsp.readdir(folderPath);
+  return entries
     .filter((f) => f.toLowerCase().endsWith('.vrm'))
     .sort()
     .map((f) => path.join(folderPath, f));
 }
 
 /** Scan .vrma files in specified folder */
-export function scanVrmaFiles(folderPath: string): string[] {
-  if (!fs.existsSync(folderPath) || !fs.statSync(folderPath).isDirectory()) {
-    throw new Error(`Animation folder does not exist: ${folderPath}`);
+export async function scanVrmaFiles(folderPath: string): Promise<string[]> {
+  try {
+    const stat = await fsp.stat(folderPath);
+    if (!stat.isDirectory()) {
+      throw new Error(`Animation folder does not exist: ${folderPath}`);
+    }
+  } catch (e) {
+    throw new Error(`Animation folder does not exist: ${folderPath} (${e})`);
   }
 
-  const entries = fs.readdirSync(folderPath);
-  const files = entries
+  const entries = await fsp.readdir(folderPath);
+  return entries
     .filter((f) => f.toLowerCase().endsWith('.vrma'))
     .sort();
-
-  return files;
 }
 
 /** Sync scanned results with existing metadata */
@@ -194,10 +203,10 @@ export function syncAnimationMeta(
 }
 
 /** Scan animations folder and sync with metadata */
-export function scanAnimations(folderPath: string): AnimationMeta {
-  const scannedFiles = scanVrmaFiles(folderPath);
-  const existing = readAnimationMeta();
+export async function scanAnimations(folderPath: string): Promise<AnimationMeta> {
+  const scannedFiles = await scanVrmaFiles(folderPath);
+  const existing = await readAnimationMeta();
   const synced = syncAnimationMeta(folderPath, existing, scannedFiles);
-  writeAnimationMeta(synced);
+  await writeAnimationMeta(synced);
   return synced;
 }

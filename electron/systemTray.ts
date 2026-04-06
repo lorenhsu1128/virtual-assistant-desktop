@@ -93,9 +93,17 @@ export class SystemTray {
     ipcMain.on('menu_data_response', this.ipcHandler);
   }
 
+  /** 上一次選單資料的 hash（避免重複 rebuild） */
+  private lastDataHash = '';
+
   /** Rebuild the context menu from cached data */
   private rebuildMenu(): void {
     if (!this.tray) return;
+
+    // 比對資料是否變化，未變化時跳過 rebuild
+    const dataHash = JSON.stringify(this.cachedData);
+    if (dataHash === this.lastDataHash) return;
+    this.lastDataHash = dataHash;
 
     const data = this.cachedData;
     const template: Electron.MenuItemConstructorOptions[] = [];

@@ -110,6 +110,12 @@ export class SceneManager {
   /** 拖曳後維持最上方，直到前景視窗改變時清除 */
   private forceTopAfterDrag = false;
   private lastForegroundHwnd: number | null = null;
+  /** 每幀快取的模型尺寸（避免重複呼叫 getModelWorldSize） */
+  private cachedModelSize: { width: number; height: number } | null = null;
+  /** 每幀快取的遮擋/螢幕外比率（避免重複計算） */
+  private cachedOcclusionRatio = 0;
+  private cachedOffScreenRatio = 0;
+  private ratiosCachedThisFrame = false;
 
   /** 演出控制器（非 null 時演出進行中） */
   private cinematicRunner: CinematicRunner | null = null;
@@ -540,6 +546,23 @@ export class SceneManager {
   dispose(): void {
     this.stop();
     this.windowMeshManager?.dispose();
+    // 釋放共用 geometry/material
+    this.windowPlatformGeo?.dispose();
+    this.windowPlatformMat?.dispose();
+    this.edgePillarGeo?.dispose();
+    this.edgePillarMat?.dispose();
+    // 遍歷場景釋放所有 mesh 資源
+    this.scene.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        const mesh = child as THREE.Mesh;
+        mesh.geometry?.dispose();
+        if (Array.isArray(mesh.material)) {
+          mesh.material.forEach((m) => m.dispose());
+        } else if (mesh.material) {
+          mesh.material.dispose();
+        }
+      }
+    });
     this.renderer.dispose();
     this.scene.clear();
     window.removeEventListener('resize', this.onResize);
@@ -576,6 +599,10 @@ export class SceneManager {
 
     this.lastFrameTime = now - (delta % targetInterval);
     const deltaTime = Math.min(delta / 1000, 0.1); // cap at 100ms to avoid spiral
+
+    // 每幀快取模型尺寸（避免重複呼叫 getModelWorldSize 4 次）
+    this.cachedModelSize = this.vrmController?.getModelWorldSize() ?? null;
+    this.ratiosCachedThisFrame = false;
 
     // Debug 移動（Ctrl+方向鍵 global shortcut，debug mode 時有效）
     if (this.debugMoveDir) {
@@ -1164,7 +1191,7 @@ export class SceneManager {
   /** 角色超出 workArea 的方向（可見部分 < 20% 時回傳方向，否則 null） */
   private getOffScreenDirection(): string | null {
     if (!this.vrmController) return null;
-    const modelSize = this.vrmController.getModelWorldSize();
+    const modelSize = this.cachedModelSize;
     if (!modelSize) return null;
 
     const actualW = modelSize.width / this.pixelToWorld;
@@ -1192,10 +1219,30 @@ export class SceneManager {
     return dirs.length > 0 ? dirs.join('+') : 'YES';
   }
 
-  /** 角色超出螢幕的面積比率（0~1），使用模型實際尺寸（不含邊距） */
+  /** 確保遮擋/螢幕外比率在當幀已計算（懶計算，每幀最多一次） */
+  private ensureRatiosCached(): void {
+    if (this.ratiosCachedThisFrame) return;
+    this.cachedOffScreenRatio = this.computeOffScreenRatio();
+    this.cachedOcclusionRatio = this.computeOcclusionRatio();
+    this.ratiosCachedThisFrame = true;
+  }
+
+  /** 取得每幀快取的螢幕外比率 */
   private getOffScreenRatio(): number {
+    this.ensureRatiosCached();
+    return this.cachedOffScreenRatio;
+  }
+
+  /** 取得每幀快取的遮擋比率 */
+  private getOcclusionRatio(): number {
+    this.ensureRatiosCached();
+    return this.cachedOcclusionRatio;
+  }
+
+  /** 角色超出螢幕的面積比率（0~1），使用模型實際尺寸（不含邊距） */
+  private computeOffScreenRatio(): number {
     if (!this.vrmController) return 0;
-    const modelSize = this.vrmController.getModelWorldSize();
+    const modelSize = this.cachedModelSize;
     if (!modelSize) return 0;
 
     const actualW = modelSize.width / this.pixelToWorld;
@@ -1217,9 +1264,9 @@ export class SceneManager {
   }
 
   /** 角色螢幕位置被視窗覆蓋的最大比率（0~1），使用模型實際尺寸（不含邊距） */
-  private getOcclusionRatio(): number {
+  private computeOcclusionRatio(): number {
     if (!this.vrmController) return 0;
-    const modelSize = this.vrmController.getModelWorldSize();
+    const modelSize = this.cachedModelSize;
     if (!modelSize) return 0;
 
     // 使用模型實際尺寸（不含 characterSize 的 2.5x/1.3x 邊距）
@@ -1274,7 +1321,7 @@ export class SceneManager {
   /** 更新角色 bounding box 尺寸（基於模型實際可見大小） */
   private updateCharacterSize(): void {
     if (!this.vrmController) return;
-    const modelSize = this.vrmController.getModelWorldSize();
+    const modelSize = this.cachedModelSize;
     if (!modelSize) return;
 
     // getModelWorldSize() 已包含 model scale，不需再乘 this.scale

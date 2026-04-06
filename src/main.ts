@@ -15,6 +15,9 @@ import { analyzeWalkAnimation } from './animation/StepAnalyzer';
 import { mirrorAnimationClip } from './animation/AnimationMirror';
 import { WindowMeshManager } from './occlusion/WindowMeshManager';
 
+/** IPC 事件 unlisten 函式集合（beforeunload 時統一清除） */
+const cleanupFns: Array<(() => void) | undefined> = [];
+
 /**
  * 應用程式進入點
  *
@@ -357,10 +360,10 @@ async function initializeBehaviorSystem(
     sceneManager.setWindowMeshManager(windowMeshManager);
 
     // IPC 事件驅動：視窗佈局變化時同步 mesh
-    ipc.onWindowLayoutChanged((rects) => {
+    cleanupFns.push(await ipc.onWindowLayoutChanged((rects) => {
       sceneManager.updateCachedWindowRects(rects);
       windowMeshManager.syncWindows(rects);
-    });
+    }));
 
     // 啟動時取得初始視窗清單
     ipc.getWindowList().then((rects) => {
@@ -485,12 +488,12 @@ async function initializeBehaviorSystem(
   pushTrayMenuData();
 
   // ── Debug 移動（Ctrl+方向鍵） ──
-  await ipc.onDebugMove((direction) => {
+  cleanupFns.push(await ipc.onDebugMove((direction) => {
     sceneManager.debugMove(direction);
-  });
+  }));
 
   // ── 系統托盤事件 ──
-  await ipc.onTrayAction((actionId) => {
+  cleanupFns.push(await ipc.onTrayAction((actionId) => {
     switch (actionId) {
       case 'toggle_debug':
         debugOverlay.setEnabled(!debugOverlay.isEnabled());
@@ -586,12 +589,13 @@ async function initializeBehaviorSystem(
     }
     // 每次動作後更新托盤選單狀態
     pushTrayMenuData();
-  });
+  }));
 
   // 清理函式
   window.addEventListener('beforeunload', () => {
     hitTestManager.dispose();
     dragHandler.dispose();
+    cleanupFns.forEach((fn) => fn?.());
     debugOverlay.dispose();
     sceneManager.dispose();
   });

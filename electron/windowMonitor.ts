@@ -104,6 +104,11 @@ function ensureKoffi(): boolean {
  *
  * Walks the window chain: GetDesktopWindow → GW_CHILD → GW_HWNDNEXT loop.
  */
+/** 預配置 Buffer（避免每次 poll 重新配置） */
+const reusableCloakedBuf = Buffer.alloc(4);
+const reusableFrameBuf = Buffer.alloc(16);
+const reusableTitleBuf = Buffer.alloc(1024 * 2); // 最大 ~512 字元
+
 function enumerateWindows(ownHwnd: number): WindowRect[] {
   if (!ensureKoffi()) return [];
 
@@ -136,9 +141,9 @@ function enumerateWindows(ownHwnd: number): WindowRect[] {
             const isNoActivate = (exStyle & WS_EX_NOACTIVATE) !== 0;
 
             // Check DWM cloaked state (hidden Windows 11 system UI like 搜尋, 開始, etc.)
-            const cloakedBuf = Buffer.alloc(4);
-            DwmGetWindowAttribute!(hwnd, DWMWA_CLOAKED, cloakedBuf, 4);
-            const isCloaked = cloakedBuf.readUInt32LE(0) !== 0;
+            reusableCloakedBuf.fill(0);
+            DwmGetWindowAttribute!(hwnd, DWMWA_CLOAKED, reusableCloakedBuf, 4);
+            const isCloaked = reusableCloakedBuf.readUInt32LE(0) !== 0;
 
             // Skip: cloaked, tool windows (unless APPWINDOW), non-activatable, owned without APPWINDOW
             const skip = isCloaked || (isToolWindow && !isAppWindow) || isNoActivate || (hasOwner && !isAppWindow);
@@ -149,13 +154,13 @@ function enumerateWindows(ownHwnd: number): WindowRect[] {
                 // 嘗試用 EXTENDED_FRAME_BOUNDS 取得實際可見邊界
                 // （排除 Windows 10/11 隱形 resize border ~7px/side）
                 // 失敗時（如 console 視窗）fallback 到 GetWindowRect 值
-                const frameBuf = Buffer.alloc(16);
-                const hr = DwmGetWindowAttribute!(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, frameBuf, 16);
+                reusableFrameBuf.fill(0);
+                const hr = DwmGetWindowAttribute!(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, reusableFrameBuf, 16);
                 if (hr === 0) {
-                  rect.left = frameBuf.readInt32LE(0);
-                  rect.top = frameBuf.readInt32LE(4);
-                  rect.right = frameBuf.readInt32LE(8);
-                  rect.bottom = frameBuf.readInt32LE(12);
+                  rect.left = reusableFrameBuf.readInt32LE(0);
+                  rect.top = reusableFrameBuf.readInt32LE(4);
+                  rect.right = reusableFrameBuf.readInt32LE(8);
+                  rect.bottom = reusableFrameBuf.readInt32LE(12);
                 }
 
                 const w = rect.right - rect.left;
@@ -163,12 +168,12 @@ function enumerateWindows(ownHwnd: number): WindowRect[] {
 
                 if (w > 0 && h > 0 && w <= 8000 && h <= 8000) {
                   const titleLen = GetWindowTextLengthW!(hwnd);
-                  if (titleLen > 0) {
+                  if (titleLen > 0 && titleLen < 512) {
                     const bufSize = titleLen + 1;
-                    const titleBuf = Buffer.alloc(bufSize * 2);
-                    const actualLen = GetWindowTextW!(hwnd, titleBuf, bufSize);
+                    reusableTitleBuf.fill(0, 0, bufSize * 2);
+                    const actualLen = GetWindowTextW!(hwnd, reusableTitleBuf, bufSize);
                     if (actualLen > 0) {
-                      const title = titleBuf.toString('utf16le', 0, actualLen * 2);
+                      const title = reusableTitleBuf.toString('utf16le', 0, actualLen * 2);
                       if (title) {
                         results.push({
                           hwnd,

@@ -325,10 +325,13 @@ export class VRMController {
     return VRMController._tempWorldPos.y - this.vrm.scene.position.y;
   }
 
+  /** 重複使用的 Box3（避免每幀配置新物件） */
+  private static readonly _tempBox3 = new THREE.Box3();
+
   /** 取得模型的世界空間包圍盒尺寸 */
   getModelWorldSize(): { width: number; height: number } | null {
     if (!this.vrm) return null;
-    const box = new THREE.Box3().setFromObject(this.vrm.scene);
+    const box = VRMController._tempBox3.setFromObject(this.vrm.scene);
     return {
       width: box.max.x - box.min.x,
       height: box.max.y - box.min.y,
@@ -370,6 +373,18 @@ export class VRMController {
    */
   dispose(): void {
     if (this.vrm) {
+      // 遍歷所有子 mesh，釋放 geometry 和 material（防止 GPU 記憶體洩漏）
+      this.vrm.scene.traverse((child) => {
+        if ((child as THREE.Mesh).isMesh) {
+          const mesh = child as THREE.Mesh;
+          mesh.geometry?.dispose();
+          if (Array.isArray(mesh.material)) {
+            mesh.material.forEach((m) => m.dispose());
+          } else {
+            mesh.material?.dispose();
+          }
+        }
+      });
       this.scene.remove(this.vrm.scene);
       this.vrm = null;
     }
