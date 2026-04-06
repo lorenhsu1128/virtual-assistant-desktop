@@ -12,6 +12,7 @@ import type { TrayMenuData } from './types/tray';
 import { ExpressionManager } from './expression/ExpressionManager';
 import { DebugOverlay } from './debug/DebugOverlay';
 import { analyzeWalkAnimation } from './animation/StepAnalyzer';
+import { mirrorAnimationClip } from './animation/AnimationMirror';
 import { WindowMeshManager } from './occlusion/WindowMeshManager';
 
 /**
@@ -255,16 +256,25 @@ async function initializeApp(config: AppConfig, appPath: string): Promise<void> 
       const sitFile = `SYS_SIT_${String(i).padStart(2, '0')}.vrma`;
       await animationManager.loadSystemAnimation(sitName, `${sysVrmaDir}/${sitFile}`);
     }
-    // 載入 peek 動畫（左右探頭）
+    // 載入 peek 動畫（左探頭）+ runtime mirror 產生右探頭
     await animationManager.loadSystemAnimation(
       'hide_show_loop_left',
       `${sysVrmaDir}/SYS_HIDE_SHOW_LOOP_LEFT.vrma`,
     );
-    await animationManager.loadSystemAnimation(
-      'hide_show_loop_right',
-      `${sysVrmaDir}/SYS_HIDE_SHOW_LOOP_RIGHT.vrma`,
-    );
-    debugLog('System animations loaded (drag, walk, sit_01~07, hide_show_loop_left/right)');
+    const leftPeekClip = animationManager.getSystemAnimationClip('hide_show_loop_left');
+    const boneMapping = vrmController.getHumanoidBoneMapping();
+    if (leftPeekClip && boneMapping) {
+      const rightPeekClip = mirrorAnimationClip(leftPeekClip, boneMapping);
+      animationManager.registerSystemAnimationClip('hide_show_loop_right', rightPeekClip);
+      debugLog('System animations loaded (drag, walk, sit_01~07, hide_show_loop_left + mirrored right)');
+    } else {
+      // Fallback：mirror 失敗時載入預製檔案
+      await animationManager.loadSystemAnimation(
+        'hide_show_loop_right',
+        `${sysVrmaDir}/SYS_HIDE_SHOW_LOOP_RIGHT.vrma`,
+      );
+      debugLog('System animations loaded (drag, walk, sit_01~07, hide_show_loop_left/right from files)');
+    }
 
     // 步伐分析：從行走動畫計算擬真移動速度
     const walkClip = animationManager.getSystemAnimationClip('walk');

@@ -162,6 +162,17 @@ export class AnimationManager {
   }
 
   /**
+   * 註冊預建的系統動畫 clip
+   *
+   * 用於 runtime 產生的動畫（如鏡像版本），不需要從檔案載入。
+   * @param name 系統動畫識別名稱
+   * @param clip 預建的 AnimationClip
+   */
+  registerSystemAnimationClip(name: string, clip: THREE.AnimationClip): void {
+    this.systemAnimations.set(name, clip);
+  }
+
+  /**
    * 播放系統動畫
    *
    * 自動保存當前動畫狀態，結束後可恢復。

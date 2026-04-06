@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { VRMLoaderPlugin, VRM } from '@pixiv/three-vrm';
 import { VRMAnimationLoaderPlugin, VRMAnimation, createVRMAnimationClip } from '@pixiv/three-vrm-animation';
+import type { BoneMapping } from '../animation/AnimationMirror';
 
 /**
  * VRM 模型控制器
@@ -188,6 +189,49 @@ export class VRMController {
     }
 
     return this._boneScreenCache;
+  }
+
+  /**
+   * 取得 VRM humanoid bone name ↔ node name 雙向映射
+   *
+   * 供 AnimationMirror 等外部模組使用，避免直接依賴 @pixiv/three-vrm。
+   * 回傳 null 表示模型尚未載入。
+   */
+  getHumanoidBoneMapping(): BoneMapping | null {
+    if (!this.vrm?.humanoid) return null;
+
+    const nodeNameToBone = new Map<string, string>();
+    const boneToNodeName = new Map<string, string>();
+
+    // 遍歷所有 VRM humanoid bone names
+    const boneNames = [
+      'hips', 'spine', 'chest', 'upperChest', 'neck', 'head', 'jaw',
+      'leftEye', 'rightEye',
+      'leftUpperLeg', 'leftLowerLeg', 'leftFoot', 'leftToes',
+      'rightUpperLeg', 'rightLowerLeg', 'rightFoot', 'rightToes',
+      'leftShoulder', 'leftUpperArm', 'leftLowerArm', 'leftHand',
+      'rightShoulder', 'rightUpperArm', 'rightLowerArm', 'rightHand',
+      'leftThumbMetacarpal', 'leftThumbProximal', 'leftThumbDistal',
+      'leftIndexProximal', 'leftIndexIntermediate', 'leftIndexDistal',
+      'leftMiddleProximal', 'leftMiddleIntermediate', 'leftMiddleDistal',
+      'leftRingProximal', 'leftRingIntermediate', 'leftRingDistal',
+      'leftLittleProximal', 'leftLittleIntermediate', 'leftLittleDistal',
+      'rightThumbMetacarpal', 'rightThumbProximal', 'rightThumbDistal',
+      'rightIndexProximal', 'rightIndexIntermediate', 'rightIndexDistal',
+      'rightMiddleProximal', 'rightMiddleIntermediate', 'rightMiddleDistal',
+      'rightRingProximal', 'rightRingIntermediate', 'rightRingDistal',
+      'rightLittleProximal', 'rightLittleIntermediate', 'rightLittleDistal',
+    ] as const;
+
+    for (const boneName of boneNames) {
+      const node = this.vrm.humanoid.getNormalizedBoneNode(boneName);
+      if (node) {
+        nodeNameToBone.set(node.name, boneName);
+        boneToNodeName.set(boneName, node.name);
+      }
+    }
+
+    return { nodeNameToBone, boneToNodeName };
   }
 
   /**
