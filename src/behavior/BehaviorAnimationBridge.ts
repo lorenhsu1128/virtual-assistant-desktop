@@ -81,12 +81,10 @@ export class BehaviorAnimationBridge {
       return;
     }
 
-    // 檢查是否需要系統動畫
+    // 檢查是否需要系統動畫（stateChanged 已在上方過濾，直接播放）
     const systemAnim = STATE_TO_SYSTEM_ANIMATION[output.currentState];
     if (systemAnim) {
-      if (!this.animationManager.isSystemAnimationPlaying()) {
-        this.animationManager.playSystemAnimation(systemAnim);
-      }
+      this.animationManager.playSystemAnimation(systemAnim);
       return;
     }
 
