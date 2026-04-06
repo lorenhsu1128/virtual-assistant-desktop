@@ -1,4 +1,5 @@
 import type { AnimationManager } from '../animation/AnimationManager';
+import type { StateMachine } from './StateMachine';
 import type { BehaviorOutput, BehaviorState } from '../types/behavior';
 import type { AnimationCategory } from '../types/animation';
 
@@ -7,6 +8,7 @@ const STATE_TO_CATEGORY: Record<BehaviorState, AnimationCategory> = {
   idle: 'idle',
   walk: 'idle', // walk 由系統動畫處理，fallback 到 idle
   sit: 'sit',
+  hide: 'idle', // hide 時角色不可見，動畫不重要
   peek: 'peek',
   fall: 'fall',
   drag: 'idle', // drag 由系統動畫處理，fallback 到 idle
@@ -34,11 +36,13 @@ const SIT_ANIMATION_NAMES = [
  */
 export class BehaviorAnimationBridge {
   private animationManager: AnimationManager;
+  private stateMachine: StateMachine | null;
   /** 最新的 peekSide（用於系統動畫選擇） */
   private lastPeekSide: 'left' | 'right' | null = null;
 
-  constructor(animationManager: AnimationManager) {
+  constructor(animationManager: AnimationManager, stateMachine?: StateMachine) {
     this.animationManager = animationManager;
+    this.stateMachine = stateMachine ?? null;
   }
 
   /**
@@ -55,12 +59,18 @@ export class BehaviorAnimationBridge {
 
     if (!output.stateChanged) return;
 
-    // peek 狀態：根據 peekSide 選擇左右系統動畫
+    // peek 狀態：根據 peekSide 選擇左右系統動畫，用 clip duration 設定狀態持續時間
     if (output.currentState === 'peek' && this.lastPeekSide) {
       const peekAnim = this.lastPeekSide === 'left'
         ? 'hide_show_loop_left'
         : 'hide_show_loop_right';
-      this.animationManager.playSystemAnimation(peekAnim, true, 0.5);
+      this.animationManager.playSystemAnimation(peekAnim, false, 0.5);
+
+      // 用實際動畫長度覆蓋 StateMachine 的 peek duration
+      const clip = this.animationManager.getSystemAnimationClip(peekAnim);
+      if (clip && this.stateMachine) {
+        this.stateMachine.setStateDuration(clip.duration);
+      }
       return;
     }
 

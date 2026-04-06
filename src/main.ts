@@ -256,22 +256,22 @@ async function initializeApp(config: AppConfig, appPath: string): Promise<void> 
       const sitFile = `SYS_SIT_${String(i).padStart(2, '0')}.vrma`;
       await animationManager.loadSystemAnimation(sitName, `${sysVrmaDir}/${sitFile}`);
     }
-    // 載入 peek 動畫（左探頭）+ runtime mirror 產生右探頭
+    // 載入 peek 動畫（右探頭讀檔）+ runtime mirror 產生左探頭
     await animationManager.loadSystemAnimation(
-      'hide_show_loop_left',
-      `${sysVrmaDir}/SYS_HIDE_SHOW_LOOP_LEFT.vrma`,
+      'hide_show_loop_right',
+      `${sysVrmaDir}/SYS_HIDE_SHOW_LOOP_RIGHT.vrma`,
     );
-    const leftPeekClip = animationManager.getSystemAnimationClip('hide_show_loop_left');
+    const rightPeekClip = animationManager.getSystemAnimationClip('hide_show_loop_right');
     const boneMapping = vrmController.getHumanoidBoneMapping();
-    if (leftPeekClip && boneMapping) {
-      const rightPeekClip = mirrorAnimationClip(leftPeekClip, boneMapping);
-      animationManager.registerSystemAnimationClip('hide_show_loop_right', rightPeekClip);
-      debugLog('System animations loaded (drag, walk, sit_01~07, hide_show_loop_left + mirrored right)');
+    if (rightPeekClip && boneMapping) {
+      const leftPeekClip = mirrorAnimationClip(rightPeekClip, boneMapping);
+      animationManager.registerSystemAnimationClip('hide_show_loop_left', leftPeekClip);
+      debugLog('System animations loaded (drag, walk, sit_01~07, hide_show_loop_right + mirrored left)');
     } else {
       // Fallback：mirror 失敗時載入預製檔案
       await animationManager.loadSystemAnimation(
-        'hide_show_loop_right',
-        `${sysVrmaDir}/SYS_HIDE_SHOW_LOOP_RIGHT.vrma`,
+        'hide_show_loop_left',
+        `${sysVrmaDir}/SYS_HIDE_SHOW_LOOP_LEFT.vrma`,
       );
       debugLog('System animations loaded (drag, walk, sit_01~07, hide_show_loop_left/right from files)');
     }
@@ -382,7 +382,7 @@ async function initializeBehaviorSystem(
 
   // BehaviorAnimationBridge
   if (animationManager) {
-    const bridge = new BehaviorAnimationBridge(animationManager);
+    const bridge = new BehaviorAnimationBridge(animationManager, stateMachine);
     sceneManager.setBehaviorAnimationBridge(bridge);
   }
 

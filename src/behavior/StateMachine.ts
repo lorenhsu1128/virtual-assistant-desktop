@@ -129,6 +129,16 @@ export class StateMachine {
     return this.paused;
   }
 
+  /**
+   * 覆蓋當前狀態的持續時間
+   *
+   * 供 BehaviorAnimationBridge 在播放動畫後設定為實際 clip duration，
+   * 確保動畫完整播放。
+   */
+  setStateDuration(duration: number): void {
+    this.stateDuration = duration;
+  }
+
   /** 設定移動速率倍率 */
   setSpeedMultiplier(multiplier: number): void {
     this.speedMultiplier = multiplier;
@@ -577,10 +587,8 @@ export class StateMachine {
         this.stateDuration = 10; // 安全超時
         break;
       case 'peek':
-        this.stateDuration = this.randomRange(
-          this.config.peekDurationMin,
-          this.config.peekDurationMax,
-        );
+        // 預設用 config 值，BehaviorAnimationBridge 會覆蓋為實際動畫長度
+        this.stateDuration = this.config.peekDurationMax;
         break;
       case 'fall':
         this.stateDuration = 2; // fall 最長 2 秒
