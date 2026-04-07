@@ -548,8 +548,9 @@ export class SceneManager {
     // 暫停自主移動
     this.stateMachine?.pause();
 
-    // 取得可用表情清單
+    // 取得可用表情清單與動態 head height ratio
     const expressions = this.vrmController?.getBlendShapes() ?? [];
+    const headHeightRatio = this.vrmController?.getHeadHeightRatio() ?? 0.22;
 
     // 建立演出控制器
     this.cinematicRunner = new CinematicRunner({
@@ -561,6 +562,7 @@ export class SceneManager {
       originalScale: this.scale,
       availableExpressions: expressions,
       desiredMaxScale: 6.0,
+      headHeightRatio,
     });
 
     // 播放 walk 動畫

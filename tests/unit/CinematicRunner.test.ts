@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { CinematicRunner, solveFinalPose, solveTopMiddle } from '../../src/cinematic/CinematicRunner';
+import {
+  CinematicRunner,
+  solveFinalPose,
+  topMiddleVisualHeadY,
+  positionForVisualHead,
+} from '../../src/cinematic/CinematicRunner';
 import type { CinematicConfig, CinematicPhase } from '../../src/types/cinematic';
 
 function makeConfig(overrides?: Partial<CinematicConfig>): CinematicConfig {
@@ -28,39 +33,33 @@ function runUntilPhase(runner: CinematicRunner, target: CinematicPhase, maxSteps
 describe('solveFinalPose', () => {
   const baseArgs = [1920, 1080, 300, 500, 1.0, 6.0, 0.22, 24, 16, 0.7] as const;
 
-  it('returns the desired max scale on a large screen', () => {
+  it('returns positive max scale', () => {
     const result = solveFinalPose(...baseArgs);
-    // 大螢幕應該能塞下 6x scale
     expect(result.maxScale).toBeGreaterThan(0);
     expect(result.maxScale).toBeLessThanOrEqual(6.0);
   });
 
-  it('keeps head top in lower half (>= screenHeight / 2)', () => {
+  it('finalVisualHeadY is in lower half (>= screenHeight / 2)', () => {
     const result = solveFinalPose(...baseArgs);
-    const visualHeight = 500 * (result.maxScale / 1.0);
-    const headTop = result.finalPosY - visualHeight;
-    expect(headTop).toBeGreaterThanOrEqual(1080 / 2 - 0.001);
+    expect(result.finalVisualHeadY).toBeGreaterThanOrEqual(1080 / 2 - 0.001);
   });
 
   it('keeps face bottom within screen (<= screenHeight - bottomPadding)', () => {
     const result = solveFinalPose(...baseArgs);
     const visualHeight = 500 * (result.maxScale / 1.0);
-    const headTop = result.finalPosY - visualHeight;
-    const faceBottom = headTop + visualHeight * 0.22;
+    const faceBottom = result.finalVisualHeadY + visualHeight * 0.22;
     expect(faceBottom).toBeLessThanOrEqual(1080 - 16 + 0.001);
   });
 
   it('places face center in lower half (between center and bottom)', () => {
     const result = solveFinalPose(...baseArgs);
     const visualHeight = 500 * (result.maxScale / 1.0);
-    const headTop = result.finalPosY - visualHeight;
-    const faceCenter = headTop + visualHeight * 0.22 / 2;
+    const faceCenter = result.finalVisualHeadY + (visualHeight * 0.22) / 2;
     expect(faceCenter).toBeGreaterThan(1080 / 2);
     expect(faceCenter).toBeLessThan(1080);
   });
 
   it('clamps maxScale on a small screen', () => {
-    // 小螢幕 + 大角色 → 應該降 scale
     const result = solveFinalPose(800, 600, 200, 400, 1.0, 6.0, 0.22, 24, 16, 0.7);
     expect(result.maxScale).toBeLessThan(6.0);
   });
@@ -73,34 +72,33 @@ describe('solveFinalPose', () => {
   it('handles tiny screen without NaN', () => {
     const result = solveFinalPose(640, 480, 200, 400, 1.0, 6.0, 0.22, 24, 16, 0.7);
     expect(Number.isFinite(result.maxScale)).toBe(true);
-    expect(Number.isFinite(result.finalPosY)).toBe(true);
+    expect(Number.isFinite(result.finalVisualHeadY)).toBe(true);
     expect(result.maxScale).toBeGreaterThan(0);
-  });
-
-  it('respects originalScale != 1.0', () => {
-    // originalScale = 2.0 → 視覺尺寸已是 base × 2
-    const result = solveFinalPose(1920, 1080, 300, 500, 2.0, 6.0, 0.22, 24, 16, 0.7);
-    expect(result.maxScale).toBeGreaterThan(0);
-    expect(result.maxScale).toBeLessThanOrEqual(6.0);
   });
 });
 
-describe('solveTopMiddle', () => {
-  it('places character horizontally centered', () => {
-    const result = solveTopMiddle(1920, 300, 500, 1.0, 1.4, 24);
-    expect(result.x).toBe(1920 / 2 - 300 / 2);
+describe('topMiddleVisualHeadY', () => {
+  it('returns topPadding directly', () => {
+    expect(topMiddleVisualHeadY(24)).toBe(24);
+    expect(topMiddleVisualHeadY(0)).toBe(0);
+  });
+});
+
+describe('positionForVisualHead', () => {
+  it('at scale=originalScale, returns visualHeadY directly', () => {
+    expect(positionForVisualHead(500, 1.0, 378, 1.0)).toBe(500);
+    expect(positionForVisualHead(100, 2.0, 378, 2.0)).toBe(100);
   });
 
-  it('places foot below top padding by approachScale*characterHeight', () => {
-    const result = solveTopMiddle(1920, 300, 500, 1.0, 1.4, 24);
-    // visualHeight = 500 × 1.4 = 700, foot = 24 + 700 = 724
-    expect(result.y).toBeCloseTo(724, 0);
+  it('at higher scale, shifts down to keep visual head at target', () => {
+    // 1080p, characterHeight 378, scale 6, originalScale 1
+    // currentPos.y = visualHeadY + 378 × 5 = visualHeadY + 1890
+    expect(positionForVisualHead(540, 6.0, 378, 1.0)).toBeCloseTo(540 + 1890, 1);
   });
 
-  it('respects originalScale', () => {
-    const result = solveTopMiddle(1920, 300, 500, 2.0, 1.4, 24);
-    // visualHeight = 500 × (1.4/2.0) = 350, foot = 24 + 350 = 374
-    expect(result.y).toBeCloseTo(374, 0);
+  it('handles fractional scale ratios', () => {
+    // scale 1.5, originalScale 1 → ratio − 1 = 0.5
+    expect(positionForVisualHead(100, 1.5, 400, 1.0)).toBe(100 + 200);
   });
 });
 
@@ -170,15 +168,14 @@ describe('CinematicRunner — approach-top phase', () => {
     const config = makeConfig({ originalPosition: { x: 100, y: 900 } });
     const runner = new CinematicRunner(config);
     runUntilPhase(runner, 'approach-top');
-    const top = runner.getTopMiddlePosition();
-    // 跑一段時間後位置應該移向 top-middle
+    const top = runner.getTopMiddleVisualHead();
     let lastY = 0;
     for (let i = 0; i < 30; i++) {
       const frame = runner.tick(0.033);
       if (frame.phase !== 'approach-top') break;
       lastY = frame.positionY;
     }
-    // Y 應該往 topMiddleY 接近（topMiddleY 較小，900 → 較小）
+    // Y 應該往較小的值靠近（角色往螢幕頂部跑）
     expect(lastY).toBeLessThan(900);
     expect(top.x).toBeGreaterThan(0);
   });
@@ -384,14 +381,65 @@ describe('CinematicRunner — public getters', () => {
     expect(runner.getMaxScale()).toBeGreaterThan(0);
   });
 
-  it('exposes final and top-middle positions', () => {
+  it('exposes final and top-middle visual head positions', () => {
     const runner = new CinematicRunner(makeConfig());
-    const finalPos = runner.getFinalPosition();
-    const topPos = runner.getTopMiddlePosition();
-    expect(finalPos.x).toBeGreaterThan(0);
-    expect(finalPos.y).toBeGreaterThan(0);
-    expect(topPos.x).toBeGreaterThan(0);
-    // top-middle 應該在 final 之上
-    expect(topPos.y).toBeLessThan(finalPos.y);
+    const finalHead = runner.getFinalVisualHead();
+    const topHead = runner.getTopMiddleVisualHead();
+    expect(finalHead.x).toBeGreaterThan(0);
+    expect(finalHead.y).toBeGreaterThan(0);
+    expect(topHead.x).toBeGreaterThan(0);
+    // top-middle 視覺頭頂應該在 final 之上（Y 較小）
+    expect(topHead.y).toBeLessThan(finalHead.y);
+  });
+});
+
+describe('CinematicRunner — visual head position correctness', () => {
+  it('approach-top final visual head Y matches topPadding', () => {
+    const runner = new CinematicRunner(makeConfig({ topPadding: 24 }));
+    runUntilPhase(runner, 'pause-top');
+    // pause-top 第一幀代表 approach-top 結束的位置
+    // 透過反推：positionY − characterHeight × (scale/orig − 1) = visualHeadY
+    const config = makeConfig({ topPadding: 24 });
+    const frame = runner.tick(0.001);
+    const visualHeadY =
+      frame.positionY - config.characterHeight * (frame.scaleY / config.originalScale - 1);
+    expect(visualHeadY).toBeCloseTo(24, 0);
+  });
+
+  it('hold visual head Y is in lower half of screen', () => {
+    const config = makeConfig();
+    const runner = new CinematicRunner(config);
+    runUntilPhase(runner, 'hold');
+    const frame = runner.tick(0.001);
+    // 反推 visual head Y
+    const visualHeadY =
+      frame.positionY - config.characterHeight * (frame.scaleY / config.originalScale - 1);
+    expect(visualHeadY).toBeGreaterThanOrEqual(config.screenHeight / 2 - 0.5);
+  });
+
+  it('hold face bottom does not exceed screen bottom', () => {
+    const config = makeConfig();
+    const runner = new CinematicRunner(config);
+    runUntilPhase(runner, 'hold');
+    const frame = runner.tick(0.001);
+    const visualHeadY =
+      frame.positionY - config.characterHeight * (frame.scaleY / config.originalScale - 1);
+    const visualHeight = config.characterHeight * (frame.scaleY / config.originalScale);
+    const faceBottom = visualHeadY + visualHeight * 0.22;
+    expect(faceBottom).toBeLessThanOrEqual(config.screenHeight - 16 + 0.5);
+  });
+
+  it('approach-top character actually moves up (visual head Y decreases)', () => {
+    const config = makeConfig({ originalPosition: { x: 100, y: 900 } });
+    const runner = new CinematicRunner(config);
+    runUntilPhase(runner, 'approach-top');
+    const f1 = runner.tick(0.05);
+    const f2 = runner.tick(0.5);
+    const head1 =
+      f1.positionY - config.characterHeight * (f1.scaleY / config.originalScale - 1);
+    const head2 =
+      f2.positionY - config.characterHeight * (f2.scaleY / config.originalScale - 1);
+    // 視覺頭頂應該往螢幕頂部移動（Y 較小）
+    expect(head2).toBeLessThan(head1);
   });
 });

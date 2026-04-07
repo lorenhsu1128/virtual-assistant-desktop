@@ -96,13 +96,19 @@ export interface CinematicConfig {
 /**
  * solveFinalPose 輸出
  *
- * 解出的最終定格 scale 與 Y 座標，保證頭部在螢幕內且面部位於下半部。
+ * 解出的最終定格 scale 與「視覺頭頂 Y」，保證頭部完全在螢幕下半部。
+ *
+ * 注意：finalVisualHeadY 是視覺上頭頂在螢幕的 Y 座標（像素，0 = 螢幕頂）。
+ * 將其轉成 SceneManager 用的 currentPosition.y 必須透過
+ *   positionForVisualHead(visualHeadY, scale, characterHeight, originalScale)
+ * 因為 currentPosition.y 是 bbox 左上角，且 SceneManager 用的是「演出前快取的
+ * characterSize」與當前 frame.scale 的比例做計算。
  */
 export interface FinalPoseSolution {
   /** 實際使用的最大 scale（可能小於 desiredMaxScale 以避免超出螢幕） */
   maxScale: number;
-  /** 最終腳底 Y 座標 */
-  finalPosY: number;
+  /** 最終視覺頭頂 Y 座標（像素） */
+  finalVisualHeadY: number;
   /** 最終 X 座標（螢幕水平置中） */
   finalPosX: number;
 }
