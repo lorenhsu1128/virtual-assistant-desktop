@@ -16,7 +16,7 @@ export class VRMController {
   private scene: THREE.Scene;
   private loader: GLTFLoader;
 
-  // ── Hip 跨幀平滑（階段 B）──
+  // ── Hip 跨幀平滑（階段 B）+ SpringBone 過渡保護（Layer 6）──
   /** 平滑後的 hip 世界座標（用於吸收動畫切換造成的瞬間跳變） */
   private smoothedHipsWorld = new THREE.Vector3();
   /** 平滑狀態是否已初始化（首次或載入新模型後重置） */
@@ -29,6 +29,12 @@ export class VRMController {
   private static readonly HIP_NEAR_THRESHOLD = 0.05; // 5 cm
   private static readonly HIP_RATE_NEAR = 18;
   private static readonly HIP_RATE_FAR = 4;
+  /**
+   * 大幅跳變閾值（公尺）：超過此距離時呼叫 vrm.springBoneManager.reset()
+   * 把頭髮 / 衣物等 SpringBone 快照到當前 bind pose 並清零速度，
+   * 避免動畫切換的瞬間位移被當成物理外力造成「彈跳」。
+   */
+  private static readonly HIP_LARGE_JUMP = 0.3; // 30 cm
 
   /** 取得 VRM 實例（供 SceneManager 計算 bounding box） */
   getVRM(): VRM | null {
@@ -440,6 +446,14 @@ export class VRMController {
 
     // smoothed 朝 actual 追上
     this.smoothedHipsWorld.lerp(VRMController._tempWorldPos, lerpFactor);
+
+    // Layer 6：大幅跳變時重置 SpringBone，避免頭髮/衣物彈跳
+    // 即使 hip 平滑（階段 B）將視覺位移分散到多幀，SpringBone 仍會把每幀的
+    // 位移當成物理外力造成擺動。重置會把所有 spring tail 快照到當前 bind pose
+    // 並清零 verlet 速度，下幀 SpringBone 從穩定狀態繼續模擬。
+    if (dist > VRMController.HIP_LARGE_JUMP) {
+      this.vrm.springBoneManager?.reset();
+    }
 
     // 套用補償：vrm.scene.position += (smoothed - actual)
     // 結果：渲染時 hip 位置 = actual + (smoothed - actual) = smoothed
