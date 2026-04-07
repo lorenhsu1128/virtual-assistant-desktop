@@ -58,7 +58,9 @@ export class SceneManager {
   private static readonly WINDOW_LIST_INTERVAL = 1000;
   /** 步伐分析結果（步伐長度，世界單位，scale=1 基準） */
   private analyzedStepLength = 0;
-  /** 基礎移動速度（px/s，scale=1 基準，來自步伐分析） */
+  /** 行走動畫的世界移動速度（世界單位/秒，scale=1 基準，來自步伐分析） */
+  private walkWorldSpeed = 0;
+  /** 基礎移動速度（px/s，已乘 baseScale，供 debug 顯示） */
   private baseMoveSpeed = 60;
 
   // 角色位置管理（全螢幕模式：角色在 canvas 內移動，視窗不動）
@@ -251,6 +253,8 @@ export class SceneManager {
   /** 設定 StateMachine (v0.2) */
   setStateMachine(sm: StateMachine): void {
     this.stateMachine = sm;
+    // 若步伐分析已完成，立即推入當前 baseScale 對應的 moveSpeed
+    this.applyMoveSpeedToStateMachine();
   }
 
   /** 設定 Debug Overlay */
@@ -333,10 +337,32 @@ export class SceneManager {
     return this.currentPosition.y + this.characterSize.height * 0.6;
   }
 
-  /** 設定步伐分析結果（供 debug overlay 顯示） */
-  setStepAnalysis(stepLength: number, baseMoveSpeed: number): void {
+  /**
+   * 設定步伐分析結果
+   *
+   * @param stepLength 步伐長度（世界單位，scale=1 基準）
+   * @param worldSpeed 行走動畫的世界移動速度（世界單位/秒，scale=1 基準）
+   */
+  setStepAnalysis(stepLength: number, worldSpeed: number): void {
     this.analyzedStepLength = stepLength;
-    this.baseMoveSpeed = baseMoveSpeed;
+    this.walkWorldSpeed = worldSpeed;
+    this.applyMoveSpeedToStateMachine();
+  }
+
+  /**
+   * 依當前 baseScale 與 pixelToWorld 重新計算 px/sec 並推入 StateMachine
+   *
+   * 呼叫時機：setStepAnalysis、computeCharacterViewportRatio、setStateMachine、
+   * setDisplays（切換螢幕導致 baseScale 變化時）。
+   */
+  private applyMoveSpeedToStateMachine(): void {
+    if (this.walkWorldSpeed <= 0) return;
+    // 腳底視覺移動速度 = worldSpeed × baseScale × userScale
+    // userScale 由 StateMachine 透過 input.scale 套用，這裡只乘 baseScale
+    this.baseMoveSpeed = (this.walkWorldSpeed * this.baseScale) / this.pixelToWorld;
+    if (this.stateMachine) {
+      this.stateMachine.setMoveSpeed(this.baseMoveSpeed);
+    }
   }
 
   /** 設定 BehaviorAnimationBridge (v0.2) */
@@ -383,6 +409,15 @@ export class SceneManager {
     this.renderer.setPixelRatio(window.devicePixelRatio);
     this.renderer.setSize(d.width, d.height);
     this.setupCameraForCanvas(d.height);
+
+    // Camera 已更新，重算 baseScale 讓角色維持新螢幕的 40% 高度
+    // （內部會 apply moveSpeed 給 StateMachine）
+    if (this.vrmController?.getVRM()) {
+      this.computeCharacterViewportRatio();
+      // baseScale 變了，重新套用當前 userScale
+      this.setScale(this.scale);
+    }
+
     this.updateCharacterSize();
 
     // 套用新的座標原點與 workArea（setWorkArea 會重建 taskbar/ground platform）
@@ -459,6 +494,9 @@ export class SceneManager {
 
     this.charAspectRatio = nativeWidth / nativeHeight;
     console.log(`[SceneManager] nativeH=${nativeHeight.toFixed(2)} baseScale=${this.baseScale.toFixed(3)} targetRatio=${SceneManager.TARGET_VIEWPORT_RATIO} aspect=${this.charAspectRatio.toFixed(3)}`);
+
+    // baseScale 改變 → 重算移動速度（保持腳步視覺一致）
+    this.applyMoveSpeedToStateMachine();
   }
 
   // setScreenHeight / HEIGHT_PADDING removed: fullscreen mode handles sizing differently

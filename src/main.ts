@@ -285,13 +285,10 @@ async function initializeApp(config: AppConfig, appPath: string): Promise<void> 
     if (walkClip) {
       const analysis = analyzeWalkAnimation(walkClip, vrmController);
       if (analysis) {
-        // worldSpeed → 螢幕像素/秒（scale=1 基準）
-        const pixelToWorld = sceneManager.getPixelToWorld();
-        const baseMoveSpeedPx = analysis.worldSpeed / pixelToWorld;
-        // 儲存到 config 以便傳給 StateMachine
-        (config as unknown as Record<string, unknown>)._analyzedMoveSpeed = baseMoveSpeedPx;
-        sceneManager.setStepAnalysis(analysis.stepLength, baseMoveSpeedPx);
-        debugLog(`Walk step analysis: stepLen=${analysis.stepLength.toFixed(3)} cycle=${analysis.cycleDuration.toFixed(2)}s steps=${analysis.stepsPerCycle} speed=${baseMoveSpeedPx.toFixed(1)}px/s`);
+        // 傳 worldSpeed（世界單位/秒）給 SceneManager，
+        // 由它根據當前 baseScale 動態計算 px/sec 並推入 StateMachine
+        sceneManager.setStepAnalysis(analysis.stepLength, analysis.worldSpeed);
+        debugLog(`Walk step analysis: stepLen=${analysis.stepLength.toFixed(3)} cycle=${analysis.cycleDuration.toFixed(2)}s steps=${analysis.stepsPerCycle} worldSpeed=${analysis.worldSpeed.toFixed(3)}`);
       }
     }
   }
@@ -378,9 +375,8 @@ async function initializeBehaviorSystem(
     });
   }
 
-  // StateMachine（使用步伐分析計算的移動速度，或預設 60px/s）
-  const analyzedSpeed = (config as unknown as Record<string, unknown>)._analyzedMoveSpeed as number | undefined;
-  const stateMachine = new StateMachine(analyzedSpeed ? { moveSpeed: analyzedSpeed } : undefined);
+  // StateMachine（moveSpeed 由 SceneManager 依 baseScale 動態推入）
+  const stateMachine = new StateMachine();
   if (config.autonomousMovementPaused) {
     stateMachine.pause();
   }

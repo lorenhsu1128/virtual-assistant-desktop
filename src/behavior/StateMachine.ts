@@ -149,6 +149,16 @@ export class StateMachine {
     this.speedMultiplier = multiplier;
   }
 
+  /**
+   * 設定基礎移動速度（螢幕像素 / 秒，scale=1 基準）
+   *
+   * 由 SceneManager 根據 walkWorldSpeed × baseScale 動態計算後推入，
+   * 切換螢幕導致 baseScale 改變時會重新套用。
+   */
+  setMoveSpeed(speed: number): void {
+    this.config.moveSpeed = speed;
+  }
+
   /** 取得移動速率倍率 */
   getSpeedMultiplier(): number {
     return this.speedMultiplier;
