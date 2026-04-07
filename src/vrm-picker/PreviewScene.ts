@@ -163,12 +163,18 @@ export class PreviewScene {
     if (!controller) return;
 
     // 1. 掃描資料夾並過濾 SYS_IDLE_*.vrma
+    console.log('[PreviewScene] Scanning sysVrmaDir:', sysVrmaDir);
     const all = await ipc.scanVrmaFiles(sysVrmaDir);
     if (token !== this.loadToken || this.disposed) return;
     this.sysIdleFiles = all.filter(isSysIdleFile);
+    console.log(
+      `[PreviewScene] Found ${all.length} .vrma files, ${this.sysIdleFiles.length} are SYS_IDLE`,
+    );
 
     if (this.sysIdleFiles.length === 0) {
-      console.warn('[PreviewScene] No SYS_IDLE_*.vrma found, falling back to breathing/blinking');
+      console.warn(
+        '[PreviewScene] No SYS_IDLE_*.vrma found, falling back to breathing/blinking',
+      );
       this.fallback = new FallbackAnimation(controller);
       this.fallback.start();
       return;
@@ -200,10 +206,15 @@ export class PreviewScene {
     try {
       clip = await controller.loadVRMAnimation(url);
     } catch (e) {
-      console.warn('[PreviewScene] SYS_IDLE load failed:', e);
+      console.warn('[PreviewScene] SYS_IDLE load failed:', url, e);
       return;
     }
-    if (token !== this.loadToken || this.disposed || !clip) return;
+    if (token !== this.loadToken || this.disposed) return;
+    if (!clip) {
+      console.warn('[PreviewScene] SYS_IDLE clip is null:', url);
+      return;
+    }
+    console.log('[PreviewScene] Playing SYS_IDLE:', this.sysIdleFiles[idx]);
 
     const mixer = controller.getAnimationMixer();
     if (!mixer) return;

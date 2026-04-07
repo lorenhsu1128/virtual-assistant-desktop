@@ -114,6 +114,13 @@
 - **受影響檔案**：electron/ipcHandlers.ts, electron/preload.ts, src/bridge/ElectronIPC.ts
 - **根因**：Electron 的 context isolation 設計需要三層接口保持同步
 
+### [2026-04-07] `[跨平台]` — electron 主程序變更需完全重啟（非 HMR）
+
+- **錯誤**：新增 IPC handler 並 commit 後，dev 中的 picker 仍出現 `Error: No handler registered for 'scan_vrma_files'`，因為 vite HMR 重新載入了 renderer 但 electron 主程序仍使用啟動時載入的舊 `dist-electron/ipcHandlers.js`，導致前端呼叫新 IPC 找不到 handler；錯誤被 ElectronIPC wrapper catch 後回傳 `[]`，PreviewScene 走 fallback，使用者看到「T-pose」（FallbackAnimation 振幅僅 0.015 弧度，肉眼幾乎無感）
+- **正確做法**：每次修改 `electron/` 下任何檔案後，必須執行「完全重啟」流程：(1) `pnpm build:electron`（編譯到 dist-electron）(2) `Stop-Process electron -Force` 結束所有 electron 進程 (3) `pnpm dev` 重啟。Vite HMR 只覆蓋 renderer，不會觸發 electron 重啟。
+- **受影響檔案**：electron/ipcHandlers.ts, electron/preload.ts, electron/main.ts, electron/vrmPickerWindow.ts 等所有 electron/ 下的檔案
+- **根因**：Electron 主程序與 preload script 在進程啟動時載入一次，無 HMR 機制；vite dev server 只負責 renderer (chromium) 的程式碼，主程序的 dist-electron 是 tsc 預編譯的
+
 ---
 
 ## 跨平台
