@@ -3,15 +3,14 @@
  *
  * 啟動流程：
  *   1. 讀取 config.json 取得當前 vrmPickerFolder（或從 vrmModelPath 推導）
- *   2. 掃描資料夾的 .vrm 檔案
- *   3. 讀取 animations.json 篩出 idle 條目
+ *   2. 取得 appPath 並構造系統 vrma 資料夾路徑
+ *   3. 掃描資料夾的 .vrm 檔案
  *   4. 初始化 PreviewScene
  *   5. 綁定 UI 事件（檔案點擊、選資料夾、套用、取消）
  */
 
 import { ipc } from '../bridge/ElectronIPC';
 import type { AppConfig } from '../types/config';
-import type { AnimationEntry, AnimationMeta } from '../types/animation';
 import type { VrmFileEntry } from '../types/vrmPicker';
 import { PreviewScene } from './PreviewScene';
 import { deriveDefaultPickerFolder, buildVrmFileEntries } from './pickerLogic';
@@ -21,7 +20,8 @@ interface PickerState {
   currentFolder: string | null;
   files: VrmFileEntry[];
   selectedPath: string | null;
-  idleEntries: AnimationEntry[];
+  /** 系統內建 vrma 資料夾完整路徑（appPath + systemAssetsDir + '/vrma'） */
+  sysVrmaDir: string;
 }
 
 const state: PickerState = {
@@ -29,7 +29,7 @@ const state: PickerState = {
   currentFolder: null,
   files: [],
   selectedPath: null,
-  idleEntries: [],
+  sysVrmaDir: '',
 };
 
 let previewScene: PreviewScene | null = null;
@@ -59,11 +59,10 @@ async function init(): Promise<void> {
   // 2. 推導預設資料夾
   state.currentFolder = deriveDefaultPickerFolder(config);
 
-  // 3. 讀取 animations.json，篩出 idle 條目
-  if (config?.animationFolderPath) {
-    const meta = await ipc.readAnimationMeta();
-    state.idleEntries = filterIdleEntries(meta);
-  }
+  // 3. 構造系統 vrma 資料夾路徑（用於 SYS_IDLE 連續播放）
+  const appPath = await ipc.getAppPath();
+  const systemAssetsDir = config?.systemAssetsDir ?? 'assets/system';
+  state.sysVrmaDir = `${appPath}/${systemAssetsDir}/vrma`.replace(/\\/g, '/');
 
   // 4. 初始化 PreviewScene
   previewScene = new PreviewScene(canvas);
@@ -150,18 +149,9 @@ async function init(): Promise<void> {
     });
 
     if (previewScene) {
-      await previewScene.loadModel(
-        entry.fullPath,
-        state.config?.animationFolderPath ?? null,
-        state.idleEntries,
-      );
+      await previewScene.loadModel(entry.fullPath, state.sysVrmaDir);
     }
   }
-}
-
-function filterIdleEntries(meta: AnimationMeta | null): AnimationEntry[] {
-  if (!meta) return [];
-  return meta.entries.filter((e) => e.category === 'idle');
 }
 
 function closeWindow(): void {

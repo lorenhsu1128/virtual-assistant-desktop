@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   writeAnimationMeta: (meta: unknown) => ipcRenderer.invoke('write_animation_meta', meta),
   scanAnimations: (folderPath: string) => ipcRenderer.invoke('scan_animations', folderPath),
   scanVrmFiles: (folderPath: string) => ipcRenderer.invoke('scan_vrm_files', folderPath),
+  scanVrmaFiles: (folderPath: string) => ipcRenderer.invoke('scan_vrma_files', folderPath),
 
   // ── File Pickers ──
   pickVrmFile: () => ipcRenderer.invoke('pick_vrm_file'),

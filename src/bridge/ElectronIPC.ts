@@ -16,6 +16,7 @@ interface ElectronAPI {
   writeAnimationMeta(meta: AnimationMeta): Promise<void>;
   scanAnimations(folderPath: string): Promise<AnimationMeta>;
   scanVrmFiles(folderPath: string): Promise<string[]>;
+  scanVrmaFiles(folderPath: string): Promise<string[]>;
   pickVrmFile(): Promise<string | null>;
   pickAnimationFolder(): Promise<string | null>;
   pickVrmFolder(defaultPath?: string): Promise<string | null>;
@@ -160,6 +161,20 @@ class ElectronIPC {
       return await window.electronAPI.scanVrmFiles(folderPath);
     } catch (e) {
       console.warn('[ElectronIPC] scanVrmFiles failed:', e);
+      return [];
+    }
+  }
+
+  /**
+   * Scan .vrma animation files in a directory
+   *
+   * Returns full paths to .vrma files. Empty array on error or missing folder.
+   */
+  async scanVrmaFiles(folderPath: string): Promise<string[]> {
+    try {
+      return await window.electronAPI.scanVrmaFiles(folderPath);
+    } catch (e) {
+      console.warn('[ElectronIPC] scanVrmaFiles failed:', e);
       return [];
     }
   }

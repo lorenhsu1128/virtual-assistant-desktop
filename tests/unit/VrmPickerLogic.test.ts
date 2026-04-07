@@ -4,6 +4,8 @@ import {
   getParentDirectory,
   buildVrmFileEntries,
   stripVrmExtension,
+  clamp,
+  isSysIdleFile,
 } from '../../src/vrm-picker/pickerLogic';
 import type { AppConfig } from '../../src/types/config';
 
@@ -100,6 +102,71 @@ describe('stripVrmExtension', () => {
 
   it('only removes trailing .vrm', () => {
     expect(stripVrmExtension('My.vrm.backup.vrm')).toBe('My.vrm.backup');
+  });
+});
+
+describe('clamp', () => {
+  it('returns value when within range', () => {
+    expect(clamp(2.5, 1, 5)).toBe(2.5);
+  });
+
+  it('returns min when value below range', () => {
+    expect(clamp(0.5, 1, 5)).toBe(1);
+  });
+
+  it('returns max when value above range', () => {
+    expect(clamp(10, 1, 5)).toBe(5);
+  });
+
+  it('returns min when equal to min', () => {
+    expect(clamp(1, 1, 5)).toBe(1);
+  });
+
+  it('returns max when equal to max', () => {
+    expect(clamp(5, 1, 5)).toBe(5);
+  });
+
+  it('handles negative ranges', () => {
+    expect(clamp(-3, -5, -1)).toBe(-3);
+    expect(clamp(-10, -5, -1)).toBe(-5);
+    expect(clamp(0, -5, -1)).toBe(-1);
+  });
+});
+
+describe('isSysIdleFile', () => {
+  it('matches SYS_IDLE_*.vrma in forward slash path', () => {
+    expect(isSysIdleFile('C:/app/assets/system/vrma/SYS_IDLE_1.vrma')).toBe(true);
+  });
+
+  it('matches SYS_IDLE_*.vrma in backslash path', () => {
+    expect(isSysIdleFile('C:\\app\\assets\\system\\vrma\\SYS_IDLE_15.vrma')).toBe(true);
+  });
+
+  it('matches plain filename without directory', () => {
+    expect(isSysIdleFile('SYS_IDLE_1.vrma')).toBe(true);
+  });
+
+  it('matches case-insensitive extension', () => {
+    expect(isSysIdleFile('SYS_IDLE_1.VRMA')).toBe(true);
+  });
+
+  it('rejects .vrm files', () => {
+    expect(isSysIdleFile('SYS_IDLE_1.vrm')).toBe(false);
+  });
+
+  it('rejects non-SYS_IDLE .vrma', () => {
+    expect(isSysIdleFile('SYS_WALK_1.vrma')).toBe(false);
+    expect(isSysIdleFile('idle.vrma')).toBe(false);
+    expect(isSysIdleFile('user_idle.vrma')).toBe(false);
+  });
+
+  it('does not match SYS_IDLE substring inside another filename', () => {
+    expect(isSysIdleFile('preSYS_IDLE_1.vrma')).toBe(false);
+  });
+
+  it('matches with descriptive suffix', () => {
+    expect(isSysIdleFile('SYS_IDLE_breathing.vrma')).toBe(true);
+    expect(isSysIdleFile('SYS_IDLE_long_name_with_underscores.vrma')).toBe(true);
   });
 });
 

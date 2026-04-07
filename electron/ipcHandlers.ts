@@ -1,4 +1,5 @@
 import { ipcMain, dialog, BrowserWindow, screen, app } from 'electron';
+import * as path from 'node:path';
 import * as fileManager from './fileManager.js';
 import { WindowMonitor, type WindowRect } from './windowMonitor.js';
 import { openPickerWindow, closePickerWindow } from './vrmPickerWindow.js';
@@ -55,6 +56,17 @@ export function registerIpcHandlers(
 
   ipcMain.handle('scan_vrm_files', (_event, folderPath: string) => {
     return fileManager.scanVrmFiles(folderPath);
+  });
+
+  ipcMain.handle('scan_vrma_files', async (_event, folderPath: string): Promise<string[]> => {
+    try {
+      const files = await fileManager.scanVrmaFiles(folderPath);
+      // fileManager.scanVrmaFiles 回傳檔名，這裡 join 為完整路徑以便 renderer 透過 convertToAssetUrl 載入
+      return files.map((f) => path.join(folderPath, f));
+    } catch (e) {
+      console.warn('[ipcHandlers] scan_vrma_files failed:', e);
+      return [];
+    }
   });
 
   // ── File Pickers ──

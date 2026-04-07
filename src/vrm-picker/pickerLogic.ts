@@ -55,3 +55,25 @@ export function buildVrmFileEntries(paths: string[]): VrmFileEntry[] {
 export function stripVrmExtension(fileName: string): string {
   return fileName.replace(/\.vrm$/i, '');
 }
+
+/**
+ * 將數值夾在 [min, max] 範圍內
+ */
+export function clamp(value: number, min: number, max: number): number {
+  if (value < min) return min;
+  if (value > max) return max;
+  return value;
+}
+
+/**
+ * 判斷檔案路徑是否為系統內建 idle 動畫（SYS_IDLE_*.vrma）
+ *
+ * 接受任何作業系統的路徑分隔符與大小寫副檔名。
+ */
+export function isSysIdleFile(filePath: string): boolean {
+  // 取出檔名（最後一段）
+  const normalized = filePath.replace(/\\/g, '/');
+  const lastSlash = normalized.lastIndexOf('/');
+  const fileName = lastSlash >= 0 ? normalized.substring(lastSlash + 1) : normalized;
+  return /^SYS_IDLE_.*\.vrma$/i.test(fileName);
+}

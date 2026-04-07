@@ -11,18 +11,43 @@
  * 重用 VRMController 與 FallbackAnimation：
  *   - VRMController 構造子接受任意 THREE.Scene，可獨立實例化
  *   - FallbackAnimation 純靠 VRMController 驅動，無外部依賴
+ *
+ * 動畫策略：
+ *   - 永遠播放系統內建的 SYS_IDLE_*.vrma（assets/system/vrma/）
+ *   - 每段以 LoopOnce 播放，'finished' 事件觸發後 crossfade 到下一段
+ *   - 若 SYS_IDLE 檔案不存在則 fallback 到呼吸/眨眼
+ *
+ * 互動：
+ *   - 左鍵拖曳水平 → 旋轉角色 Y 軸
+ *   - 左鍵拖曳垂直 → 推拉攝影機（沿 lookAt 方向）
+ *   - 切換模型時旋轉與縮放歸零
  */
 
 import * as THREE from 'three';
 import { VRMController } from '../core/VRMController';
 import { FallbackAnimation } from '../animation/FallbackAnimation';
-import type { AnimationEntry } from '../types/animation';
 import { ipc } from '../bridge/ElectronIPC';
+import { clamp, isSysIdleFile } from './pickerLogic';
 
 const TARGET_FPS = 30;
 const FRAME_INTERVAL = 1000 / TARGET_FPS;
 
+/** 一段動畫播完後的等待時間（秒），之後 crossfade 到下一段 */
+const NEXT_IDLE_DELAY_MS = 200;
+/** crossfade 時長（秒） */
+const CROSSFADE_DURATION = 0.5;
+
 export class PreviewScene {
+  // ── 攝影機 / 互動常數 ──
+  private static readonly INITIAL_DISTANCE = 2.4;
+  private static readonly MIN_DISTANCE = 1.0;
+  private static readonly MAX_DISTANCE = 5.0;
+  private static readonly ROTATE_SENSITIVITY = 0.01;
+  private static readonly ZOOM_SENSITIVITY = 0.01;
+  private static readonly LOOK_TARGET = new THREE.Vector3(0, 0.95, 0);
+  /** 預設攝影機位置（從 LOOK_TARGET 出發的方向計算用） */
+  private static readonly DEFAULT_CAMERA_POS = new THREE.Vector3(0, 1.0, 2.4);
+
   private canvas: HTMLCanvasElement;
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
@@ -30,7 +55,19 @@ export class PreviewScene {
 
   private vrmController: VRMController | null = null;
   private fallback: FallbackAnimation | null = null;
-  private currentClipAction: THREE.AnimationAction | null = null;
+
+  // ── SYS_IDLE 連續播放狀態 ──
+  private sysIdleFiles: string[] = [];
+  private currentSysAction: THREE.AnimationAction | null = null;
+  private nextIdleTimer: number | null = null;
+  private mixerListenerRegistered = false;
+
+  // ── 互動狀態 ──
+  private rotationY = 0;
+  private cameraDistance = PreviewScene.INITIAL_DISTANCE;
+  private isDragging = false;
+  private lastDragX = 0;
+  private lastDragY = 0;
 
   private rafHandle: number | null = null;
   private lastFrameTime = 0;
@@ -54,8 +91,7 @@ export class PreviewScene {
 
     // 攝影機（角色身高約 1.5m，鏡頭擺在腰部往前 2m）
     this.camera = new THREE.PerspectiveCamera(35, 1, 0.1, 100);
-    this.camera.position.set(0, 1.0, 2.4);
-    this.camera.lookAt(0, 0.95, 0);
+    this.applyRotationAndZoom();
 
     // 渲染器
     this.renderer = new THREE.WebGLRenderer({
@@ -69,20 +105,32 @@ export class PreviewScene {
     window.addEventListener('resize', this.handleResize);
     document.addEventListener('visibilitychange', this.handleVisibilityChange);
 
+    // 滑鼠拖曳互動：mousedown 在 canvas 上，move/up 在 window 上
+    // （拖曳中游標可能滑出 canvas 範圍，要繼續追蹤）
+    canvas.addEventListener('mousedown', this.onMouseDown);
+    window.addEventListener('mousemove', this.onMouseMove);
+    window.addEventListener('mouseup', this.onMouseUp);
+
     this.startLoop();
   }
 
-  /** 載入 VRM 模型，並嘗試啟動 idle 動畫 */
-  async loadModel(
-    vrmPath: string,
-    animationFolder: string | null,
-    idleEntries: AnimationEntry[],
-  ): Promise<void> {
+  /**
+   * 載入 VRM 模型並啟動 SYS_IDLE 連續播放
+   *
+   * @param vrmPath VRM 模型完整路徑
+   * @param sysVrmaDir 系統 vrma 資料夾完整路徑（appPath + systemAssetsDir + '/vrma'）
+   */
+  async loadModel(vrmPath: string, sysVrmaDir: string): Promise<void> {
     if (this.disposed) return;
     const token = ++this.loadToken;
 
-    // 釋放舊模型
+    // 釋放舊模型與動畫狀態
     this.disposeModel();
+
+    // 重置旋轉與縮放並立即套用
+    this.rotationY = 0;
+    this.cameraDistance = PreviewScene.INITIAL_DISTANCE;
+    this.applyRotationAndZoom();
 
     const url = ipc.convertToAssetUrl(vrmPath);
     const controller = new VRMController(this.scene);
@@ -101,63 +149,164 @@ export class PreviewScene {
     }
 
     this.vrmController = controller;
+    // 立即套用初始旋轉（確保新模型出現時就在零旋轉狀態）
+    controller.setFacingRotationY(this.rotationY);
 
-    // 嘗試播放 idle 動畫
-    await this.tryPlayIdle(animationFolder, idleEntries, token);
+    // 啟動 SYS_IDLE 連續播放
+    await this.startSysIdleLoop(sysVrmaDir, token);
   }
 
-  /** 嘗試播放隨機 idle 動畫，無 idle 時 fallback */
-  private async tryPlayIdle(
-    animationFolder: string | null,
-    idleEntries: AnimationEntry[],
-    token: number,
-  ): Promise<void> {
+  // ── SYS_IDLE 連續播放 ──
+
+  private async startSysIdleLoop(sysVrmaDir: string, token: number): Promise<void> {
     const controller = this.vrmController;
     if (!controller) return;
 
-    if (animationFolder && idleEntries.length > 0) {
-      // 隨機挑一個 idle .vrma
-      const entry = idleEntries[Math.floor(Math.random() * idleEntries.length)];
-      const fullPath = `${animationFolder}/${entry.fileName}`.replace(/\\/g, '/');
-      const animUrl = ipc.convertToAssetUrl(fullPath);
-      try {
-        const clip = await controller.loadVRMAnimation(animUrl);
-        if (token !== this.loadToken || this.disposed) return;
-        if (clip) {
-          const mixer = controller.getAnimationMixer();
-          if (mixer) {
-            const action = mixer.clipAction(clip);
-            action.reset();
-            action.setLoop(THREE.LoopRepeat, Infinity);
-            action.play();
-            this.currentClipAction = action;
-            return;
-          }
-        }
-      } catch (e) {
-        console.warn('[PreviewScene] idle animation load failed, fallback:', e);
-      }
+    // 1. 掃描資料夾並過濾 SYS_IDLE_*.vrma
+    const all = await ipc.scanVrmaFiles(sysVrmaDir);
+    if (token !== this.loadToken || this.disposed) return;
+    this.sysIdleFiles = all.filter(isSysIdleFile);
+
+    if (this.sysIdleFiles.length === 0) {
+      console.warn('[PreviewScene] No SYS_IDLE_*.vrma found, falling back to breathing/blinking');
+      this.fallback = new FallbackAnimation(controller);
+      this.fallback.start();
+      return;
     }
 
-    // Fallback：呼吸 + 眨眼
-    if (token !== this.loadToken || this.disposed) return;
-    this.fallback = new FallbackAnimation(controller);
-    this.fallback.start();
+    // 2. 註冊 mixer finished handler（每個 controller 一次）
+    const mixer = controller.getAnimationMixer();
+    if (mixer && !this.mixerListenerRegistered) {
+      mixer.addEventListener('finished', this.onSysIdleFinished);
+      this.mixerListenerRegistered = true;
+    }
+
+    // 3. 播第一個（無 crossfade）
+    await this.playRandomSysIdle(token, false);
   }
 
+  private playRandomSysIdle = async (
+    token: number,
+    crossfadeFromPrev: boolean,
+  ): Promise<void> => {
+    if (token !== this.loadToken || this.disposed) return;
+    const controller = this.vrmController;
+    if (!controller || this.sysIdleFiles.length === 0) return;
+
+    const idx = Math.floor(Math.random() * this.sysIdleFiles.length);
+    const url = ipc.convertToAssetUrl(this.sysIdleFiles[idx]);
+
+    let clip: THREE.AnimationClip | null = null;
+    try {
+      clip = await controller.loadVRMAnimation(url);
+    } catch (e) {
+      console.warn('[PreviewScene] SYS_IDLE load failed:', e);
+      return;
+    }
+    if (token !== this.loadToken || this.disposed || !clip) return;
+
+    const mixer = controller.getAnimationMixer();
+    if (!mixer) return;
+
+    const action = mixer.clipAction(clip);
+    action.reset();
+    action.setLoop(THREE.LoopOnce, 1);
+    action.clampWhenFinished = true;
+
+    if (crossfadeFromPrev && this.currentSysAction) {
+      this.currentSysAction.crossFadeTo(action, CROSSFADE_DURATION, true);
+    }
+    action.play();
+    this.currentSysAction = action;
+  };
+
+  private onSysIdleFinished = (): void => {
+    // 'finished' event 觸發於 LoopOnce 結束時。等一下下立刻接下一段（crossfade）。
+    if (this.disposed) return;
+    this.nextIdleTimer = window.setTimeout(() => {
+      this.nextIdleTimer = null;
+      void this.playRandomSysIdle(this.loadToken, true);
+    }, NEXT_IDLE_DELAY_MS);
+  };
+
+  // ── 滑鼠拖曳互動 ──
+
+  private onMouseDown = (e: MouseEvent): void => {
+    if (e.button !== 0) return; // 只接受左鍵
+    this.isDragging = true;
+    this.lastDragX = e.clientX;
+    this.lastDragY = e.clientY;
+    this.canvas.classList.add('dragging');
+    e.preventDefault();
+  };
+
+  private onMouseMove = (e: MouseEvent): void => {
+    if (!this.isDragging) return;
+    const dx = e.clientX - this.lastDragX;
+    const dy = e.clientY - this.lastDragY;
+    this.lastDragX = e.clientX;
+    this.lastDragY = e.clientY;
+    this.rotationY += dx * PreviewScene.ROTATE_SENSITIVITY;
+    this.cameraDistance = clamp(
+      this.cameraDistance + dy * PreviewScene.ZOOM_SENSITIVITY,
+      PreviewScene.MIN_DISTANCE,
+      PreviewScene.MAX_DISTANCE,
+    );
+    this.applyRotationAndZoom();
+  };
+
+  private onMouseUp = (): void => {
+    if (!this.isDragging) return;
+    this.isDragging = false;
+    this.canvas.classList.remove('dragging');
+  };
+
+  /** 套用當前旋轉與相機距離到 VRMController 與 camera */
+  private applyRotationAndZoom(): void {
+    if (this.vrmController) {
+      this.vrmController.setFacingRotationY(this.rotationY);
+    }
+    // 沿 lookAt 方向縮放：方向 = normalize(DEFAULT_CAMERA_POS - LOOK_TARGET)
+    // 新位置 = LOOK_TARGET + dir * cameraDistance
+    const target = PreviewScene.LOOK_TARGET;
+    const def = PreviewScene.DEFAULT_CAMERA_POS;
+    const dirX = def.x - target.x;
+    const dirY = def.y - target.y;
+    const dirZ = def.z - target.z;
+    const len = Math.sqrt(dirX * dirX + dirY * dirY + dirZ * dirZ);
+    this.camera.position.set(
+      target.x + (dirX / len) * this.cameraDistance,
+      target.y + (dirY / len) * this.cameraDistance,
+      target.z + (dirZ / len) * this.cameraDistance,
+    );
+    this.camera.lookAt(target);
+  }
+
+  // ── 釋放 ──
+
   private disposeModel(): void {
+    if (this.nextIdleTimer !== null) {
+      clearTimeout(this.nextIdleTimer);
+      this.nextIdleTimer = null;
+    }
     if (this.fallback) {
       this.fallback.stop();
       this.fallback = null;
     }
-    if (this.currentClipAction) {
-      this.currentClipAction.stop();
-      this.currentClipAction = null;
+    if (this.currentSysAction) {
+      this.currentSysAction.stop();
+      this.currentSysAction = null;
     }
     if (this.vrmController) {
+      const mixer = this.vrmController.getAnimationMixer();
+      if (mixer && this.mixerListenerRegistered) {
+        mixer.removeEventListener('finished', this.onSysIdleFinished);
+      }
+      this.mixerListenerRegistered = false;
       this.vrmController.dispose();
       this.vrmController = null;
     }
+    this.sysIdleFiles = [];
   }
 
   private startLoop(): void {
@@ -214,6 +363,9 @@ export class PreviewScene {
     }
     window.removeEventListener('resize', this.handleResize);
     document.removeEventListener('visibilitychange', this.handleVisibilityChange);
+    this.canvas.removeEventListener('mousedown', this.onMouseDown);
+    window.removeEventListener('mousemove', this.onMouseMove);
+    window.removeEventListener('mouseup', this.onMouseUp);
     this.disposeModel();
     this.renderer.dispose();
   }
