@@ -132,23 +132,33 @@ Three.js 場景的生命週期管理，是整個前端的心臟。
 
 #### expression/ExpressionManager.ts
 
-管理 BlendShape 表情的自動輪播、手動切換與優先級仲裁。
+管理 BlendShape 表情的自動輪播、手動切換、優先級仲裁與**平滑過渡**。
 
 **職責：**
 
 - 自動模式：維護隨機間隔計時器（15–45 秒），從允許自動播放的表情中選取。
 - 手動模式：接收使用者指定的表情。
-- 優先級仲裁：實作 `resolve()` 方法，根據以下優先級決定套用哪個來源：
-  1. .vrma 動畫內的表情軌道（最高）
+- 優先級仲裁：根據以下優先級決定套用哪個來源：
+  1. .vrma 動畫內的表情軌道（最高，由 SceneManager 在動畫播放時跳過 ExpressionManager 實現）
   2. 手動指定的表情
   3. 自動隨機表情（最低）
+- **過渡管理（階段 A：通用線性過渡）**：
+  - 切換表情時，舊表情進入 `previous` slot 從當前 value → 0 fade out
+  - 新表情進入 `current` slot 從 0 → 1 fade in
+  - 過渡時長 0.5 秒，線性插值（每幀 deltaTime / 0.5）
+  - `update()` 由 SceneManager 每幀呼叫推進過渡與自動計時器
+  - 解決瞬間切換問題，視覺接近 .vrma 內建 BlendShape 軌道效果
 
 **對外介面：**
 
-- `setManualExpression(name: string | null): void`
+- `setManualExpression(name: string | null): void` — 設定手動表情，觸發 fade
 - `setAutoEnabled(enabled: boolean): void`
-- `setAllowedExpressions(names: string[]): void`
-- `resolve(): ExpressionState` — 回傳當前應套用的表情名稱與權重。
+- `setAllowedAutoExpressions(names: string[]): void`
+- `setAvailableExpressions(names: string[]): void`
+- `update(deltaTime: number): void` — 每幀呼叫推進過渡與自動計時
+- `resolve(): ExpressionState` — 回傳 `{ current, previous }`，呼叫端須同時套用兩者
+
+**未來擴充（階段 B）**：每表情對應 .vrma 動畫檔（`EXPR_*.vrma`），由獨立的 ExpressionAnimationManager 透過 mixer 播放。SceneManager 會在表情動畫播放中跳過 ExpressionManager（與 actionPlaying 跳過機制一致）。
 
 #### behavior/StateMachine.ts
 

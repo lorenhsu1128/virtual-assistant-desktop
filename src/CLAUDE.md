@@ -8,7 +8,8 @@ SceneManager 擁有唯一的 render loop，每幀依以下順序執行：
 1. StateMachine.tick(deltaTime)       → 計算行為狀態與目標位置（僅未暫停時）
    ※ 輸出 peekTargetHwnd / attachedWindowHwnd 供深度遮擋計算
 2. AnimationManager.update(deltaTime) → 動畫混合與播放推進（或 FallbackAnimation）
-3. ExpressionManager.resolve()        → 表情優先級仲裁
+3. ExpressionManager.update + resolve → 表情過渡推進（0.5s 線性 fade）+ 仲裁
+   ※ 回傳 { current, previous } 兩個 slot，SceneManager 兩者都套用以呈現交叉淡化
 4. VRMController.update(deltaTime)    → SpringBone 物理 + mixer 更新
    ※ updateModelWorldPosition 含 resolveCharacterZ（根據行為狀態設定角色 Z 深度）
    ※ Debug overlay：骨骼座標 + 遮擋系統資訊 + 視窗清單

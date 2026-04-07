@@ -591,10 +591,11 @@ async function initializeBehaviorSystem(
           animationManager?.playByName(fileName);
         }
         // Dynamic action: set expression
+        // 注意：只透過 ExpressionManager 設定，由 render loop 套用過渡（0.5s 線性 fade）
+        // 不可直接呼叫 vrmController.setBlendShape，否則會繞過過渡並違反模組邊界
         else if (actionId.startsWith('set_expr::')) {
           const name = actionId.slice('set_expr::'.length);
           expressionManager.setManualExpression(name);
-          vrmController.setBlendShape(name, 1.0);
         }
         // Dynamic action: switch display
         else if (actionId.startsWith('switch_display_')) {

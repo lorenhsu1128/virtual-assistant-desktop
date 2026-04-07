@@ -46,7 +46,7 @@ export class SceneManager {
 
   // v0.3 模組
   private expressionManager: ExpressionManager | null = null;
-  private lastAppliedExpression: string | null = null;
+  // lastAppliedExpression removed: ExpressionManager 現在自己追蹤 current/previous 過渡狀態
 
   // Debug
   private debugOverlay: DebugOverlay | null = null;
@@ -824,19 +824,15 @@ export class SceneManager {
       // 動畫播放中（含表情軌道）時跳過表情仲裁
       const actionPlaying = this.animationManager?.isActionPlaying() ?? false;
       if (!actionPlaying) {
-        const expr = this.expressionManager.resolve();
-        const newName = expr?.name ?? null;
-
-        // 清除舊表情（如果換了不同的）
-        if (this.lastAppliedExpression && this.lastAppliedExpression !== newName) {
-          this.vrmController.setBlendShape(this.lastAppliedExpression, 0);
+        // ExpressionManager 回傳 current（fading-in）與 previous（fading-out）兩個 slot，
+        // 兩者都要套用以呈現平滑交叉淡化（0.5 秒線性過渡）
+        const state = this.expressionManager.resolve();
+        if (state.previous) {
+          this.vrmController.setBlendShape(state.previous.name, state.previous.value);
         }
-
-        // 套用新表情
-        if (expr) {
-          this.vrmController.setBlendShape(expr.name, expr.value);
+        if (state.current) {
+          this.vrmController.setBlendShape(state.current.name, state.current.value);
         }
-        this.lastAppliedExpression = newName;
       }
     }
 
