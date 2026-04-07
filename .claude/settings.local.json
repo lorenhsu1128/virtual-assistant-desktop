@@ -13,7 +13,16 @@
       "Bash(pkill -f \"electron \\\\.\")",
       "Bash(pkill -f \"vite\")",
       "Bash(node:*)",
-      "Bash(pkill -9 -f \"[Ee]lectron\")"
+      "Bash(pkill -9 -f \"[Ee]lectron\")",
+      "Bash(git pull:*)",
+      "Bash(git fetch:*)",
+      "Bash(grep -E \"\\\\.\\(ts|js\\)$\")",
+      "Bash(pnpm dev:vite)",
+      "Bash(NODE_OPTIONS=\"--trace-warnings\" npx electron .)",
+      "Bash(ELECTRON_ENABLE_LOGGING=1 npx electron .)",
+      "Bash(./node_modules/.bin/electron:*)",
+      "Bash(pkill -f \"electron\")",
+      "Bash(kill %1)"
     ]
   }
 }
