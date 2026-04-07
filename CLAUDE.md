@@ -3,16 +3,18 @@
 ## 專案概述
 
 桌面虛擬陪伴軟體（Desktop Mascot），Electron + TypeScript + Three.js。
-目標平台：Windows 10 (1903+) / Windows 11。
+目標平台：Windows 10 (1903+) / Windows 11 / macOS。
 
 ## 技術棧
 
 - 後端：Node.js (Electron main process) — 視窗感知、檔案系統、系統托盤
 - 前端：TypeScript (Vanilla) — Three.js + @pixiv/three-vrm (Electron renderer)
-- Windows API：koffi (FFI) — SetWindowRgn 視窗裁切 + GetWindow 視窗列舉
+- Windows API：koffi (FFI) — GetWindow 視窗列舉（**僅 Windows 啟用**，macOS 上不載入）
 - 視窗列舉：koffi GetWindow 遍歷（無 callback，直接 FFI）
+- 平台抽象：`electron/platform/` 集中所有 Windows / macOS 差異
 - 設定視窗：Svelte（獨立 BrowserWindow，尚未實作）
 - 建置：Vite + pnpm (Corepack) + electron-builder
+- 打包：`pnpm package:win`（NSIS .exe）/ `pnpm package:mac`（.dmg + .zip）
 - 測試：Vitest
 - Lint：ESLint + Prettier
 
@@ -29,14 +31,17 @@
 | 版本 | 狀態 | 說明 |
 |------|------|------|
 | v0.1 | ✅ 完成 | 透明視窗 + VRM 模型載入渲染 + .vrma 動畫系統 |
-| v0.2 | ✅ 完成 | 自主移動狀態機 + 拖曳 + 軌道攝影機 + 視窗碰撞/吸附/遮擋 |
+| v0.2 | ✅ 完成 | 自主移動狀態機 + 拖曳 + 軌道攝影機 + 視窗碰撞/吸附/遮擋（Windows-only） |
 | v0.3 | ✅ 完成 | 表情系統（自動+手動）+ 系統托盤 + Debug overlay |
+| 平台支援 | 🟡 進行中 | Windows 完整 / macOS 渲染+動畫+表情+自主移動，視窗感知功能停用 |
 | v0.4+ | 未開始 | — |
 
 ### 系統托盤選單功能（左鍵點擊）
+
 顯示桌寵 | 動畫 ▸ | 表情 ▸ | 縮放 ▸ | 動畫速率 ▸ | 暫停/恢復自主移動 | 暫停/恢復自動表情 | 暫停/恢復動畫循環 | 重置鏡頭角度 | 重置回桌面正中央 | 更換 VRM 模型 | 更換動畫資料夾 | Debug 模式 | 設定(TODO) | 結束
 
 ### Debug overlay 功能
+
 - 骨骼座標面板（3D 世界座標 + 2D 螢幕座標）
 - 骨骼末端彩色圓點（頭/手/臀/腳）
 - 桌面視窗清單面板（title, x, y, w, h, zOrder）
@@ -47,6 +52,7 @@
 - 腳底不超過 workArea 下緣（groundY 約束）
 
 ### Electron 遷移（從 Tauri）
+
 - 遷移原因：Tauri/Rust 的 EnumWindows 持續 crash，無法實現視窗感知功能
 - 視窗列舉改用 koffi GetWindow 遍歷（無 callback，直接 FFI）
 - 視窗遮擋改用 3D depth-only mesh（取代 SetWindowRgn）
@@ -71,9 +77,13 @@ electron/           → Electron 主程序（main process）
   preload.ts        → contextBridge 暴露 IPC API
   ipcHandlers.ts    → 所有 ipcMain.handle() 註冊
   fileManager.ts    → config.json / animations.json 管理
-  windowMonitor.ts  → koffi GetWindow 遍歷視窗列舉
+  windowMonitor.ts  → koffi GetWindow 遍歷視窗列舉（Windows-only）
   windowRegion.ts   → [已棄用] koffi FFI 視窗裁切（改用 3D depth occlusion）
   systemTray.ts     → 系統托盤選單
+  platform/         → 跨平台抽象層（Windows / macOS 差異集中於此）
+    index.ts        → isWindows / isMac 旗標 + 統一匯出
+    windowConfig.ts → 各平台 BrowserWindow 參數與建立後設定
+    protocolHelper.ts → local-file 協定路徑解析
 src-tauri/          → [已棄用] 舊 Rust 後端（保留作參考）
 src-settings/       → Svelte 設定視窗（尚未實作）
 tests/              → Vitest 測試（unit/）
@@ -86,6 +96,17 @@ tests/              → Vitest 測試（unit/）
 - 模組間通訊只透過定義好的介面，禁止直接存取內部結構
 - VRM 操作只能透過 VRMController
 - IPC 呼叫只能透過 bridge/ElectronIPC.ts，禁止直接使用 window.electronAPI
+
+## 跨平台開發守則
+
+本專案目標平台為 **Windows 10/11 + macOS 11+**。新功能必須兩平台都能運作（或在不支援的平台優雅降級）。
+
+1. **平台分支集中化**：所有 `process.platform === 'win32'` / `'darwin'` 判斷只允許出現在 `electron/platform/`。其他模組透過 `import { isWindows, isMac } from './platform/index.js'` 取用。
+2. **系統 API 必須優雅降級**：koffi、AppleScript、原生模組等只在單一平台可用的 API，**不可 throw**。在不支援的平台必須回傳預設值（空陣列、`null`、no-op）並 log warning。
+3. **BrowserWindow 參數差異**：透過 `getWindowOptions(bounds)` / `applyPostCreateSetup(win, bounds)` 取得，禁止直接在 main.ts 寫平台分支。
+4. **IPC handler 跨平台一致**：對 renderer 而言，IPC API 簽名與回傳型別在兩平台必須一致。平台差異在 handler 內部處理。
+5. **新功能 commit 描述須註明測試平台**：說明在哪個平台驗證過、預期在另一平台的行為。
+6. **macOS 已知功能限制**：視窗碰撞 / 吸附 / 遮擋 / Peek 等 koffi 依賴功能在 macOS 停用，渲染、動畫、表情、自主移動正常運作。新增功能前先檢查是否屬於 koffi 依賴範圍。
 
 ## 命名慣例
 

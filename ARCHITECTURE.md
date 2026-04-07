@@ -1,7 +1,8 @@
 # virtual-assistant-desktop — 程式架構建議書
 
 > **對應規格書版本：** v0.1 Draft  
-> **更新日期：** 2026-04-03
+> **目標平台：** Windows 10/11 + macOS 11+  
+> **更新日期：** 2026-04-07
 
 ---
 
@@ -11,24 +12,29 @@
 
 ```
 ┌─────────────────────────────────────────────┐
-│           TypeScript 前端層                   │
+│           TypeScript 渲染層 (renderer)        │
 │  Three.js 渲染、VRM 控制、動畫狀態機、        │
 │  表情系統、碰撞判定、自主移動、UI             │
 ├─────────────────────────────────────────────┤
-│           IPC 橋接層（TauriIPC）              │
-│  Commands（前端→Rust）/ Events（Rust→前端）   │
+│           IPC 橋接層 (ElectronIPC)            │
+│  Commands（renderer→main）/ Events（main→renderer）│
 ├─────────────────────────────────────────────┤
-│           Rust 後端層                         │
-│  視窗感知、視窗裁切、檔案系統、系統托盤、     │
+│           Electron 主程序層 (main)            │
+│  視窗感知、檔案系統、系統托盤、               │
 │  單實例鎖定、麥克風擷取                       │
+│  ┌─────────────────────────────────────┐     │
+│  │  平台抽象層 electron/platform/        │     │
+│  │  Windows / macOS 行為差異集中於此     │     │
+│  └─────────────────────────────────────┘     │
 └─────────────────────────────────────────────┘
 ```
 
 **設計原則：**
 
-- Rust 層負責所有需要系統權限的操作，不碰任何 3D 渲染邏輯。
-- TypeScript 層負責所有視覺與互動邏輯，不直接呼叫系統 API。
-- IPC 橋接層是兩邊的唯一溝通管道。若未來從 Tauri 換成 Electron，只需重寫此層。
+- Electron 主程序層負責所有需要系統權限的操作，不碰任何 3D 渲染邏輯。
+- TypeScript 渲染層負責所有視覺與互動邏輯，不直接呼叫系統 API。
+- IPC 橋接層是兩邊的唯一溝通管道。
+- **跨平台分支集中於 `electron/platform/`**：主程式碼禁止散落 `process.platform` 判斷。
 
 ---
 
@@ -295,51 +301,54 @@ interface AppConfig {
 
 ---
 
-## 3. Rust 後端模組
+## 3. Electron 主程序模組
+
+> **歷史備註：** 本專案最初為 Tauri (Rust)，由於 Windows API 經 Rust FFI 持續 crash 而遷移至 Electron。`src-tauri/` 保留作為參考，不再編譯（詳見 LESSONS.md）。
 
 ### 3.1 模組總覽
 
 ```
-src-tauri/src/
-├── main.rs                 # 進入點、Tauri builder 設定
-├── commands/               # Tauri command handlers
-│   ├── mod.rs
-│   ├── window_commands.rs  # get_window_list, set_window_region
-│   ├── file_commands.rs    # scan_animations, read/write config, pick_file
-│   └── device_commands.rs  # get_microphone_level, get_camera_frame
-├── window_monitor.rs       # 視窗輪詢與差異比對
-├── file_manager.rs         # 檔案讀寫與損毀處理
-├── system_tray.rs          # 系統托盤
-├── audio_capture.rs        # 麥克風擷取（v0.4 預留）
-└── single_instance.rs      # 單實例鎖定
+electron/
+├── main.ts                  # 進入點、BrowserWindow 建立、protocol 註冊
+├── preload.ts               # contextBridge 暴露 IPC API
+├── ipcHandlers.ts           # 所有 ipcMain.handle() 註冊
+├── fileManager.ts           # config.json / animations.json 管理
+├── windowMonitor.ts         # koffi GetWindow 視窗列舉（Windows-only）
+├── windowRegion.ts          # [已棄用] koffi SetWindowRgn
+├── systemTray.ts            # 系統托盤選單
+└── platform/                # 跨平台抽象層
+    ├── index.ts             # isWindows / isMac 旗標 + 統一匯出
+    ├── windowConfig.ts      # 各平台 BrowserWindow 參數與建立後設定
+    └── protocolHelper.ts    # local-file 協定路徑解析（兩平台行為不同）
 ```
 
 ### 3.2 各模組職責
 
-#### window_monitor.rs
+#### windowMonitor.ts（**Windows-only**）
 
-- 以獨立執行緒運行，每秒 3–5 次呼叫 `EnumWindows` + `GetWindowRect`。
-- 過濾不可見、最小化、桌寵自身的視窗。
-- 與上一次結果做差異比對，僅在佈局變化時透過 Tauri event 推送 `window_layout_changed`。
-- 提供 `set_window_region()` 函式，接收前端計算的裁切區域並呼叫 `SetWindowRgn`。
+- 以 `setInterval` 每 ~300ms 呼叫 koffi `GetWindow` 遍歷桌面視窗。
+- 過濾不可見、最小化、桌寵自身、UWP cloaked、TOOLWINDOW 樣式視窗。
+- 與上一次結果做差異比對，僅在佈局變化時透過 `webContents.send('window_layout_changed', rects)` 推送。
+- macOS 上不啟動此模組（早走 return），所有視窗感知功能優雅降級為「無視窗清單」。
 
-#### file_manager.rs
+#### fileManager.ts
 
 - 掃描指定資料夾的 .vrma 檔案，回傳檔案清單。
 - 讀寫 `~/.virtual-assistant-desktop/config.json` 和 `animations.json`。
 - config.json 損毀偵測：解析失敗時自動備份為 `.bak` 並以預設值重建。
-- animations.json 同步：掃描結果與現有設定合併，移除已不存在的條目、新增新發現的檔案。
+- animations.json 同步：掃描結果與現有設定合併。
 
-#### system_tray.rs
+#### systemTray.ts
 
-- 建立系統托盤圖示與右鍵選單。
-- 麥克風/攝影機啟用時切換托盤圖示（隱私指示）。
-- 選單項目點擊後透過 Tauri event 通知前端。
+- 建立系統托盤圖示與選單（Windows 通知區 / macOS 選單列）。
+- 動態選單資料由 renderer process 推送，主程序快取後重建。
+- 選單項目點擊透過 `tray_action` IPC event 通知前端。
 
-#### single_instance.rs
+#### platform/
 
-- 啟動時建立 named mutex。
-- 偵測到已有實例時，透過 Windows 訊息找到現有實例視窗並帶到前景，新程序退出。
+- `index.ts` — 匯出 `isWindows`、`isMac` 旗標。其他模組需要平台判斷時透過此處取用，禁止散落 `process.platform` 判斷。
+- `windowConfig.ts` — `getWindowOptions(bounds)` 與 `applyPostCreateSetup(win, bounds)`，封裝兩平台 BrowserWindow 的差異（macOS 需要 `setIgnoreMouseEvents(true, { forward: true })`）。
+- `protocolHelper.ts` — `resolveLocalFilePath(url)`，處理 local-file 協定在兩平台不同的根目錄格式。
 
 ---
 
@@ -403,6 +412,17 @@ function loop(now: number) {
 ```
 
 **理由：** `requestAnimationFrame` 自帶 vsync 且在頁面不可見時自動暫停，比 `setInterval` 更省電且更穩定。
+
+### 4.6 跨平台開發原則
+
+本專案目標平台為 **Windows 10/11 + macOS 11+**。開發新功能時必須遵守：
+
+1. **平台分支集中化**：所有 `process.platform === 'win32'` / `'darwin'` 判斷必須只出現在 `electron/platform/`。其他模組透過匯入 `isWindows` / `isMac` 旗標使用。
+2. **系統 API 必須優雅降級**：若使用 koffi、AppleScript、原生模組等只在單一平台可用的 API，**不可 throw**。在不支援的平台必須回傳預設值（空陣列、`null`、或 no-op）並 log warning。
+3. **BrowserWindow 參數差異**：透過 `getWindowOptions(bounds)` 與 `applyPostCreateSetup(win, bounds)` 取得，禁止在 main.ts 直接用 `if (process.platform...)`。
+4. **IPC handler 跨平台一致**：對前端而言，IPC API 簽名與回傳型別在兩平台必須一致。平台差異在 handler 內部處理，不外漏到型別。
+5. **新功能 PR 須註明測試平台**：commit 訊息或 PR 描述須說明在哪個平台驗證過、預期在另一平台的行為。
+6. **macOS 已知功能限制**：視窗碰撞 / 吸附 / 遮擋 / Peek 等 koffi 依賴功能在 macOS 停用，渲染、動畫、表情、自主移動正常運作。
 
 ---
 
