@@ -364,16 +364,39 @@ export class SceneManager {
   /**
    * 設定多螢幕清單與當前所在 display
    *
-   * 單螢幕時 displays 長度為 1。立即套用該 display 的 workArea。
+   * 單螢幕時 displays 長度為 1。切換螢幕時完整重建所有視窗幾何：
+   * 1. 同步更新 renderer size + camera（讓 canvas.clientWidth/Height 立即生效）
+   * 2. 更新 screenOrigin + workArea（觸發 createTaskbarPlatform）
+   * 3. 更新 WindowMeshManager 的上下文並重定位所有既有遮擋 mesh
+   * 4. 重建 window platform + edge pillar
+   *
+   * 這樣不必等 window.resize 事件就能正確呈現所有 mesh 位置。
    */
   setDisplays(displays: DisplayInfo[], initialIndex: number): void {
     this.currentDisplayIndex = Math.max(0, Math.min(initialIndex, displays.length - 1));
     const d = displays[this.currentDisplayIndex];
-    if (d) {
-      const wa = d.workArea ?? d;
-      this.setScreenOrigin(d.x, d.y);
-      this.setWorkArea(wa.x, wa.y, wa.width, wa.height);
+    if (!d) return;
+
+    // 先同步 canvas 尺寸與 camera，讓後續的 screenToWorld / createTaskbarPlatform
+    // 讀到正確的 canvas.clientWidth / clientHeight（Three.js setSize 預設會更新
+    // canvas 的 CSS style，immediate 生效）
+    this.renderer.setPixelRatio(window.devicePixelRatio);
+    this.renderer.setSize(d.width, d.height);
+    this.setupCameraForCanvas(d.height);
+    this.updateCharacterSize();
+
+    // 套用新的座標原點與 workArea（setWorkArea 會重建 taskbar/ground platform）
+    const wa = d.workArea ?? d;
+    this.setScreenOrigin(d.x, d.y);
+    this.setWorkArea(wa.x, wa.y, wa.width, wa.height);
+
+    // 更新遮擋 mesh 管理器的上下文並重定位所有 mesh
+    if (this.windowMeshManager) {
+      this.windowMeshManager.updateContext({ x: d.x, y: d.y }, d.width, d.height);
     }
+
+    // 重建視窗頂部 platform 與左右邊緣柱子
+    this.rebuildWindowPlatforms();
   }
 
   /** 當前所在的 display index */
@@ -687,7 +710,9 @@ export class SceneManager {
     }
 
     // Step 1: StateMachine（碰撞/穿越已移除，僅保留基本狀態機）
-    if (this.stateMachine && !this.stateMachine.isPaused()) {
+    // 注意：paused 語意交由 StateMachine 自己處理——仍需呼叫 tick() 讓
+    // forceState 觸發的狀態變化能產出 targetPosition + 動畫事件
+    if (this.stateMachine) {
       const characterBounds = this.getCharacterBounds();
       const canvas = this.renderer.domElement;
 

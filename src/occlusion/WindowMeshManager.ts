@@ -30,10 +30,14 @@ export class WindowMeshManager {
   private readonly meshMap = new Map<number, MeshRecord>();
   private readonly scene: THREE.Scene;
   private readonly pixelToWorld: number;
-  private readonly screenOriginX: number;
-  private readonly screenOriginY: number;
-  private readonly canvasW: number;
-  private readonly canvasH: number;
+  /** 螢幕原點 X（邏輯像素）— 切換螢幕時會更新 */
+  private screenOriginX: number;
+  /** 螢幕原點 Y（邏輯像素）— 切換螢幕時會更新 */
+  private screenOriginY: number;
+  /** Canvas 寬度（邏輯像素）— 切換螢幕時會更新 */
+  private canvasW: number;
+  /** Canvas 高度（邏輯像素）— 切換螢幕時會更新 */
+  private canvasH: number;
 
   /** 共用 geometry 和 material（所有 mesh 共用，減少 GPU 資源） */
   private readonly sharedGeometry: THREE.PlaneGeometry;
@@ -97,6 +101,27 @@ export class WindowMeshManager {
         this.scene.remove(record.mesh);
         this.meshMap.delete(hwnd);
       }
+    }
+  }
+
+  /**
+   * 更新螢幕座標上下文（切換螢幕時呼叫）
+   *
+   * 切換螢幕後 screenOrigin 與 canvas 尺寸都會改變，必須重新計算所有
+   * 既有 mesh 的世界座標位置，否則 mesh 仍停留在舊螢幕的相對位置。
+   */
+  updateContext(
+    screenOrigin: { x: number; y: number },
+    canvasWidth: number,
+    canvasHeight: number,
+  ): void {
+    this.screenOriginX = screenOrigin.x;
+    this.screenOriginY = screenOrigin.y;
+    this.canvasW = canvasWidth;
+    this.canvasH = canvasHeight;
+    const dpr = window.devicePixelRatio;
+    for (const record of this.meshMap.values()) {
+      this.positionMesh(record.mesh, record.rect, record.meshZ, dpr);
     }
   }
 
