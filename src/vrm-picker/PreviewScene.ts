@@ -20,14 +20,15 @@
  * 互動：
  *   - 左鍵拖曳水平 → 旋轉角色 Y 軸
  *   - 左鍵拖曳垂直 → 推拉攝影機（沿 lookAt 方向）
- *   - 切換模型時旋轉與縮放歸零
+ *   - 右鍵拖曳 → 平移攝影機（pan，動態 clamp 確保角色不離開視野）
+ *   - 切換模型時旋轉、縮放、pan 全部歸零
  */
 
 import * as THREE from 'three';
 import { VRMController } from '../core/VRMController';
 import { FallbackAnimation } from '../animation/FallbackAnimation';
 import { ipc } from '../bridge/ElectronIPC';
-import { clamp, isSysIdleFile } from './pickerLogic';
+import { clamp, isSysIdleFile, computePanLimits } from './pickerLogic';
 
 const TARGET_FPS = 30;
 const FRAME_INTERVAL = 1000 / TARGET_FPS;
@@ -39,11 +40,17 @@ const CROSSFADE_DURATION = 0.5;
 
 export class PreviewScene {
   // ── 攝影機 / 互動常數 ──
+  private static readonly FOV_DEG = 35;
+  private static readonly FOV_RAD = (PreviewScene.FOV_DEG * Math.PI) / 180;
   private static readonly INITIAL_DISTANCE = 2.4;
   private static readonly MIN_DISTANCE = 1.0;
   private static readonly MAX_DISTANCE = 5.0;
   private static readonly ROTATE_SENSITIVITY = 0.01;
   private static readonly ZOOM_SENSITIVITY = 0.01;
+  /** Pan 敏感度（每 px 對應 cameraDistance 的比例） */
+  private static readonly PAN_SENSITIVITY = 0.0015;
+  /** Pan 上限計算時保留的角色邊界（m） */
+  private static readonly PAN_CHARACTER_MARGIN = 0.2;
   private static readonly LOOK_TARGET = new THREE.Vector3(0, 0.95, 0);
   /** 預設攝影機位置（從 LOOK_TARGET 出發的方向計算用） */
   private static readonly DEFAULT_CAMERA_POS = new THREE.Vector3(0, 1.0, 2.4);
@@ -65,7 +72,10 @@ export class PreviewScene {
   // ── 互動狀態 ──
   private rotationY = 0;
   private cameraDistance = PreviewScene.INITIAL_DISTANCE;
-  private isDragging = false;
+  private panOffsetX = 0;
+  private panOffsetY = 0;
+  /** 'none' = 未拖曳；'rotate-zoom' = 左鍵拖曳中；'pan' = 右鍵拖曳中 */
+  private dragMode: 'none' | 'rotate-zoom' | 'pan' = 'none';
   private lastDragX = 0;
   private lastDragY = 0;
 
@@ -90,8 +100,8 @@ export class PreviewScene {
     this.scene.add(dir);
 
     // 攝影機（角色身高約 1.5m，鏡頭擺在腰部往前 2m）
-    this.camera = new THREE.PerspectiveCamera(35, 1, 0.1, 100);
-    this.applyRotationAndZoom();
+    this.camera = new THREE.PerspectiveCamera(PreviewScene.FOV_DEG, 1, 0.1, 100);
+    this.applyCameraTransform();
 
     // 渲染器
     this.renderer = new THREE.WebGLRenderer({
@@ -108,6 +118,7 @@ export class PreviewScene {
     // 滑鼠拖曳互動：mousedown 在 canvas 上，move/up 在 window 上
     // （拖曳中游標可能滑出 canvas 範圍，要繼續追蹤）
     canvas.addEventListener('mousedown', this.onMouseDown);
+    canvas.addEventListener('contextmenu', this.onContextMenu);
     window.addEventListener('mousemove', this.onMouseMove);
     window.addEventListener('mouseup', this.onMouseUp);
 
@@ -127,10 +138,12 @@ export class PreviewScene {
     // 釋放舊模型與動畫狀態
     this.disposeModel();
 
-    // 重置旋轉與縮放並立即套用
+    // 重置旋轉、縮放、pan 並立即套用
     this.rotationY = 0;
     this.cameraDistance = PreviewScene.INITIAL_DISTANCE;
-    this.applyRotationAndZoom();
+    this.panOffsetX = 0;
+    this.panOffsetY = 0;
+    this.applyCameraTransform();
 
     const url = ipc.convertToAssetUrl(vrmPath);
     const controller = new VRMController(this.scene);
@@ -242,55 +255,97 @@ export class PreviewScene {
 
   // ── 滑鼠拖曳互動 ──
 
+  private onContextMenu = (e: MouseEvent): void => {
+    // 抑制瀏覽器右鍵 context menu，讓右鍵 drag 可運作
+    e.preventDefault();
+  };
+
   private onMouseDown = (e: MouseEvent): void => {
-    if (e.button !== 0) return; // 只接受左鍵
-    this.isDragging = true;
+    if (e.button === 0) {
+      this.dragMode = 'rotate-zoom';
+      this.canvas.classList.add('dragging-rotate');
+    } else if (e.button === 2) {
+      this.dragMode = 'pan';
+      this.canvas.classList.add('dragging-pan');
+    } else {
+      return; // 中鍵或其他按鈕忽略
+    }
     this.lastDragX = e.clientX;
     this.lastDragY = e.clientY;
-    this.canvas.classList.add('dragging');
     e.preventDefault();
   };
 
   private onMouseMove = (e: MouseEvent): void => {
-    if (!this.isDragging) return;
+    if (this.dragMode === 'none') return;
     const dx = e.clientX - this.lastDragX;
     const dy = e.clientY - this.lastDragY;
     this.lastDragX = e.clientX;
     this.lastDragY = e.clientY;
-    this.rotationY += dx * PreviewScene.ROTATE_SENSITIVITY;
-    this.cameraDistance = clamp(
-      this.cameraDistance + dy * PreviewScene.ZOOM_SENSITIVITY,
-      PreviewScene.MIN_DISTANCE,
-      PreviewScene.MAX_DISTANCE,
-    );
-    this.applyRotationAndZoom();
+
+    if (this.dragMode === 'rotate-zoom') {
+      this.rotationY += dx * PreviewScene.ROTATE_SENSITIVITY;
+      this.cameraDistance = clamp(
+        this.cameraDistance + dy * PreviewScene.ZOOM_SENSITIVITY,
+        PreviewScene.MIN_DISTANCE,
+        PreviewScene.MAX_DISTANCE,
+      );
+      // zoom 變動後 pan 上限可能縮小，re-clamp 既有 panOffset
+      this.clampPanToLimits();
+    } else if (this.dragMode === 'pan') {
+      const panScale = PreviewScene.PAN_SENSITIVITY * this.cameraDistance;
+      // 拖曳右 → 場景往右滑 → 相機往左 → panOffsetX 減小
+      // 拖曳下 → 場景往下滑 → 相機往上 → panOffsetY 增大
+      this.panOffsetX -= dx * panScale;
+      this.panOffsetY += dy * panScale;
+      this.clampPanToLimits();
+    }
+    this.applyCameraTransform();
   };
 
   private onMouseUp = (): void => {
-    if (!this.isDragging) return;
-    this.isDragging = false;
-    this.canvas.classList.remove('dragging');
+    if (this.dragMode === 'none') return;
+    this.dragMode = 'none';
+    this.canvas.classList.remove('dragging-rotate');
+    this.canvas.classList.remove('dragging-pan');
   };
 
-  /** 套用當前旋轉與相機距離到 VRMController 與 camera */
-  private applyRotationAndZoom(): void {
+  /** 依當前 cameraDistance 與視窗 aspect ratio 將 panOffset clamp 在合法範圍內 */
+  private clampPanToLimits(): void {
+    const aspect = this.camera.aspect || 1;
+    const limits = computePanLimits(
+      this.cameraDistance,
+      PreviewScene.FOV_RAD,
+      aspect,
+      PreviewScene.PAN_CHARACTER_MARGIN,
+    );
+    this.panOffsetX = clamp(this.panOffsetX, -limits.x, limits.x);
+    this.panOffsetY = clamp(this.panOffsetY, -limits.y, limits.y);
+  }
+
+  /** 套用當前旋轉、縮放、pan 到 VRMController 與 camera */
+  private applyCameraTransform(): void {
     if (this.vrmController) {
       this.vrmController.setFacingRotationY(this.rotationY);
     }
-    // 沿 lookAt 方向縮放：方向 = normalize(DEFAULT_CAMERA_POS - LOOK_TARGET)
-    // 新位置 = LOOK_TARGET + dir * cameraDistance
-    const target = PreviewScene.LOOK_TARGET;
-    const def = PreviewScene.DEFAULT_CAMERA_POS;
-    const dirX = def.x - target.x;
-    const dirY = def.y - target.y;
-    const dirZ = def.z - target.z;
+    // 動態 lookAt target = 預設 LOOK_TARGET + pan offset
+    // 攝影機位置 = 動態 target + 預設方向 × cameraDistance
+    // 這樣 pan 同時平移 camera 與 lookAt，達到純畫面平移效果
+    const baseTarget = PreviewScene.LOOK_TARGET;
+    const baseCamera = PreviewScene.DEFAULT_CAMERA_POS;
+    const targetX = baseTarget.x + this.panOffsetX;
+    const targetY = baseTarget.y + this.panOffsetY;
+    const targetZ = baseTarget.z;
+
+    const dirX = baseCamera.x - baseTarget.x;
+    const dirY = baseCamera.y - baseTarget.y;
+    const dirZ = baseCamera.z - baseTarget.z;
     const len = Math.sqrt(dirX * dirX + dirY * dirY + dirZ * dirZ);
     this.camera.position.set(
-      target.x + (dirX / len) * this.cameraDistance,
-      target.y + (dirY / len) * this.cameraDistance,
-      target.z + (dirZ / len) * this.cameraDistance,
+      targetX + (dirX / len) * this.cameraDistance,
+      targetY + (dirY / len) * this.cameraDistance,
+      targetZ + (dirZ / len) * this.cameraDistance,
     );
-    this.camera.lookAt(target);
+    this.camera.lookAt(targetX, targetY, targetZ);
   }
 
   // ── 釋放 ──
@@ -351,6 +406,9 @@ export class PreviewScene {
     this.renderer.setSize(width, height, false);
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
+    // aspect 變動可能影響 pan 上限，re-clamp 並重新套用
+    this.clampPanToLimits();
+    this.applyCameraTransform();
   };
 
   private handleVisibilityChange = (): void => {
@@ -375,6 +433,7 @@ export class PreviewScene {
     window.removeEventListener('resize', this.handleResize);
     document.removeEventListener('visibilitychange', this.handleVisibilityChange);
     this.canvas.removeEventListener('mousedown', this.onMouseDown);
+    this.canvas.removeEventListener('contextmenu', this.onContextMenu);
     window.removeEventListener('mousemove', this.onMouseMove);
     window.removeEventListener('mouseup', this.onMouseUp);
     this.disposeModel();

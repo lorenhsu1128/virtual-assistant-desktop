@@ -77,3 +77,36 @@ export function isSysIdleFile(filePath: string): boolean {
   const fileName = lastSlash >= 0 ? normalized.substring(lastSlash + 1) : normalized;
   return /^SYS_IDLE_.*\.vrma$/i.test(fileName);
 }
+
+/**
+ * 計算預覽攝影機 pan 的最大允許範圍（世界座標，公尺）
+ *
+ * 動態依攝影機距離與 FOV 計算視野邊界，確保 pan 到極限時角色仍有
+ * `characterMargin` 公尺寬的部分留在畫面內。
+ *
+ * 公式：
+ *   viewHalfHeight = cameraDistance × tan(fov / 2)
+ *   viewHalfWidth  = viewHalfHeight × aspectRatio
+ *   maxPanX = max(0.1, viewHalfWidth  - characterMargin)
+ *   maxPanY = max(0.2, viewHalfHeight - characterMargin)
+ *
+ * @param cameraDistance 攝影機到 lookAt target 的距離（m）
+ * @param fovRad 垂直 FOV（弧度）
+ * @param aspectRatio 視窗寬/高比
+ * @param characterMargin 角色保留邊界（m），確保 pan 極限時角色仍有此寬度留在畫面
+ * @returns 水平與垂直方向的最大 pan 偏移量（m），均為正值
+ */
+export function computePanLimits(
+  cameraDistance: number,
+  fovRad: number,
+  aspectRatio: number,
+  characterMargin: number,
+): { x: number; y: number } {
+  const safeDist = Math.max(0, cameraDistance);
+  const halfHeight = safeDist * Math.tan(fovRad / 2);
+  const halfWidth = halfHeight * Math.max(0, aspectRatio);
+  return {
+    x: Math.max(0.1, halfWidth - characterMargin),
+    y: Math.max(0.2, halfHeight - characterMargin),
+  };
+}

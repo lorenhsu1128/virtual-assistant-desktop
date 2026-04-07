@@ -6,6 +6,7 @@ import {
   stripVrmExtension,
   clamp,
   isSysIdleFile,
+  computePanLimits,
 } from '../../src/vrm-picker/pickerLogic';
 import type { AppConfig } from '../../src/types/config';
 
@@ -167,6 +168,75 @@ describe('isSysIdleFile', () => {
   it('matches with descriptive suffix', () => {
     expect(isSysIdleFile('SYS_IDLE_breathing.vrma')).toBe(true);
     expect(isSysIdleFile('SYS_IDLE_long_name_with_underscores.vrma')).toBe(true);
+  });
+});
+
+describe('computePanLimits', () => {
+  const FOV_RAD = (35 * Math.PI) / 180;
+  const MARGIN = 0.2;
+
+  it('returns wider limits when camera is farther', () => {
+    const near = computePanLimits(1.0, FOV_RAD, 1.5, MARGIN);
+    const far = computePanLimits(5.0, FOV_RAD, 1.5, MARGIN);
+    expect(far.x).toBeGreaterThan(near.x);
+    expect(far.y).toBeGreaterThan(near.y);
+  });
+
+  it('horizontal limit is greater than vertical when aspect > 1', () => {
+    const limits = computePanLimits(2.4, FOV_RAD, 1.5, MARGIN);
+    expect(limits.x).toBeGreaterThan(limits.y);
+  });
+
+  it('default-distance values are within expected range', () => {
+    // distance 2.4m, fov 35°, aspect 1.5, margin 0.2
+    // halfHeight = 2.4 * tan(17.5°) ≈ 0.7565
+    // halfWidth  = 0.7565 * 1.5 ≈ 1.1347
+    // x = max(0.1, 1.1347 - 0.2) ≈ 0.9347
+    // y = max(0.2, 0.7565 - 0.2) ≈ 0.5565
+    const limits = computePanLimits(2.4, FOV_RAD, 1.5, MARGIN);
+    expect(limits.x).toBeCloseTo(0.9347, 2);
+    expect(limits.y).toBeCloseTo(0.5565, 2);
+  });
+
+  it('clamps to minimum at very near distance', () => {
+    // distance 0.5m gives halfHeight ≈ 0.158, halfWidth ≈ 0.236
+    // x = max(0.1, 0.236 - 0.2) = max(0.1, 0.036) = 0.1
+    // y = max(0.2, 0.158 - 0.2) = max(0.2, -0.042) = 0.2
+    const limits = computePanLimits(0.5, FOV_RAD, 1.5, MARGIN);
+    expect(limits.x).toBe(0.1);
+    expect(limits.y).toBe(0.2);
+  });
+
+  it('handles zero distance without NaN', () => {
+    const limits = computePanLimits(0, FOV_RAD, 1.5, MARGIN);
+    expect(limits.x).toBe(0.1);
+    expect(limits.y).toBe(0.2);
+    expect(Number.isFinite(limits.x)).toBe(true);
+    expect(Number.isFinite(limits.y)).toBe(true);
+  });
+
+  it('handles negative distance gracefully (clamps to 0)', () => {
+    const limits = computePanLimits(-1, FOV_RAD, 1.5, MARGIN);
+    expect(limits.x).toBe(0.1);
+    expect(limits.y).toBe(0.2);
+  });
+
+  it('handles negative aspect ratio gracefully', () => {
+    const limits = computePanLimits(2.4, FOV_RAD, -1, MARGIN);
+    expect(limits.x).toBe(0.1);
+    expect(Number.isFinite(limits.x)).toBe(true);
+  });
+
+  it('aspect ratio 1.0 makes x and y limits closer', () => {
+    const limits = computePanLimits(2.4, FOV_RAD, 1.0, MARGIN);
+    expect(limits.x).toBeCloseTo(limits.y, 5);
+  });
+
+  it('larger margin reduces limits', () => {
+    const small = computePanLimits(2.4, FOV_RAD, 1.5, 0.1);
+    const large = computePanLimits(2.4, FOV_RAD, 1.5, 0.5);
+    expect(large.x).toBeLessThan(small.x);
+    expect(large.y).toBeLessThan(small.y);
   });
 });
 

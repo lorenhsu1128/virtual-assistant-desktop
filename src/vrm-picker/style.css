@@ -138,8 +138,12 @@ button:disabled {
   cursor: grab;
 }
 
-#picker-preview-canvas.dragging {
+#picker-preview-canvas.dragging-rotate {
   cursor: grabbing;
+}
+
+#picker-preview-canvas.dragging-pan {
+  cursor: move;
 }
 
 #picker-preview-hint {
