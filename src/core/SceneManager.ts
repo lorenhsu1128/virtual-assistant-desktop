@@ -1172,6 +1172,27 @@ export class SceneManager {
       if (hipOffset !== null) {
         world.y -= hipOffset;
       }
+      // 診斷：捕捉異常座標（NaN/Infinity 或超出 ±100 世界單位）
+      // sit 狀態下角色不渲染 bug 調查用
+      if (
+        !Number.isFinite(world.x) ||
+        !Number.isFinite(world.y) ||
+        Math.abs(world.y) > 100 ||
+        Math.abs(world.x) > 100
+      ) {
+        console.warn('[SceneManager] sit state abnormal world pos:', {
+          currentPosition: { ...this.currentPosition },
+          characterSize: { ...this.characterSize },
+          cachedModelSize: this.cachedModelSize,
+          bottomY: this.currentPosition.y + this.characterSize.height,
+          worldX: world.x,
+          worldY: world.y,
+          hipOffset,
+          pixelToWorld: this.pixelToWorld,
+          attachedHwnd: this.lastBehaviorOutput?.attachedWindowHwnd ?? null,
+          sitPlatformId: this.stateMachine.sitPlatformId,
+        });
+      }
     }
 
     // 根據行為狀態決定角色 Z 深度
@@ -1396,8 +1417,12 @@ export class SceneManager {
     // X 活動範圍：左右各允許超出 1.5 倍角色寬度（考慮配件等額外空間）
     const minX = this.workAreaOrigin.x - charW * 1.5;
     const maxX = this.workAreaOrigin.x + this.workAreaSize.width + charW * 0.5;
-    // Y 活動範圍：上限 = 腳底剛離開螢幕頂部（1 倍角色高度），下限 = 保留上半身可見
-    const minY = this.workAreaOrigin.y - charH * 1.0;
+    // Y 活動範圍：
+    //   上限 = 工作區頂部往上 0.3 倍角色高度（讓上半身可略微超出，但下半身一定在工作區內）
+    //   下限 = 保留上半身可見
+    // 注意：原本是 -charH * 1.0，但這允許整個角色 bounding box 完全在工作區上方，
+    // sit 在頂部視窗時導致整個角色在 camera 視野上方而消失。改為 -charH * 0.3。
+    const minY = this.workAreaOrigin.y - charH * 0.3;
     const maxY = this.screenOrigin.y + screenH - charH * 0.5;
 
     return {
@@ -1467,9 +1492,15 @@ export class SceneManager {
     // 清除所有舊的視窗 platform mesh（因為露出區段數量每次都可能改變）
     const newMeshKeys = new Set<string>();
 
+    // sittable 高度門檻：視窗上邊緣若太靠近工作區頂部，
+    // 角色坐上去後身體會超出視野上方 → 不建立 platform
+    const minSittableTop = this.workAreaOrigin.y + this.characterSize.height * 0.5;
+
     for (const lr of logicalRects) {
       // 過濾：視窗太小
       if (lr.width < MIN_PLATFORM_WIDTH) continue;
+      // 過濾：視窗上邊緣太靠近工作區頂部，無法容納角色身體
+      if (lr.top < minSittableTop) continue;
 
       // 計算露出區段：從完整頂部邊緣 [left, right] 扣除更上層視窗的覆蓋
       const occIntervals: Array<{ start: number; end: number }> = [];
