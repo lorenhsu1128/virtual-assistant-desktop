@@ -1014,6 +1014,9 @@ export class SceneManager {
   private onResize = (): void => {
     const width = window.innerWidth;
     const height = window.innerHeight;
+    // 切換到不同 DPI 的螢幕時 devicePixelRatio 會變，必須重新套用
+    // 否則 HitTest 的 readPixels 會讀錯位置，導致 alpha 一直為 0 → 拖曳失效
+    this.renderer.setPixelRatio(window.devicePixelRatio);
     this.renderer.setSize(width, height);
     this.setupCameraForCanvas(height);
     this.updateCharacterSize();

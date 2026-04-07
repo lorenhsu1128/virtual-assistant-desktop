@@ -21,6 +21,9 @@ export function registerIpcHandlers(
   mainWindow: BrowserWindow,
   windowMonitor: WindowMonitor,
 ): void {
+  // 追蹤目前的 passthrough 狀態，讓 setBounds 類操作之後能重新套用
+  // （Electron 在某些情況下 setBounds 後會悄悄丟失 setIgnoreMouseEvents 狀態）
+  let currentIgnoreState = true;
   // ── Config ──
 
   ipcMain.handle('get_config_exists', () => {
@@ -131,11 +134,14 @@ export function registerIpcHandlers(
     if (!d) return;
     mainWindow.setBounds(d.bounds);
     mainWindow.setAlwaysOnTop(true, 'screen-saver');
+    // setBounds 可能重置 passthrough 狀態，重新套用
+    mainWindow.setIgnoreMouseEvents(currentIgnoreState, { forward: true });
   });
 
   // ── Mouse Passthrough ──
 
   ipcMain.handle('set_ignore_cursor_events', (_event, ignore: boolean) => {
+    currentIgnoreState = ignore;
     mainWindow.setIgnoreMouseEvents(ignore, { forward: true });
   });
 
