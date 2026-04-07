@@ -1166,17 +1166,28 @@ export class SceneManager {
     const bottomY = this.currentPosition.y + this.characterSize.height;
     const world = this.screenToWorld(centerX, bottomY);
 
-    // sit 狀態：讓臀部（hips 骨骼）對齊平面，而非腳底
+    // 根據行為狀態決定角色 Z 深度
+    this.currentCharacterZ = this.resolveCharacterZ(this.lastBehaviorOutput);
+    let finalZ = this.currentCharacterZ;
+
+    // sit 狀態：補償 hip 骨骼的 3D 偏移，讓 hips 對齊到 (world.x, world.y, currentCharacterZ)
+    //
+    // 為什麼要補償三軸：某些 sit .vrma 動畫（如 SYS_SIT_01/02）的 hip translation
+    // 包含大幅 Z 位移（例如 +1.25m），且模型 rotation 為 0 時這個位移會直接套到世界 Z，
+    // 把 hips 推到 z=9.75，靠近 camera near plane (9.9)，導致前方部位（胸/頭/手）被切掉。
+    // 補償後 hips 永遠在 currentCharacterZ（預設 8.5），距 camera 1.5m，安全。
     if (this.stateMachine?.getState() === 'sit') {
-      const hipOffset = this.vrmController.getHipOffsetY();
-      if (hipOffset !== null) {
-        world.y -= hipOffset;
+      const hipOffset = this.vrmController.getHipsRelativeOffset();
+      if (hipOffset) {
+        world.x -= hipOffset.x;
+        world.y -= hipOffset.y;
+        finalZ -= hipOffset.z;
       }
       // 診斷：捕捉異常座標（NaN/Infinity 或超出 ±100 世界單位）
-      // sit 狀態下角色不渲染 bug 調查用
       if (
         !Number.isFinite(world.x) ||
         !Number.isFinite(world.y) ||
+        !Number.isFinite(finalZ) ||
         Math.abs(world.y) > 100 ||
         Math.abs(world.x) > 100
       ) {
@@ -1187,6 +1198,7 @@ export class SceneManager {
           bottomY: this.currentPosition.y + this.characterSize.height,
           worldX: world.x,
           worldY: world.y,
+          finalZ,
           hipOffset,
           pixelToWorld: this.pixelToWorld,
           attachedHwnd: this.lastBehaviorOutput?.attachedWindowHwnd ?? null,
@@ -1195,9 +1207,7 @@ export class SceneManager {
       }
     }
 
-    // 根據行為狀態決定角色 Z 深度
-    this.currentCharacterZ = this.resolveCharacterZ(this.lastBehaviorOutput);
-    this.vrmController.setWorldPosition(world.x, world.y, this.currentCharacterZ);
+    this.vrmController.setWorldPosition(world.x, world.y, finalZ);
   }
 
   /**

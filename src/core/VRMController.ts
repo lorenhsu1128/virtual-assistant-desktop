@@ -325,6 +325,26 @@ export class VRMController {
     return VRMController._tempWorldPos.y - this.vrm.scene.position.y;
   }
 
+  /**
+   * 取得 hips 骨骼世界座標相對於模型 scene 原點的 3D 偏移量
+   *
+   * 與 getHipOffsetY 不同：包含 X/Y/Z 三軸。
+   * 用於 sit 狀態下完整補償 hip 動畫位移（避免 hip translation 把模型推出 camera near plane）。
+   *
+   * 已包含 vrm.scene.rotation 的影響（getWorldPosition 是世界座標）。
+   */
+  getHipsRelativeOffset(): { x: number; y: number; z: number } | null {
+    if (!this.vrm?.humanoid) return null;
+    const hips = this.vrm.humanoid.getNormalizedBoneNode('hips');
+    if (!hips) return null;
+    hips.getWorldPosition(VRMController._tempWorldPos);
+    return {
+      x: VRMController._tempWorldPos.x - this.vrm.scene.position.x,
+      y: VRMController._tempWorldPos.y - this.vrm.scene.position.y,
+      z: VRMController._tempWorldPos.z - this.vrm.scene.position.z,
+    };
+  }
+
   /** 重複使用的 Box3（避免每幀配置新物件） */
   private static readonly _tempBox3 = new THREE.Box3();
 
