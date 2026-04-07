@@ -7,7 +7,13 @@
       "Bash(npx kill-port:*)",
       "Bash(pnpm dev:*)",
       "Bash(taskkill //F //IM \"electron.exe\")",
-      "Bash(pnpm build:electron)"
+      "Bash(pnpm build:electron)",
+      "Bash(lsof -ti:1420)",
+      "Bash(xargs kill:*)",
+      "Bash(pkill -f \"electron \\\\.\")",
+      "Bash(pkill -f \"vite\")",
+      "Bash(node:*)",
+      "Bash(pkill -9 -f \"[Ee]lectron\")"
     ]
   }
 }
