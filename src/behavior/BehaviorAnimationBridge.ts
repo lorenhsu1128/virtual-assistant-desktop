@@ -8,7 +8,7 @@ const STATE_TO_CATEGORY: Record<BehaviorState, AnimationCategory> = {
   idle: 'idle',
   walk: 'idle', // walk 由系統動畫處理，fallback 到 idle
   sit: 'sit',
-  hide: 'idle', // hide 時角色不可見，動畫不重要
+  hide: 'idle', // hide 由系統動畫處理（walk），fallback 到 idle
   peek: 'peek',
   fall: 'fall',
   drag: 'idle', // drag 由系統動畫處理，fallback 到 idle
@@ -17,6 +17,7 @@ const STATE_TO_CATEGORY: Record<BehaviorState, AnimationCategory> = {
 /** 需要系統動畫的狀態（sit 使用隨機選取，見 pickSitAnimation） */
 const STATE_TO_SYSTEM_ANIMATION: Partial<Record<BehaviorState, string>> = {
   walk: 'walk',
+  hide: 'walk', // hide 移動階段使用 walk 動畫（到達邊緣後雖仍播放，但角色已藏在視窗後不可見）
   drag: 'drag',
 };
 
