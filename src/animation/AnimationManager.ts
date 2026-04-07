@@ -10,6 +10,21 @@ interface LoadedAnimation {
   clip: THREE.AnimationClip;
 }
 
+/**
+ * 偽 inertialization transition 狀態（階段 C）
+ *
+ * 用 ease-out cubic 權重曲線取代 Three.js 預設的線性 crossfade。
+ * 視覺上「舊動作的影響保留更久」，類似真正 inertialization 的效果。
+ */
+interface TransitionState {
+  oldAction: THREE.AnimationAction;
+  newAction: THREE.AnimationAction;
+  elapsed: number;
+  duration: number;
+  /** 開始 transition 時舊動作的 weight（用於從中段繼續衰減） */
+  initialOldWeight: number;
+}
+
 /** Crossfade 過渡時間預設值（秒），實際時長依 category 決定 */
 const CROSSFADE_DURATION = 0.5;
 
@@ -64,6 +79,9 @@ export class AnimationManager {
 
   /** 上一個 action（crossfade 用） */
   private previousAction: THREE.AnimationAction | null = null;
+
+  /** 進行中的 cubic transition（階段 C）；null = 無 transition */
+  private transitionState: TransitionState | null = null;
 
   /** idle 輪播計時器 */
   private idleTimer = 0;
@@ -219,12 +237,7 @@ export class AnimationManager {
       };
     }
 
-    // 淡出當前動畫
-    if (this.currentAction) {
-      this.currentAction.fadeOut(fadeDuration);
-    }
-
-    // 播放系統動畫
+    // 播放系統動畫（透過 cubic transition 銜接）
     const action = this.mixer.clipAction(clip);
     action.reset();
     if (loop) {
@@ -233,8 +246,10 @@ export class AnimationManager {
       action.setLoop(THREE.LoopOnce, 1);
       action.clampWhenFinished = true;
     }
-    action.fadeIn(fadeDuration);
     action.play();
+
+    // 階段 C：用 cubic transition 取代線性 fadeIn/fadeOut
+    this.startTransition(this.currentAction, action, fadeDuration);
 
     this.systemAction = action;
     this.currentAction = action;
@@ -248,8 +263,8 @@ export class AnimationManager {
   stopSystemAnimation(): void {
     if (!this.systemAction) return;
 
-    // 淡出系統動畫
-    this.systemAction.fadeOut(CROSSFADE_DURATION);
+    // 不需要顯式 fadeOut：playClip / playNextIdle 內部會 startTransition
+    // 把當前 systemAction 作為 oldAction 進行 cubic 衰減
     this.systemAction = null;
 
     // 恢復先前動畫
@@ -271,7 +286,13 @@ export class AnimationManager {
 
   /** 停止當前動畫 */
   stopCurrent(): void {
+    // 清除進行中的 transition，避免下一幀又被覆蓋 weight
+    if (this.transitionState) {
+      this.transitionState.oldAction.stop();
+      this.transitionState = null;
+    }
     if (this.currentAction) {
+      // 沒有 newAction 可以 transition，直接線性 fadeOut
       this.currentAction.fadeOut(CROSSFADE_DURATION);
       this.currentAction = null;
     }
@@ -324,9 +345,12 @@ export class AnimationManager {
    *
    * 由 SceneManager render loop 呼叫。
    * 注意：mixer.update 由 VRMController.update 負責，
-   * 這裡只處理 idle 輪播邏輯。
+   * 這裡處理 transition 推進與 idle 輪播邏輯。
    */
   update(deltaTime: number): void {
+    // Phase C: cubic transition 推進（每幀執行，不受 idle 早走影響）
+    this.updateTransition(deltaTime);
+
     if (this.systemAction) return; // 系統動畫播放中，暫停 idle 輪播
     if (this.isPlayingAction) return;
     if (!this.loopEnabled) return;
@@ -336,6 +360,74 @@ export class AnimationManager {
     if (this.idleTimer >= this.idleWaitTime) {
       this.playNextIdle();
       this.resetIdleTimer();
+    }
+  }
+
+  /**
+   * 啟動一個 cubic transition（階段 C）
+   *
+   * 取代 Three.js 預設的線性 crossFadeTo。
+   * 用 ease-out cubic 衰減 oldAction.weight，讓舊動作的影響在前期保留較久，
+   * 後期快速釋放，視覺效果類似 inertialization。
+   *
+   * 若有正在進行的 transition：先停止舊的，再啟動新的。
+   * oldAction 的初始 weight 取自當前 effective weight（若被中斷則從中段繼續）。
+   */
+  private startTransition(
+    oldAction: THREE.AnimationAction | null,
+    newAction: THREE.AnimationAction,
+    duration: number,
+  ): void {
+    // 終止任何進行中的舊 transition（清除被覆蓋的舊動作）
+    if (this.transitionState && this.transitionState.oldAction !== oldAction) {
+      this.transitionState.oldAction.setEffectiveWeight(0);
+      this.transitionState.oldAction.stop();
+    }
+    this.transitionState = null;
+
+    // 沒有 oldAction 或同一個 action：直接全權重，無 transition
+    if (!oldAction || oldAction === newAction) {
+      newAction.setEffectiveWeight(1);
+      return;
+    }
+
+    newAction.setEffectiveWeight(0);
+    // 不強制設定 oldAction.weight，沿用當前 weight（可能正在 fading）
+
+    this.transitionState = {
+      oldAction,
+      newAction,
+      elapsed: 0,
+      duration: Math.max(0.0001, duration),
+      initialOldWeight: oldAction.getEffectiveWeight() || 1,
+    };
+  }
+
+  /** 推進 cubic transition（每幀呼叫一次） */
+  private updateTransition(deltaTime: number): void {
+    if (!this.transitionState) return;
+
+    this.transitionState.elapsed += deltaTime;
+    const t = Math.min(1, this.transitionState.elapsed / this.transitionState.duration);
+
+    // ease-out cubic decay：(1-t)^3
+    // t=0:    decay=1.000  → oldWeight=initialOldWeight, newWeight=0
+    // t=0.1:  decay=0.729  → 舊動作仍保留 73% 影響（inertia 感）
+    // t=0.3:  decay=0.343
+    // t=0.5:  decay=0.125  → 半時舊動作只剩 12.5%
+    // t=0.7:  decay=0.027
+    // t=1.0:  decay=0      → newWeight=1
+    const decay = (1 - t) ** 3;
+    const oldWeight = this.transitionState.initialOldWeight * decay;
+    const newWeight = 1 - decay;
+
+    this.transitionState.oldAction.setEffectiveWeight(oldWeight);
+    this.transitionState.newAction.setEffectiveWeight(newWeight);
+
+    if (t >= 1) {
+      this.transitionState.oldAction.setEffectiveWeight(0);
+      this.transitionState.oldAction.stop();
+      this.transitionState = null;
     }
   }
 
@@ -352,6 +444,7 @@ export class AnimationManager {
   /** 銷毀 */
   dispose(): void {
     this.mixer.removeEventListener('finished', this.onAnimationFinished);
+    this.transitionState = null;
     this.stopCurrent();
     this.systemAction = null;
     this.savedState = null;
@@ -387,14 +480,10 @@ export class AnimationManager {
       action.clampWhenFinished = true;
     }
 
-    // 改用 crossFadeTo + warp，讓兩個 clip 的 phase 對齊（解決 walk 之間腳步不對齊）
-    if (this.previousAction) {
-      action.play();
-      this.previousAction.crossFadeTo(action, fadeDuration, true);
-    } else {
-      action.fadeIn(fadeDuration);
-      action.play();
-    }
+    // 階段 C：用 cubic transition 取代 Three.js 線性 crossFadeTo
+    // ease-out cubic 衰減讓舊動作的影響保留更久，視覺效果類似 inertialization
+    action.play();
+    this.startTransition(this.previousAction, action, fadeDuration);
     this.currentAction = action;
   }
 
