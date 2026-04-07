@@ -84,6 +84,21 @@ Three.js 場景的生命週期管理，是整個前端的心臟。
 
 封裝 `@pixiv/three-vrm` 的所有操作，其他模組不直接碰 VRM 內部結構。
 
+**職責：**
+
+- VRM 模型載入、骨骼存取、表情控制、動畫 mixer 管理
+- **Hip 跨幀平滑（階段 B）**：吸收動畫切換造成的 hip 瞬間跳變
+  - 維護 `smoothedHipsWorld`，每幀以 lerp 追上 mixer 套用後的實際 hip 世界座標
+  - 距離自適應速率：< 5cm 用 RATE_NEAR 緊密追蹤，≥ 5cm 用 RATE_FAR 緩慢追上
+  - 補償 `vrm.scene.position` 讓 hip 視覺位置在世界座標連續
+- **SpringBone 過渡保護（Layer 6）**：hip 跨幀距離 > 30cm 時呼叫 `vrm.springBoneManager.reset()` 避免頭髮 / 衣物彈跳
+
+**update 順序（每幀）：**
+
+1. `vrm.update(dt)` — SpringBone 物理（沿用既有順序）
+2. `mixer.update(dt)` — 套用本幀動畫到骨骼 local
+3. `applyHipSmoothing(dt)` — 平滑 + 必要時 SpringBone reset
+
 **對外介面：**
 
 - `loadModel(url: string): Promise<void>` — 載入 VRM 模型。
@@ -91,28 +106,44 @@ Three.js 場景的生命週期管理，是整個前端的心臟。
 - `setBlendShape(name: string, value: number): void` — 設定表情權重。
 - `setBoneRotation(boneName: string, rotation: Quaternion): void` — 設定骨骼旋轉。
 - `getAnimationMixer(): AnimationMixer` — 提供 mixer 給 AnimationManager 使用。
-- `update(deltaTime: number): void` — 更新 VRM 的 SpringBone 等內部邏輯。
+- `getHipsRelativeOffset(): { x, y, z } | null` — 取得 hips 骨骼世界座標相對於 vrm.scene 原點的 3D 偏移量（sit 狀態下三軸補償用）。
+- `update(deltaTime: number): void` — 更新 VRM SpringBone + mixer + hip 平滑。
 
 #### animation/AnimationManager.ts
 
-管理所有 .vrma 動畫的載入、索引、播放控制。
+管理所有 .vrma 動畫的載入、索引、播放控制與**平順過渡**。
 
 **職責：**
 
 - 透過 `VRMAnimationLoaderPlugin` 載入 .vrma 並轉換為 `AnimationClip`。
 - 維護按分類（idle/action/sit/fall/collide/peek）索引的動畫清單。
-- 控制 `AnimationMixer` 的 crossfade 過渡。
-- idle 動畫的加權隨機選取與自動輪播。
+- idle 動畫的加權隨機選取與自動輪播（每 5–12 秒）。
+- 系統動畫（walk/sit/drag/peek/hide_show 等）的優先級播放與恢復。
+
+**動作平順化機制（v0.3 強化）：**
+
+1. **分類化 crossfade 時長**（`getCrossfadeDurationFor(category)`）：
+   - idle: 0.7s, action: 1.0s, sit: 1.5s, fall/collide: 0.3s, peek: 0.6s
+   - 不同類別動作的姿態差異不同，使用差異化時長
+2. **偽 inertialization（cubic 權重曲線）**：取代 Three.js 預設的線性 crossfade
+   - 用 ease-out cubic 衰減舊動作 weight：`(1 - t)^3`
+   - 舊動作前期保留較久（t=0.1 仍 73% 影響），後期快速釋放
+   - 視覺效果類似真正 inertialization 的「捕捉當前動量」
+   - 透過 `setEffectiveWeight` 手動推進，記錄 `transitionState`
+3. **return-to-idle 緩衝**：action 結束後 fade 進 idle 用 1.0s（取代預設 0.7s）
+   - 掩蓋 action 結尾 clamped pose 與 idle 起始 pose 的差異
 
 **對外介面：**
 
 - `loadAnimations(entries: AnimationEntry[]): Promise<void>`
 - `playByCategory(category: AnimationCategory): void`
 - `playByName(name: string): void`
+- `playSystemAnimation(name: string, loop?, fadeDuration?): boolean`
+- `stopSystemAnimation(): void`
 - `stopCurrent(): void`
 - `getCurrentClip(): AnimationClip | null`
 - `hasCategory(category: AnimationCategory): boolean`
-- `update(deltaTime: number): void`
+- `update(deltaTime: number): void` — 推進 transition + idle 輪播
 
 #### animation/FallbackAnimation.ts
 

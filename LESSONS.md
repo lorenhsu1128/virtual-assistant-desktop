@@ -114,6 +114,30 @@
 - **受影響檔案**：electron/ipcHandlers.ts, electron/preload.ts, src/bridge/ElectronIPC.ts
 - **根因**：Electron 的 context isolation 設計需要三層接口保持同步
 
+### [2026-04-07] `[跨平台]` — VRM hip 動畫 Z 位移可能把模型推出 camera near plane
+
+- **錯誤**：使用者拖曳角色到視窗頂部坐下時，sit_01 / sit_02 動畫播放後角色「只剩下半身」或完全消失
+- **根因**：解析 .vrma 二進位發現 SYS_SIT_01/02 的 hip translation 軌道含 +1.25m / +1.32m 的 Z 位移（其他 sit_03~07 的 Z ~0）。當使用者拖曳「往上」時 `updateModelFacingDirection` 用 `Math.atan2(dx, dy)` 計算，dy<0 導致 theta=π，加上 vrm 預設 rotation Math.PI 抵消為 0（不旋轉），hip 局部 +Z 直接套到世界 +Z。hips world z = DEFAULT_Z(8.5) + 1.25 = 9.75，靠近 camera near plane (9.9)，身體前方部位（胸/頭/手）被切掉
+- **正確做法**：原本 SceneManager 只用 `getHipOffsetY` 補償 Y 軸，擴展為 `getHipsRelativeOffset` 補償 X/Y/Z 三軸，sit 狀態下 finalZ -= hipOffset.z，把 hips 強制錨到 currentCharacterZ
+- **受影響檔案**：`src/core/VRMController.ts`, `src/core/SceneManager.ts`
+- **根因記憶**：動畫的 hip translation 是相對於模型 origin 的 LOCAL 座標，會被 vrm.scene.rotation 轉換為 world 偏移。任何使用 `setWorldPosition + 動畫含 hip translation` 的場景都要做三軸補償，不能只做 Y。若被動畫的 hip 偏移方向打到 camera 近平面就會被切掉
+
+### [2026-04-07] `[跨平台]` — 動畫切換造成 SpringBone 彈跳
+
+- **錯誤**：動畫切換（特別是 idle → sit）時，頭髮 / 衣物等 SpringBone 出現過度擺動
+- **根因**：SpringBone 用 verlet integration，hip 的瞬間位移被當成物理外力。即使有 hip 平滑（階段 B 把跳變分散到多幀），每幀仍有 ~12% 的位移觸發物理反應
+- **正確做法**：在 hip 跨幀距離 > 30cm 時呼叫 `vrm.springBoneManager?.reset()`，把所有 spring tail 快照到當前 bind pose 並清零 verlet 速度。下一幀從穩定狀態繼續，不會受先前跳變慣性影響
+- **受影響檔案**：`src/core/VRMController.ts` (`applyHipSmoothing`)
+- **根因記憶**：teleport / 大幅位移後一定要 reset SpringBone，這是 three-vrm 官方建議的做法。reset() 不影響正常物理，只清除「跨幀大位移造成的虛假慣性」
+
+### [2026-04-07] `[跨平台]` — Render loop cache 不可在 loop 外的同步呼叫立刻使用
+
+- **錯誤**：使用者把角色放大到 200% 再縮回 100% 後，sit / 柱子 anchor 仍停留在 200% 大小的位置
+- **根因**：`updateCharacterSize()` 從 `cachedModelSize` 讀取，但 cache 只在 render loop 開頭（line 687）每幀更新一次。`setScale()` 從托盤 IPC handler 觸發（render loop 之外），呼叫 `setModelScale(新)` 後立刻 `updateCharacterSize()`，但 cachedModelSize 還是上一幀（舊 scale）的值。鏈式縮放下 anchor 永遠落後一拍
+- **正確做法**：`updateCharacterSize()` 改為直接呼叫 `vrmController.getModelWorldSize()`（內部用 `Box3.setFromObject` 反映當前 vrm.scene.scale），不依賴 cache。順手把新值寫回 cachedModelSize 保持一致性
+- **受影響檔案**：`src/core/SceneManager.ts:1444-1456`
+- **根因記憶**：render loop 內快取的資料只在「下一幀 render loop 開頭」會被刷新。任何從 IPC handler / 事件 / 同步呼叫進入 SceneManager 並讀取這類快取的程式碼都有風險。寫入後若立刻要讀，必須直接呼叫 source-of-truth getter，不能信任 cache
+
 ### [2026-04-07] `[跨平台]` — electron 主程序變更需完全重啟（非 HMR）
 
 - **錯誤**：新增 IPC handler 並 commit 後，dev 中的 picker 仍出現 `Error: No handler registered for 'scan_vrma_files'`，因為 vite HMR 重新載入了 renderer 但 electron 主程序仍使用啟動時載入的舊 `dist-electron/ipcHandlers.js`，導致前端呼叫新 IPC 找不到 handler；錯誤被 ElectronIPC wrapper catch 後回傳 `[]`，PreviewScene 走 fallback，使用者看到「T-pose」（FallbackAnimation 振幅僅 0.015 弧度，肉眼幾乎無感）
