@@ -268,6 +268,117 @@ button:disabled {
   border-radius: 3px;
 }
 
+/* ── 預覽控制 overlay（右上）── */
+#picker-preview-controls-overlay {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  min-width: 180px;
+  max-width: 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  background: rgba(17, 17, 27, 0.72);
+  border: 1px solid rgba(203, 166, 247, 0.25);
+  border-radius: 6px;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  color: #cdd6f4;
+  font-size: 12px;
+  pointer-events: auto;
+  z-index: 5;
+  user-select: none;
+}
+
+#picker-preview-controls-overlay .control-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+#picker-preview-controls-overlay .control-label {
+  flex: 0 0 auto;
+  color: #a6adc8;
+  font-size: 11px;
+  min-width: 36px;
+}
+
+/* 自訂 toggle switch */
+#picker-preview-controls-overlay .control-switch {
+  position: relative;
+  display: inline-block;
+  width: 36px;
+  height: 20px;
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+#picker-preview-controls-overlay .control-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+#picker-preview-controls-overlay .control-switch-slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background: #45475a;
+  border-radius: 20px;
+  transition: background 0.15s;
+}
+
+#picker-preview-controls-overlay .control-switch-slider::before {
+  content: '';
+  position: absolute;
+  height: 14px;
+  width: 14px;
+  left: 3px;
+  top: 3px;
+  background: #cdd6f4;
+  border-radius: 50%;
+  transition: transform 0.15s;
+}
+
+#picker-preview-controls-overlay
+  .control-switch
+  input:checked
+  + .control-switch-slider {
+  background: #cba6f7;
+}
+
+#picker-preview-controls-overlay
+  .control-switch
+  input:checked
+  + .control-switch-slider::before {
+  transform: translateX(16px);
+  background: #1e1e2e;
+}
+
+/* 自訂 select */
+#picker-preview-controls-overlay .control-select {
+  flex: 1 1 auto;
+  background: #1e1e2e;
+  color: #cdd6f4;
+  border: 1px solid #45475a;
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  min-width: 0;
+}
+
+#picker-preview-controls-overlay .control-select:hover {
+  border-color: #585b70;
+}
+
+#picker-preview-controls-overlay .control-select:focus {
+  outline: none;
+  border-color: #cba6f7;
+}
+
 #picker-footer {
   flex: 0 0 auto;
   display: flex;

@@ -138,6 +138,19 @@ function isClothingMeshName(name: string): boolean {
 }
 
 /**
+ * 從 mesh 名稱清單中過濾出符合衣物關鍵字的子集
+ *
+ * 與 isClothingMeshName 共用同一組關鍵字，確保「能否脫衣」的判定與
+ * 「實際隱藏哪些 mesh」使用一致的標準。
+ *
+ * @param meshNames VRMController.getMeshNames() 回傳值
+ * @returns 命中衣物關鍵字的 mesh 名稱（保留原始大小寫與順序）
+ */
+export function getClothingMeshNames(meshNames: string[]): string[] {
+  return meshNames.filter(isClothingMeshName);
+}
+
+/**
  * 從 VRM meta 解析規格版本
  *
  * @pixiv/three-vrm 在 meta 上提供 metaVersion 欄位（'0' 或 '1'）。

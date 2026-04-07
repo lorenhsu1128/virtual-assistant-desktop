@@ -28,7 +28,13 @@ import * as THREE from 'three';
 import { VRMController } from '../core/VRMController';
 import { FallbackAnimation } from '../animation/FallbackAnimation';
 import { ipc } from '../bridge/ElectronIPC';
-import { clamp, isSysIdleFile, computePanLimits, analyzeVrmModel } from './pickerLogic';
+import {
+  clamp,
+  isSysIdleFile,
+  computePanLimits,
+  analyzeVrmModel,
+  getClothingMeshNames,
+} from './pickerLogic';
 import type { ModelInfo } from '../types/vrmPicker';
 
 /** 模型載入完成（或失敗）後通知外層的 callback */
@@ -94,9 +100,39 @@ export class PreviewScene {
   /** 模型資訊變更的 callback（供 picker overlay 使用） */
   private onModelInfo: ModelInfoCallback | null = null;
 
+  // ── 預覽控制狀態 ──
+  /** 由 analyzeVrmModel 計算出的衣物 mesh 名稱清單（每次 loadModel 重算） */
+  private clothingMeshNames: string[] = [];
+  /** 當前預覽 expression（null 代表無），render loop 每幀重新套用以防 mixer 干擾 */
+  private previewExpression: string | null = null;
+
   /** 設定模型資訊變更 callback */
   setModelInfoCallback(cb: ModelInfoCallback | null): void {
     this.onModelInfo = cb;
+  }
+
+  /**
+   * 切換模型「脫衣」狀態：將衣物 mesh 隱藏 / 顯示
+   *
+   * 衣物 mesh 名單在 loadModel 時計算並快取，由 getClothingMeshNames 啟發式判定。
+   */
+  setUndressed(undressed: boolean): void {
+    if (this.vrmController) {
+      this.vrmController.setMeshesVisible(this.clothingMeshNames, !undressed);
+    }
+  }
+
+  /**
+   * 預覽指定 expression（傳 null 代表清空）
+   *
+   * 為防止 SYS_IDLE 動畫切換時的 expression track 干擾，render loop 每幀
+   * 在 vrmController.update() 之後重新套用一次。
+   */
+  setPreviewExpression(name: string | null): void {
+    this.previewExpression = name;
+    if (this.vrmController) {
+      this.vrmController.setExpressionPreview(name);
+    }
   }
 
   constructor(canvas: HTMLCanvasElement) {
@@ -180,12 +216,18 @@ export class PreviewScene {
     // 立即套用初始旋轉（確保新模型出現時就在零旋轉狀態）
     controller.setFacingRotationY(this.rotationY);
 
+    // 重置預覽控制狀態（每個模型獨立）
+    const meshNames = controller.getMeshNames();
+    this.clothingMeshNames = getClothingMeshNames(meshNames);
+    this.previewExpression = null;
+    controller.setExpressionPreview(null);
+
     // 組裝並推送模型資訊（在 overlay 顯示）
     if (this.onModelInfo) {
       try {
         const info = analyzeVrmModel(
           controller.getMeta(),
-          controller.getMeshNames(),
+          meshNames,
           controller.getBlendShapes(),
         );
         this.onModelInfo(info);
@@ -420,7 +462,13 @@ export class PreviewScene {
       this.lastUpdateTime = now;
 
       if (this.fallback) this.fallback.update(dt);
-      if (this.vrmController) this.vrmController.update(dt);
+      if (this.vrmController) {
+        this.vrmController.update(dt);
+        // 在 mixer.update 之後重新套用預覽 expression，避免被動畫 track 蓋掉
+        if (this.previewExpression !== null) {
+          this.vrmController.setExpressionPreview(this.previewExpression);
+        }
+      }
 
       this.renderer.render(this.scene, this.camera);
     };

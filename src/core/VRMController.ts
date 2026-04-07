@@ -130,6 +130,47 @@ export class VRMController {
   }
 
   /**
+   * 將指定 mesh 名稱清單的 visible 屬性切換
+   *
+   * 用於 VRM picker 預覽的「脫衣」開關，可隨時切回。
+   * SpringBone 仍會計算（避免切回穿著時彈跳），僅停止渲染。
+   *
+   * @param names 要切換的 mesh 名稱清單
+   * @param visible 是否可見
+   */
+  setMeshesVisible(names: string[], visible: boolean): void {
+    if (!this.vrm) return;
+    if (names.length === 0) return;
+    const target = new Set(names);
+    this.vrm.scene.traverse((obj) => {
+      const mesh = obj as THREE.Mesh;
+      if (mesh.isMesh && target.has(obj.name)) {
+        mesh.visible = visible;
+      }
+    });
+  }
+
+  /**
+   * 預覽單一表情：清空所有 BlendShape 權重後，將指定 expression 設為 1.0
+   *
+   * 用於 VRM picker 預覽的 expression 切換下拉選單。
+   * 與 ExpressionManager 的優先級系統無關，是直接寫入 vrm.expressionManager 的
+   * 立即套用模式。傳 null 代表全部歸零。
+   *
+   * @param name 要套用的 expression 名稱；null 代表清空
+   */
+  setExpressionPreview(name: string | null): void {
+    if (!this.vrm?.expressionManager) return;
+    const manager = this.vrm.expressionManager;
+    for (const key of Object.keys(manager.expressionMap)) {
+      manager.setValue(key, 0);
+    }
+    if (name && name in manager.expressionMap) {
+      manager.setValue(name, 1);
+    }
+  }
+
+  /**
    * 設定骨骼旋轉
    *
    * @param boneName VRM 骨骼名稱

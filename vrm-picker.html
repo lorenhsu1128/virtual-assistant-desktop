@@ -23,6 +23,21 @@
         <div id="picker-preview-pane">
           <canvas id="picker-preview-canvas"></canvas>
           <div id="picker-preview-hint">請從左側選擇模型</div>
+          <div id="picker-preview-controls-overlay" class="hidden">
+            <div class="control-row hidden" id="control-undress-row">
+              <span class="control-label">脫衣</span>
+              <label class="control-switch">
+                <input type="checkbox" id="control-undress-toggle" />
+                <span class="control-switch-slider"></span>
+              </label>
+            </div>
+            <div class="control-row hidden" id="control-expression-row">
+              <label class="control-label" for="control-expression-select">表情</label>
+              <select id="control-expression-select" class="control-select">
+                <option value="">（無）</option>
+              </select>
+            </div>
+          </div>
           <div id="picker-model-info-overlay" class="hidden">
             <div class="info-section">
               <div class="info-row">

@@ -12,6 +12,7 @@ import {
   isUndressForbiddenByLicense,
   isModificationForbiddenByLicense,
   analyzeVrmModel,
+  getClothingMeshNames,
 } from '../../src/vrm-picker/pickerLogic';
 import type { AppConfig } from '../../src/types/config';
 
@@ -349,6 +350,52 @@ describe('isUndressForbiddenByLicense', () => {
   it('false for null / unknown meta', () => {
     expect(isUndressForbiddenByLicense(null)).toBe(false);
     expect(isUndressForbiddenByLicense({})).toBe(false);
+  });
+});
+
+describe('getClothingMeshNames', () => {
+  it('returns only clothing meshes (filtered)', () => {
+    const result = getClothingMeshNames([
+      'Body',
+      'Face',
+      'Hair',
+      'Outfit_Top',
+      'Outfit_Skirt',
+    ]);
+    expect(result).toEqual(['Outfit_Top', 'Outfit_Skirt']);
+  });
+
+  it('returns empty when no clothing keywords match', () => {
+    expect(getClothingMeshNames(['Body', 'Face', 'Hair'])).toEqual([]);
+  });
+
+  it('returns empty for empty input', () => {
+    expect(getClothingMeshNames([])).toEqual([]);
+  });
+
+  it('matches case-insensitively as substring', () => {
+    expect(getClothingMeshNames(['CHARACTER_DRESS', 'PantsLayer'])).toEqual([
+      'CHARACTER_DRESS',
+      'PantsLayer',
+    ]);
+  });
+
+  it('preserves original order', () => {
+    expect(
+      getClothingMeshNames(['Shoes', 'Body', 'Jacket', 'Hair', 'Skirt']),
+    ).toEqual(['Shoes', 'Jacket', 'Skirt']);
+  });
+
+  it('matches all keyword categories', () => {
+    const result = getClothingMeshNames([
+      'cloth_a',
+      'shirt_main',
+      'underwear_set',
+      'hat_01',
+      'glove_l',
+      'sock_r',
+    ]);
+    expect(result).toHaveLength(6);
   });
 });
 

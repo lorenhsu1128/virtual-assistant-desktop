@@ -58,6 +58,11 @@ async function init(): Promise<void> {
   const infoUndress = $<HTMLSpanElement>('info-undress');
   const infoExprCount = $<HTMLSpanElement>('info-expr-count');
   const infoExprList = $<HTMLUListElement>('info-expr-list');
+  const controlsOverlay = $<HTMLDivElement>('picker-preview-controls-overlay');
+  const undressRow = $<HTMLDivElement>('control-undress-row');
+  const undressToggle = $<HTMLInputElement>('control-undress-toggle');
+  const expressionRow = $<HTMLDivElement>('control-expression-row');
+  const expressionSelect = $<HTMLSelectElement>('control-expression-select');
 
   // 1. 讀取 config
   const config = await ipc.readConfig();
@@ -74,6 +79,15 @@ async function init(): Promise<void> {
   // 4. 初始化 PreviewScene
   previewScene = new PreviewScene(canvas);
   previewScene.setModelInfoCallback(renderModelInfo);
+
+  // 控制 overlay 事件綁定
+  undressToggle.addEventListener('change', () => {
+    previewScene?.setUndressed(undressToggle.checked);
+  });
+  expressionSelect.addEventListener('change', () => {
+    const value = expressionSelect.value;
+    previewScene?.setPreviewExpression(value === '' ? null : value);
+  });
 
   // 5. 載入檔案清單
   await refreshFileList();
@@ -123,10 +137,26 @@ async function init(): Promise<void> {
     el.classList.add(`value-${v}`);
   }
 
+  /** 重置控制 overlay：隱藏並把 toggle / select 復位 */
+  function resetControlsOverlay(): void {
+    controlsOverlay.classList.add('hidden');
+    undressRow.classList.add('hidden');
+    expressionRow.classList.add('hidden');
+    undressToggle.checked = false;
+    // 重建 select 選項：保留唯一的「（無）」
+    expressionSelect.innerHTML = '';
+    const defaultOpt = document.createElement('option');
+    defaultOpt.value = '';
+    defaultOpt.textContent = '（無）';
+    expressionSelect.appendChild(defaultOpt);
+    expressionSelect.value = '';
+  }
+
   /** PreviewScene 模型載入完成後呼叫，更新 overlay 顯示 */
   function renderModelInfo(info: ModelInfo | null): void {
     if (!info) {
       infoOverlay.classList.add('hidden');
+      resetControlsOverlay();
       return;
     }
     infoOverlay.classList.remove('hidden');
@@ -145,6 +175,27 @@ async function init(): Promise<void> {
       const li = document.createElement('li');
       li.textContent = name;
       infoExprList.appendChild(li);
+    }
+
+    // 同步更新右上控制 overlay
+    resetControlsOverlay();
+    const showUndress = info.canUndress === 'yes' || info.canUndress === 'maybe';
+    const showExpression = info.expressions.length > 0;
+
+    if (showUndress) {
+      undressRow.classList.remove('hidden');
+    }
+    if (showExpression) {
+      expressionRow.classList.remove('hidden');
+      for (const name of info.expressions) {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        expressionSelect.appendChild(opt);
+      }
+    }
+    if (showUndress || showExpression) {
+      controlsOverlay.classList.remove('hidden');
     }
   }
 
