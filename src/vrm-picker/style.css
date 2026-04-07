@@ -157,6 +157,117 @@ button:disabled {
   font-size: 14px;
 }
 
+/* ── 模型資訊半透明 overlay ── */
+#picker-model-info-overlay {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  max-width: 260px;
+  max-height: calc(100% - 24px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px;
+  background: rgba(17, 17, 27, 0.72);
+  border: 1px solid rgba(203, 166, 247, 0.25);
+  border-radius: 6px;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  color: #cdd6f4;
+  font-size: 12px;
+  line-height: 1.4;
+  pointer-events: auto;
+  z-index: 5;
+  user-select: none;
+  overflow: hidden;
+}
+
+#picker-model-info-overlay .info-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+}
+
+#picker-model-info-overlay .info-section + .info-section {
+  border-top: 1px solid rgba(203, 166, 247, 0.18);
+  padding-top: 8px;
+}
+
+#picker-model-info-overlay .info-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+#picker-model-info-overlay .info-label {
+  flex: 0 0 60px;
+  color: #a6adc8;
+  font-size: 11px;
+}
+
+#picker-model-info-overlay .info-value {
+  flex: 1 1 auto;
+  color: #cdd6f4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#picker-model-info-overlay .info-value.value-yes {
+  color: #a6e3a1;
+}
+
+#picker-model-info-overlay .info-value.value-no {
+  color: #f38ba8;
+}
+
+#picker-model-info-overlay .info-value.value-maybe {
+  color: #f9e2af;
+}
+
+#picker-model-info-overlay .info-expr-label {
+  flex: none;
+  font-size: 11px;
+  color: #a6adc8;
+}
+
+#picker-model-info-overlay .info-expr-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 180px;
+  overflow-y: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+#picker-model-info-overlay .info-expr-list li {
+  background: rgba(203, 166, 247, 0.18);
+  color: #cdd6f4;
+  border-radius: 3px;
+  padding: 2px 6px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+#picker-model-info-overlay .info-expr-list:empty::before {
+  content: '（無）';
+  color: #6c7086;
+  font-size: 11px;
+}
+
+/* 自訂 expression 清單 scrollbar */
+#picker-model-info-overlay .info-expr-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+#picker-model-info-overlay .info-expr-list::-webkit-scrollbar-thumb {
+  background: rgba(203, 166, 247, 0.3);
+  border-radius: 3px;
+}
+
 #picker-footer {
   flex: 0 0 auto;
   display: flex;

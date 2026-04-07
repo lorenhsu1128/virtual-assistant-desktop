@@ -41,6 +41,33 @@ export class VRMController {
     return this.vrm;
   }
 
+  /**
+   * 取得 VRM meta（VRM0Meta 或 VRM1Meta）
+   *
+   * 封裝 vrm.meta 存取，避免外部模組直接碰 VRM 內部結構。
+   * 回傳的物件可透過 metaVersion 欄位判斷規格版本（'0' / '1'）。
+   */
+  getMeta(): VRM['meta'] | null {
+    return this.vrm?.meta ?? null;
+  }
+
+  /**
+   * 取得模型內所有 mesh 的名稱清單
+   *
+   * 用於 picker 預覽的「能否換裝/脫衣」啟發式判斷。
+   * 封裝 vrm.scene.traverse，避免外部模組直接遍歷 vrm.scene。
+   */
+  getMeshNames(): string[] {
+    if (!this.vrm) return [];
+    const names: string[] = [];
+    this.vrm.scene.traverse((obj) => {
+      if ((obj as THREE.Mesh).isMesh && obj.name) {
+        names.push(obj.name);
+      }
+    });
+    return names;
+  }
+
   constructor(scene: THREE.Scene) {
     this.scene = scene;
     this.loader = new GLTFLoader();

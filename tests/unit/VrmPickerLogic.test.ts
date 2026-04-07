@@ -7,6 +7,11 @@ import {
   clamp,
   isSysIdleFile,
   computePanLimits,
+  parseVrmVersion,
+  parseVrmName,
+  isUndressForbiddenByLicense,
+  isModificationForbiddenByLicense,
+  analyzeVrmModel,
 } from '../../src/vrm-picker/pickerLogic';
 import type { AppConfig } from '../../src/types/config';
 
@@ -237,6 +242,184 @@ describe('computePanLimits', () => {
     const large = computePanLimits(2.4, FOV_RAD, 1.5, 0.5);
     expect(large.x).toBeLessThan(small.x);
     expect(large.y).toBeLessThan(small.y);
+  });
+});
+
+describe('parseVrmVersion', () => {
+  it('returns 1.0 for VRM 1.0 meta', () => {
+    expect(parseVrmVersion({ metaVersion: '1' })).toBe('1.0');
+  });
+
+  it('returns 0.x for VRM 0.x meta', () => {
+    expect(parseVrmVersion({ metaVersion: '0' })).toBe('0.x');
+  });
+
+  it('returns unknown for null / undefined', () => {
+    expect(parseVrmVersion(null)).toBe('unknown');
+    expect(parseVrmVersion(undefined)).toBe('unknown');
+  });
+
+  it('returns unknown for missing metaVersion', () => {
+    expect(parseVrmVersion({})).toBe('unknown');
+    expect(parseVrmVersion({ metaVersion: '2' })).toBe('unknown');
+  });
+});
+
+describe('parseVrmName', () => {
+  it('reads name from VRM 1.0 meta', () => {
+    expect(parseVrmName({ metaVersion: '1', name: 'Alice' })).toBe('Alice');
+  });
+
+  it('reads title from VRM 0.x meta', () => {
+    expect(parseVrmName({ metaVersion: '0', title: 'Bob' })).toBe('Bob');
+  });
+
+  it('trims whitespace', () => {
+    expect(parseVrmName({ name: '  Alice  ' })).toBe('Alice');
+  });
+
+  it('returns empty string when meta is null or unset', () => {
+    expect(parseVrmName(null)).toBe('');
+    expect(parseVrmName({})).toBe('');
+  });
+});
+
+describe('isModificationForbiddenByLicense', () => {
+  it('true when VRM 1.0 modification is prohibited', () => {
+    expect(
+      isModificationForbiddenByLicense({ metaVersion: '1', modification: 'prohibited' }),
+    ).toBe(true);
+  });
+
+  it('false when VRM 1.0 modification allows it', () => {
+    expect(
+      isModificationForbiddenByLicense({
+        metaVersion: '1',
+        modification: 'allowModification',
+      }),
+    ).toBe(false);
+  });
+
+  it('false for VRM 0.x (no equivalent field)', () => {
+    expect(
+      isModificationForbiddenByLicense({ metaVersion: '0', modification: 'prohibited' }),
+    ).toBe(false);
+  });
+});
+
+describe('isUndressForbiddenByLicense', () => {
+  it('true when VRM 1.0 modification prohibited', () => {
+    expect(
+      isUndressForbiddenByLicense({ metaVersion: '1', modification: 'prohibited' }),
+    ).toBe(true);
+  });
+
+  it('true when VRM 1.0 explicitly forbids sexual usage', () => {
+    expect(
+      isUndressForbiddenByLicense({
+        metaVersion: '1',
+        modification: 'allowModification',
+        allowExcessivelySexualUsage: false,
+      }),
+    ).toBe(true);
+  });
+
+  it('false when VRM 1.0 allows both modification and sexual', () => {
+    expect(
+      isUndressForbiddenByLicense({
+        metaVersion: '1',
+        modification: 'allowModification',
+        allowExcessivelySexualUsage: true,
+      }),
+    ).toBe(false);
+  });
+
+  it('true when VRM 0.x sexualUssageName is Disallow', () => {
+    expect(
+      isUndressForbiddenByLicense({ metaVersion: '0', sexualUssageName: 'Disallow' }),
+    ).toBe(true);
+  });
+
+  it('false when VRM 0.x sexualUssageName is Allow', () => {
+    expect(
+      isUndressForbiddenByLicense({ metaVersion: '0', sexualUssageName: 'Allow' }),
+    ).toBe(false);
+  });
+
+  it('false for null / unknown meta', () => {
+    expect(isUndressForbiddenByLicense(null)).toBe(false);
+    expect(isUndressForbiddenByLicense({})).toBe(false);
+  });
+});
+
+describe('analyzeVrmModel', () => {
+  const permissiveV1 = {
+    metaVersion: '1',
+    name: 'Alice',
+    modification: 'allowModification',
+    allowExcessivelySexualUsage: true,
+  };
+
+  it('detects clothing meshes and reports yes/maybe (permissive license)', () => {
+    const info = analyzeVrmModel(
+      permissiveV1,
+      ['Body', 'Face', 'Hair', 'Outfit_Top', 'Outfit_Skirt'],
+      ['happy', 'sad'],
+    );
+    expect(info.name).toBe('Alice');
+    expect(info.vrmVersion).toBe('1.0');
+    expect(info.canChangeClothes).toBe('yes');
+    expect(info.canUndress).toBe('maybe');
+    expect(info.expressions).toEqual(['happy', 'sad']);
+  });
+
+  it('reports no when no clothing meshes detected', () => {
+    const info = analyzeVrmModel(permissiveV1, ['Body', 'Face', 'Hair'], []);
+    expect(info.canChangeClothes).toBe('no');
+    expect(info.canUndress).toBe('no');
+  });
+
+  it('reports no for both when modification prohibited', () => {
+    const info = analyzeVrmModel(
+      { metaVersion: '1', name: 'Alice', modification: 'prohibited' },
+      ['Body', 'Outfit_Top'],
+      [],
+    );
+    expect(info.canChangeClothes).toBe('no');
+    expect(info.canUndress).toBe('no');
+  });
+
+  it('reports yes/no for VRM 0.x with sexual usage disallowed', () => {
+    const info = analyzeVrmModel(
+      { metaVersion: '0', title: 'Bob', sexualUssageName: 'Disallow' },
+      ['Body', 'Shirt', 'Pants'],
+      [],
+    );
+    expect(info.vrmVersion).toBe('0.x');
+    expect(info.name).toBe('Bob');
+    expect(info.canChangeClothes).toBe('yes'); // VRM 0.x 沒有 modification 概念
+    expect(info.canUndress).toBe('no');
+  });
+
+  it('handles unknown meta version gracefully', () => {
+    const info = analyzeVrmModel(null, ['Body', 'Cloth_A'], ['neutral']);
+    expect(info.vrmVersion).toBe('unknown');
+    expect(info.name).toBe('');
+    expect(info.canChangeClothes).toBe('yes');
+    expect(info.canUndress).toBe('maybe');
+    expect(info.expressions).toEqual(['neutral']);
+  });
+
+  it('clothing keyword match is case-insensitive and substring', () => {
+    const info = analyzeVrmModel(permissiveV1, ['Hair_001', 'CHARACTER_DRESS'], []);
+    expect(info.canChangeClothes).toBe('yes');
+  });
+
+  it('returns a copy of expressions array', () => {
+    const exprs = ['a', 'b'];
+    const info = analyzeVrmModel(permissiveV1, ['Body'], exprs);
+    info.expressions.push('c');
+    expect(exprs).toEqual(['a', 'b']);
   });
 });
 

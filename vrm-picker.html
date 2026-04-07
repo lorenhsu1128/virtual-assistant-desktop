@@ -23,6 +23,32 @@
         <div id="picker-preview-pane">
           <canvas id="picker-preview-canvas"></canvas>
           <div id="picker-preview-hint">請從左側選擇模型</div>
+          <div id="picker-model-info-overlay" class="hidden">
+            <div class="info-section">
+              <div class="info-row">
+                <span class="info-label">模型</span>
+                <span class="info-value" id="info-name">—</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">VRM 版本</span>
+                <span class="info-value" id="info-version">—</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">可換衣物</span>
+                <span class="info-value" id="info-clothes">—</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">可脫衣</span>
+                <span class="info-value" id="info-undress">—</span>
+              </div>
+            </div>
+            <div class="info-section">
+              <div class="info-label info-expr-label">
+                Expressions（<span id="info-expr-count">0</span>）
+              </div>
+              <ul id="info-expr-list" class="info-expr-list"></ul>
+            </div>
+          </div>
         </div>
       </div>
       <div id="picker-footer">

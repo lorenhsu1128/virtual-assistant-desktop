@@ -28,7 +28,11 @@ import * as THREE from 'three';
 import { VRMController } from '../core/VRMController';
 import { FallbackAnimation } from '../animation/FallbackAnimation';
 import { ipc } from '../bridge/ElectronIPC';
-import { clamp, isSysIdleFile, computePanLimits } from './pickerLogic';
+import { clamp, isSysIdleFile, computePanLimits, analyzeVrmModel } from './pickerLogic';
+import type { ModelInfo } from '../types/vrmPicker';
+
+/** 模型載入完成（或失敗）後通知外層的 callback */
+export type ModelInfoCallback = (info: ModelInfo | null) => void;
 
 const TARGET_FPS = 30;
 const FRAME_INTERVAL = 1000 / TARGET_FPS;
@@ -87,6 +91,14 @@ export class PreviewScene {
   /** 載入序號，避免快速切換時舊的 loadModel 完成後覆蓋新的 */
   private loadToken = 0;
 
+  /** 模型資訊變更的 callback（供 picker overlay 使用） */
+  private onModelInfo: ModelInfoCallback | null = null;
+
+  /** 設定模型資訊變更 callback */
+  setModelInfoCallback(cb: ModelInfoCallback | null): void {
+    this.onModelInfo = cb;
+  }
+
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
     this.scene = new THREE.Scene();
@@ -135,6 +147,9 @@ export class PreviewScene {
     if (this.disposed) return;
     const token = ++this.loadToken;
 
+    // 載入新模型前先清空 overlay 資訊
+    this.onModelInfo?.(null);
+
     // 釋放舊模型與動畫狀態
     this.disposeModel();
 
@@ -164,6 +179,21 @@ export class PreviewScene {
     this.vrmController = controller;
     // 立即套用初始旋轉（確保新模型出現時就在零旋轉狀態）
     controller.setFacingRotationY(this.rotationY);
+
+    // 組裝並推送模型資訊（在 overlay 顯示）
+    if (this.onModelInfo) {
+      try {
+        const info = analyzeVrmModel(
+          controller.getMeta(),
+          controller.getMeshNames(),
+          controller.getBlendShapes(),
+        );
+        this.onModelInfo(info);
+      } catch (e) {
+        console.warn('[PreviewScene] analyzeVrmModel failed:', e);
+        this.onModelInfo(null);
+      }
+    }
 
     // 啟動 SYS_IDLE 連續播放
     await this.startSysIdleLoop(sysVrmaDir, token);

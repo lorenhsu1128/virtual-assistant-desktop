@@ -11,7 +11,7 @@
 
 import { ipc } from '../bridge/ElectronIPC';
 import type { AppConfig } from '../types/config';
-import type { VrmFileEntry } from '../types/vrmPicker';
+import type { VrmFileEntry, ModelInfo, FeatureSupport } from '../types/vrmPicker';
 import { PreviewScene } from './PreviewScene';
 import { deriveDefaultPickerFolder, buildVrmFileEntries } from './pickerLogic';
 
@@ -51,6 +51,13 @@ async function init(): Promise<void> {
   const cancelBtn = $<HTMLButtonElement>('picker-cancel-btn');
   const statusEl = $<HTMLDivElement>('picker-status');
   const canvas = $<HTMLCanvasElement>('picker-preview-canvas');
+  const infoOverlay = $<HTMLDivElement>('picker-model-info-overlay');
+  const infoName = $<HTMLSpanElement>('info-name');
+  const infoVersion = $<HTMLSpanElement>('info-version');
+  const infoClothes = $<HTMLSpanElement>('info-clothes');
+  const infoUndress = $<HTMLSpanElement>('info-undress');
+  const infoExprCount = $<HTMLSpanElement>('info-expr-count');
+  const infoExprList = $<HTMLUListElement>('info-expr-list');
 
   // 1. 讀取 config
   const config = await ipc.readConfig();
@@ -66,6 +73,7 @@ async function init(): Promise<void> {
 
   // 4. 初始化 PreviewScene
   previewScene = new PreviewScene(canvas);
+  previewScene.setModelInfoCallback(renderModelInfo);
 
   // 5. 載入檔案清單
   await refreshFileList();
@@ -94,6 +102,51 @@ async function init(): Promise<void> {
     await ipc.applyVrmModel(state.selectedPath);
     // applyVrmModel 內部會關閉 picker，這裡通常已經銷毀
   });
+
+  /** 將 FeatureSupport 三態值轉為顯示文字 */
+  function featureLabel(v: FeatureSupport): string {
+    if (v === 'yes') return '是';
+    if (v === 'no') return '否';
+    return '不確定';
+  }
+
+  /** 將 VRM 規格版本轉為顯示文字 */
+  function versionLabel(v: ModelInfo['vrmVersion']): string {
+    if (v === '1.0') return 'VRM 1.0';
+    if (v === '0.x') return 'VRM 0.x';
+    return '未知';
+  }
+
+  /** 套用三態的色彩 class（value-yes / value-no / value-maybe） */
+  function applyValueClass(el: HTMLElement, v: FeatureSupport): void {
+    el.classList.remove('value-yes', 'value-no', 'value-maybe');
+    el.classList.add(`value-${v}`);
+  }
+
+  /** PreviewScene 模型載入完成後呼叫，更新 overlay 顯示 */
+  function renderModelInfo(info: ModelInfo | null): void {
+    if (!info) {
+      infoOverlay.classList.add('hidden');
+      return;
+    }
+    infoOverlay.classList.remove('hidden');
+    infoName.textContent = info.name || '（未命名）';
+    infoVersion.textContent = versionLabel(info.vrmVersion);
+
+    infoClothes.textContent = featureLabel(info.canChangeClothes);
+    applyValueClass(infoClothes, info.canChangeClothes);
+
+    infoUndress.textContent = featureLabel(info.canUndress);
+    applyValueClass(infoUndress, info.canUndress);
+
+    infoExprCount.textContent = String(info.expressions.length);
+    infoExprList.innerHTML = '';
+    for (const name of info.expressions) {
+      const li = document.createElement('li');
+      li.textContent = name;
+      infoExprList.appendChild(li);
+    }
+  }
 
   // 提供給 refreshFileList 使用的 UI 函式
   function renderFileList(): void {
