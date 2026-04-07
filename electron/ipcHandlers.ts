@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import * as fileManager from './fileManager.js';
 import { WindowMonitor, type WindowRect } from './windowMonitor.js';
 import { openPickerWindow, closePickerWindow } from './vrmPickerWindow.js';
+import { isMac } from './platform/index.js';
 
 /** Display info returned to renderer */
 interface DisplayInfo {
@@ -130,19 +131,36 @@ export function registerIpcHandlers(
   // ── Display Info ──
 
   ipcMain.handle('get_display_info', (): DisplayInfo[] => {
-    return screen.getAllDisplays().map((display) => ({
-      x: display.bounds.x,
-      y: display.bounds.y,
-      width: display.bounds.width,
-      height: display.bounds.height,
-      scaleFactor: display.scaleFactor,
-      workArea: {
-        x: display.workArea.x,
-        y: display.workArea.y,
-        width: display.workArea.width,
-        height: display.workArea.height,
-      },
-    }));
+    // macOS：視窗被 menu bar 推下，用實際視窗位置作為螢幕原點
+    // 否則 CGWindowListCopyWindowInfo 的絕對座標與 canvas 座標會有 menu bar 高度的偏移
+    const winBounds = isMac ? mainWindow.getBounds() : null;
+
+    return screen.getAllDisplays().map((display) => {
+      // macOS 上，只修正桌寵視窗所在的螢幕
+      let effectiveY = display.bounds.y;
+      if (winBounds) {
+        const inThisDisplay =
+          winBounds.x >= display.bounds.x &&
+          winBounds.x < display.bounds.x + display.bounds.width;
+        if (inThisDisplay) {
+          effectiveY = winBounds.y;
+        }
+      }
+
+      return {
+        x: display.bounds.x,
+        y: effectiveY,
+        width: display.bounds.width,
+        height: display.bounds.height,
+        scaleFactor: display.scaleFactor,
+        workArea: {
+          x: display.workArea.x,
+          y: display.workArea.y,
+          width: display.workArea.width,
+          height: display.workArea.height,
+        },
+      };
+    });
   });
 
   // ── Window Position / Size ──

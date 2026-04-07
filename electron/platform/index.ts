@@ -13,3 +13,4 @@ export const isMac = process.platform === 'darwin';
 
 export { getWindowOptions, applyPostCreateSetup, getPickerWindowOptions } from './windowConfig.js';
 export { resolveLocalFilePath } from './protocolHelper.js';
+export { enumerateWindowsMac } from './macWindowMonitor.js';

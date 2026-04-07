@@ -1,6 +1,7 @@
 import { BrowserWindow } from 'electron';
 import { createRequire } from 'node:module';
-import { isWindows } from './platform/index.js';
+import { isWindows, isMac } from './platform/index.js';
+import { enumerateWindowsMac } from './platform/macWindowMonitor.js';
 
 const require = createRequire(import.meta.url);
 
@@ -221,21 +222,29 @@ export class WindowMonitor {
   private timer: ReturnType<typeof setInterval> | null = null;
   private mainWindow: BrowserWindow | null = null;
   private ownHwnd = 0;
+  /** macOS 用 PID 過濾自身視窗（CGWindowListCopyWindowInfo 不提供 HWND） */
+  private ownPid = 0;
 
-  /** Start polling（非 Windows 平台跳過） */
+  /** Start polling（Windows 與 macOS 都啟動，其他平台跳過） */
   start(mainWindow: BrowserWindow): void {
-    if (!isWindows) {
-      console.log('[WindowMonitor] Skipped — not running on Windows');
+    if (!isWindows && !isMac) {
+      console.log('[WindowMonitor] Skipped — unsupported platform');
       return;
     }
 
     this.mainWindow = mainWindow;
 
-    const handle = mainWindow.getNativeWindowHandle();
-    if (handle.length >= 8) {
-      this.ownHwnd = Number(handle.readBigInt64LE(0));
-    } else if (handle.length >= 4) {
-      this.ownHwnd = handle.readInt32LE(0);
+    if (isWindows) {
+      // Windows：用 HWND 識別自身視窗
+      const handle = mainWindow.getNativeWindowHandle();
+      if (handle.length >= 8) {
+        this.ownHwnd = Number(handle.readBigInt64LE(0));
+      } else if (handle.length >= 4) {
+        this.ownHwnd = handle.readInt32LE(0);
+      }
+    } else if (isMac) {
+      // macOS：用 PID 排除自身程序的所有視窗
+      this.ownPid = process.pid;
     }
 
     this.timer = setInterval(() => {
@@ -259,7 +268,10 @@ export class WindowMonitor {
   }
 
   private poll(): void {
-    const rects = enumerateWindows(this.ownHwnd);
+    // 平台分派：Windows 用 koffi + user32.dll，macOS 用 koffi + CoreGraphics
+    const rects = isMac
+      ? enumerateWindowsMac(this.ownPid)
+      : enumerateWindows(this.ownHwnd);
     const hash = this.hashRects(rects);
 
     if (hash !== this.lastHash) {
