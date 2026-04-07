@@ -10,12 +10,37 @@ interface LoadedAnimation {
   clip: THREE.AnimationClip;
 }
 
-/** Crossfade 過渡時間（秒） */
+/** Crossfade 過渡時間預設值（秒），實際時長依 category 決定 */
 const CROSSFADE_DURATION = 0.5;
 
-/** idle 動畫之間的等待時間隨機範圍（秒） */
-const IDLE_WAIT_MIN = 0.5;
-const IDLE_WAIT_MAX = 2.0;
+/** action 結束後回到 idle 的 crossfade 時長（較長以掩蓋 pose 差異） */
+const RETURN_TO_IDLE_FADE = 1.0;
+
+/** idle 動畫之間的等待時間隨機範圍（秒）— 從 0.5-2 拉長到 5-12 避免神經抽搐 */
+const IDLE_WAIT_MIN = 5;
+const IDLE_WAIT_MAX = 12;
+
+/**
+ * 依分類取得 crossfade 過渡時長（秒）
+ *
+ * 不同類別動作的姿態差異不同，使用差異化時長：
+ *   idle：相對相似 → 0.7s
+ *   action：通常從站姿觸發 → 1.0s
+ *   sit：從站姿到坐姿差異最大 → 1.5s
+ *   fall / collide：需要快速反應 → 0.3s
+ *   peek：姿態接近 idle → 0.6s
+ */
+function getCrossfadeDurationFor(category: AnimationCategory): number {
+  switch (category) {
+    case 'idle': return 0.7;
+    case 'action': return 1.0;
+    case 'sit': return 1.5;
+    case 'fall': return 0.3;
+    case 'collide': return 0.3;
+    case 'peek': return 0.6;
+    default: return CROSSFADE_DURATION;
+  }
+}
 
 /**
  * 動畫管理器
@@ -115,7 +140,8 @@ export class AnimationManager {
     const selected = this.selectByWeight(animations);
     if (!selected) return false;
 
-    this.playClip(selected.clip, selected.entry.loop, category === 'action');
+    const fade = getCrossfadeDurationFor(category);
+    this.playClip(selected.clip, selected.entry.loop, category === 'action', fade);
     this.currentDisplayName = selected.entry.displayName || selected.entry.fileName;
     return true;
   }
@@ -127,7 +153,8 @@ export class AnimationManager {
     const anim = this.allAnimations.find((a) => a.entry.fileName === name);
     if (!anim) return false;
 
-    this.playClip(anim.clip, anim.entry.loop, anim.entry.category === 'action');
+    const fade = getCrossfadeDurationFor(anim.entry.category);
+    this.playClip(anim.clip, anim.entry.loop, anim.entry.category === 'action', fade);
     this.currentDisplayName = anim.entry.displayName || anim.entry.fileName;
     return true;
   }
@@ -333,8 +360,20 @@ export class AnimationManager {
     this.systemAnimations.clear();
   }
 
-  /** 播放 clip */
-  private playClip(clip: THREE.AnimationClip, loop: boolean, isAction: boolean): void {
+  /**
+   * 播放 clip
+   *
+   * @param clip 動畫 clip
+   * @param loop 是否循環
+   * @param isAction 是否為 action（觸發 onAnimationFinished 回 idle 邏輯）
+   * @param fadeDuration 自訂 crossfade 時長（秒），不指定時用 CROSSFADE_DURATION
+   */
+  private playClip(
+    clip: THREE.AnimationClip,
+    loop: boolean,
+    isAction: boolean,
+    fadeDuration: number = CROSSFADE_DURATION,
+  ): void {
     this.previousAction = this.currentAction;
     this.isPlayingAction = isAction;
 
@@ -348,12 +387,14 @@ export class AnimationManager {
       action.clampWhenFinished = true;
     }
 
+    // 改用 crossFadeTo + warp，讓兩個 clip 的 phase 對齊（解決 walk 之間腳步不對齊）
     if (this.previousAction) {
-      this.previousAction.fadeOut(CROSSFADE_DURATION);
+      action.play();
+      this.previousAction.crossFadeTo(action, fadeDuration, true);
+    } else {
+      action.fadeIn(fadeDuration);
+      action.play();
     }
-
-    action.fadeIn(CROSSFADE_DURATION);
-    action.play();
     this.currentAction = action;
   }
 
@@ -361,8 +402,9 @@ export class AnimationManager {
   private onAnimationFinished = (): void => {
     if (this.isPlayingAction) {
       // action 播完後回到 idle 輪播
+      // 用 RETURN_TO_IDLE_FADE（1.0s）較長的 crossfade 掩蓋 action 結尾 pose 與 idle 起始 pose 的差異
       this.isPlayingAction = false;
-      this.playNextIdle();
+      this.playNextIdle(true);
       this.resetIdleTimer();
     }
   };
@@ -374,8 +416,13 @@ export class AnimationManager {
     this.resetIdleTimer();
   }
 
-  /** 播放下一個 idle 動畫（無 idle 分類時從所有動畫中選取） */
-  private playNextIdle(): void {
+  /**
+   * 播放下一個 idle 動畫（無 idle 分類時從所有動畫中選取）
+   *
+   * @param returnFromAction 若為 true，使用較長的 crossfade（1.0s 取代 0.7s）
+   *                         以掩蓋 action 結尾 pose 差異
+   */
+  private playNextIdle(returnFromAction = false): void {
     let pool = this.animationsByCategory.get('idle');
     if (!pool || pool.length === 0) {
       // fallback：沒有 idle 動畫時，從全部動畫中輪播
@@ -386,7 +433,10 @@ export class AnimationManager {
     const selected = this.selectByWeight(pool);
     if (selected) {
       // idle 輪播一律循環播放，避免 T-pose
-      this.playClip(selected.clip, true, false);
+      const fade = returnFromAction
+        ? RETURN_TO_IDLE_FADE
+        : getCrossfadeDurationFor('idle');
+      this.playClip(selected.clip, true, false, fade);
       this.currentDisplayName = selected.entry.displayName || selected.entry.fileName;
     }
   }

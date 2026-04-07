@@ -75,12 +75,13 @@ export class BehaviorAnimationBridge {
       return;
     }
 
-    // sit 狀態：隨機選取一個 sit 動畫（較長 crossfade 讓過渡更平滑）
+    // sit 狀態：隨機選取一個 sit 動畫（站姿到坐姿差異最大，用最長 crossfade）
     if (output.currentState === 'sit') {
       const sitAnim = SIT_ANIMATION_NAMES[Math.floor(Math.random() * SIT_ANIMATION_NAMES.length)];
       // 診斷：sit 狀態渲染消失 bug 調查用，記錄選中的動畫名
       console.log('[BehaviorBridge] sit → playing system animation:', sitAnim);
-      this.animationManager.playSystemAnimation(sitAnim, true, 1.0);
+      // 與 AnimationManager.getCrossfadeDurationFor('sit') = 1.5 對齊
+      this.animationManager.playSystemAnimation(sitAnim, true, 1.5);
       return;
     }
 
