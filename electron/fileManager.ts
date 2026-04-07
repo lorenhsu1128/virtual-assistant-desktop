@@ -21,6 +21,8 @@ export interface AppConfig {
   animationSpeed: number;
   moveSpeedMultiplier: number;
   systemAssetsDir: string;
+  /** VRM 模型瀏覽對話框上次使用的資料夾（為空時從 vrmModelPath 推導） */
+  vrmPickerFolder?: string;
 }
 
 /** Animation entry metadata */

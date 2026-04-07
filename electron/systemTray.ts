@@ -238,6 +238,12 @@ export class SystemTray {
       click: () => this.emitAction('change_model'),
     });
 
+    // 瀏覽 VRM 模型...（自訂預覽對話框）
+    template.push({
+      label: '\u700f\u89bd VRM \u6a21\u578b...',
+      click: () => this.emitAction('browse_models'),
+    });
+
     // 更換動畫資料夾
     template.push({
       label: '\u66f4\u63db\u52d5\u756b\u8cc7\u6599\u593e',

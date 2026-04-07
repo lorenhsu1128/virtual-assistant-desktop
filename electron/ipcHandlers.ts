@@ -1,6 +1,7 @@
 import { ipcMain, dialog, BrowserWindow, screen, app } from 'electron';
 import * as fileManager from './fileManager.js';
 import { WindowMonitor, type WindowRect } from './windowMonitor.js';
+import { openPickerWindow, closePickerWindow } from './vrmPickerWindow.js';
 
 /** Display info returned to renderer */
 interface DisplayInfo {
@@ -75,6 +76,35 @@ export function registerIpcHandlers(
     });
     if (result.canceled || result.filePaths.length === 0) return null;
     return result.filePaths[0];
+  });
+
+  ipcMain.handle('pick_vrm_folder', async (event, defaultPath?: string) => {
+    const senderWindow = BrowserWindow.fromWebContents(event.sender) ?? mainWindow;
+    const result = await dialog.showOpenDialog(senderWindow, {
+      title: '\u9078\u64c7 VRM \u8cc7\u6599\u593e',
+      properties: ['openDirectory'],
+      defaultPath,
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0];
+  });
+
+  // ── VRM Picker Window ──
+
+  ipcMain.handle('open_vrm_picker', () => {
+    openPickerWindow(mainWindow);
+  });
+
+  ipcMain.handle('apply_vrm_model', async (_event, vrmPath: string) => {
+    const config = await fileManager.readConfig();
+    config.vrmModelPath = vrmPath;
+    await fileManager.writeConfig(config);
+    // 通知主視窗 reload，沿用既有「page reload 載入新模型」流程
+    if (!mainWindow.isDestroyed()) {
+      mainWindow.webContents.reload();
+    }
+    closePickerWindow();
+    return true;
   });
 
   // ── Window Monitor ──

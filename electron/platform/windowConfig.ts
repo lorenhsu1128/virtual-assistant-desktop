@@ -54,6 +54,36 @@ export function getWindowOptions(
   };
 }
 
+/**
+ * 回傳 VRM 模型瀏覽對話框的 BrowserWindow 建構參數
+ *
+ * 與主透明視窗相反：有邊框、可縮放、不透明、modal-like。
+ * Windows / macOS 共用同一份參數（無系統 API 差異）。
+ */
+export function getPickerWindowOptions(
+  parent: BrowserWindow
+): Electron.BrowserWindowConstructorOptions {
+  return {
+    width: 900,
+    height: 560,
+    minWidth: 720,
+    minHeight: 480,
+    parent,
+    modal: false,
+    title: '瀏覽 VRM 模型',
+    transparent: false,
+    frame: true,
+    focusable: true,
+    alwaysOnTop: false,
+    skipTaskbar: false,
+    resizable: true,
+    hasShadow: true,
+    show: false,
+    autoHideMenuBar: true,
+    backgroundColor: '#1e1e2e',
+  };
+}
+
 /** 視窗建立後的平台專用設定 */
 export function applyPostCreateSetup(
   win: BrowserWindow,

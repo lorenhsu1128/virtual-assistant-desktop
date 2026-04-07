@@ -12,6 +12,7 @@ import { registerIpcHandlers } from './ipcHandlers.js';
 import { WindowMonitor } from './windowMonitor.js';
 import { SystemTray } from './systemTray.js';
 import { ensureConfigDir } from './fileManager.js';
+import { closePickerWindow } from './vrmPickerWindow.js';
 import {
   getWindowOptions,
   applyPostCreateSetup,
@@ -148,6 +149,7 @@ app.whenReady().then(async () => {
     globalShortcut.unregisterAll();
     windowMonitor?.stop();
     systemTray?.dispose();
+    closePickerWindow();
     mainWindow = null;
   });
 });

@@ -18,6 +18,9 @@ interface ElectronAPI {
   scanVrmFiles(folderPath: string): Promise<string[]>;
   pickVrmFile(): Promise<string | null>;
   pickAnimationFolder(): Promise<string | null>;
+  pickVrmFolder(defaultPath?: string): Promise<string | null>;
+  openVrmPicker(): Promise<void>;
+  applyVrmModel(vrmPath: string): Promise<boolean>;
   getWindowList(): Promise<WindowRect[]>;
   getDisplayInfo(): Promise<DisplayInfo[]>;
   setWindowPosition(x: number, y: number): Promise<void>;
@@ -186,6 +189,43 @@ class ElectronIPC {
     } catch (e) {
       console.warn('[ElectronIPC] pickAnimationFolder failed:', e);
       return null;
+    }
+  }
+
+  /**
+   * Open folder picker for VRM browse dialog
+   *
+   * Returns null if cancelled (normal operation, no error).
+   */
+  async pickVrmFolder(defaultPath?: string): Promise<string | null> {
+    try {
+      return await window.electronAPI.pickVrmFolder(defaultPath);
+    } catch (e) {
+      console.warn('[ElectronIPC] pickVrmFolder failed:', e);
+      return null;
+    }
+  }
+
+  /**
+   * Open the custom VRM model browser dialog window
+   */
+  async openVrmPicker(): Promise<void> {
+    try {
+      await window.electronAPI.openVrmPicker();
+    } catch (e) {
+      console.warn('[ElectronIPC] openVrmPicker failed:', e);
+    }
+  }
+
+  /**
+   * Apply selected VRM model: writes config and reloads main window
+   */
+  async applyVrmModel(vrmPath: string): Promise<boolean> {
+    try {
+      return await window.electronAPI.applyVrmModel(vrmPath);
+    } catch (e) {
+      console.warn('[ElectronIPC] applyVrmModel failed:', e);
+      return false;
     }
   }
 

@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>瀏覽 VRM 模型</title>
+    <link rel="stylesheet" href="/src/vrm-picker/style.css" />
+  </head>
+  <body>
+    <div id="picker-root">
+      <div id="picker-header">
+        <div id="picker-folder-row">
+          <span id="picker-folder-label">資料夾：</span>
+          <span id="picker-folder-path">（尚未選擇）</span>
+          <button id="picker-folder-btn" type="button">選擇資料夾</button>
+        </div>
+      </div>
+      <div id="picker-body">
+        <div id="picker-list-pane">
+          <ul id="picker-file-list"></ul>
+          <div id="picker-empty-hint" class="hidden">資料夾中沒有 .vrm 檔案</div>
+        </div>
+        <div id="picker-preview-pane">
+          <canvas id="picker-preview-canvas"></canvas>
+          <div id="picker-preview-hint">請從左側選擇模型</div>
+        </div>
+      </div>
+      <div id="picker-footer">
+        <div id="picker-status"></div>
+        <div id="picker-buttons">
+          <button id="picker-cancel-btn" type="button">取消</button>
+          <button id="picker-apply-btn" type="button" disabled>套用</button>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/vrm-picker/main.ts"></script>
+  </body>
+</html>

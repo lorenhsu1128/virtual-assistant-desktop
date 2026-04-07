@@ -548,6 +548,9 @@ async function initializeBehaviorSystem(
           window.location.reload();
         });
         break;
+      case 'browse_models':
+        ipc.openVrmPicker();
+        break;
       case 'change_anim':
         ipc.pickAnimationFolder().then(async (p) => {
           if (!p) return;

@@ -21,6 +21,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ── File Pickers ──
   pickVrmFile: () => ipcRenderer.invoke('pick_vrm_file'),
   pickAnimationFolder: () => ipcRenderer.invoke('pick_animation_folder'),
+  pickVrmFolder: (defaultPath?: string) => ipcRenderer.invoke('pick_vrm_folder', defaultPath),
+
+  // ── VRM Picker Window ──
+  openVrmPicker: () => ipcRenderer.invoke('open_vrm_picker'),
+  applyVrmModel: (vrmPath: string) => ipcRenderer.invoke('apply_vrm_model', vrmPath),
 
   // ── Window Monitor ──
   getWindowList: () => ipcRenderer.invoke('get_window_list'),

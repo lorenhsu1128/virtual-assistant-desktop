@@ -38,7 +38,7 @@
 
 ### 系統托盤選單功能（左鍵點擊）
 
-顯示桌寵 | 動畫 ▸ | 表情 ▸ | 縮放 ▸ | 動畫速率 ▸ | 暫停/恢復自主移動 | 暫停/恢復自動表情 | 暫停/恢復動畫循環 | 重置鏡頭角度 | 重置回桌面正中央 | 更換 VRM 模型 | 更換動畫資料夾 | Debug 模式 | 設定(TODO) | 結束
+顯示桌寵 | 動畫 ▸ | 表情 ▸ | 縮放 ▸ | 動畫速率 ▸ | 暫停/恢復自主移動 | 暫停/恢復自動表情 | 暫停/恢復動畫循環 | 重置鏡頭角度 | 重置回桌面正中央 | 更換 VRM 模型 | 瀏覽 VRM 模型...（自訂預覽對話框） | 更換動畫資料夾 | Debug 模式 | 設定(TODO) | 結束
 
 ### Debug overlay 功能
 
@@ -62,7 +62,7 @@
 ## 關鍵目錄結構
 
 ```
-src/                → TypeScript 前端（renderer process）
+src/                → TypeScript 前端（主視窗 renderer process）
   core/             → 渲染核心（SceneManager, VRMController）
   animation/        → 動畫系統（AnimationManager, FallbackAnimation）
   behavior/         → 行為邏輯（StateMachine, CollisionSystem, BehaviorAnimationBridge）
@@ -71,21 +71,26 @@ src/                → TypeScript 前端（renderer process）
   interaction/      → 使用者互動（DragHandler）
   bridge/           → IPC 封裝（ElectronIPC）
   debug/            → Debug overlay（DebugOverlay）
-  types/            → 共用型別（config.ts, animation.ts, window.ts, behavior.ts, collision.ts, tray.ts）
+  types/            → 共用型別（config, animation, window, behavior, collision, tray, vrmPicker）
+  vrm-picker/       → VRM 模型瀏覽對話框（獨立 BrowserWindow renderer）
+                      main.ts / PreviewScene.ts / pickerLogic.ts / style.css
 electron/           → Electron 主程序（main process）
   main.ts           → 應用程式入口、BrowserWindow 建立
-  preload.ts        → contextBridge 暴露 IPC API
+  preload.ts        → contextBridge 暴露 IPC API（主視窗與 picker 共用）
   ipcHandlers.ts    → 所有 ipcMain.handle() 註冊
   fileManager.ts    → config.json / animations.json 管理
   windowMonitor.ts  → koffi GetWindow 遍歷視窗列舉（Windows-only）
   windowRegion.ts   → [已棄用] koffi FFI 視窗裁切（改用 3D depth occlusion）
   systemTray.ts     → 系統托盤選單
+  vrmPickerWindow.ts → VRM 模型瀏覽對話框 BrowserWindow 管理
   platform/         → 跨平台抽象層（Windows / macOS 差異集中於此）
     index.ts        → isWindows / isMac 旗標 + 統一匯出
-    windowConfig.ts → 各平台 BrowserWindow 參數與建立後設定
+    windowConfig.ts → 各平台 BrowserWindow 參數（含 picker 視窗）
     protocolHelper.ts → local-file 協定路徑解析
 src-tauri/          → [已棄用] 舊 Rust 後端（保留作參考）
 src-settings/       → Svelte 設定視窗（尚未實作）
+index.html          → 主視窗 HTML 入口
+vrm-picker.html     → VRM 模型瀏覽對話框 HTML 入口
 tests/              → Vitest 測試（unit/）
 ```
 
