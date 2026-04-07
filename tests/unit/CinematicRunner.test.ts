@@ -31,7 +31,9 @@ function runUntilPhase(runner: CinematicRunner, target: CinematicPhase, maxSteps
 }
 
 describe('solveFinalPose', () => {
-  const baseArgs = [1920, 1080, 300, 500, 1.0, 6.0, 0.22, 24, 16, 0.7] as const;
+  // screenW, screenH, charW, charH, origScale, desiredMaxScale, headRatio,
+  // topPad, bottomPad, targetHeadTopRatio
+  const baseArgs = [1920, 1080, 300, 500, 1.0, 6.0, 0.22, 24, 16, 0.4] as const;
 
   it('returns positive max scale', () => {
     const result = solveFinalPose(...baseArgs);
@@ -39,9 +41,15 @@ describe('solveFinalPose', () => {
     expect(result.maxScale).toBeLessThanOrEqual(6.0);
   });
 
-  it('finalVisualHeadY is in lower half (>= screenHeight / 2)', () => {
+  it('finalVisualHeadY is at screenHeight × targetHeadTopRatio (中央偏上)', () => {
     const result = solveFinalPose(...baseArgs);
-    expect(result.finalVisualHeadY).toBeGreaterThanOrEqual(1080 / 2 - 0.001);
+    // 1080 × 0.40 = 432（螢幕中央略上方）
+    expect(result.finalVisualHeadY).toBeCloseTo(432, 0);
+  });
+
+  it('finalVisualHeadY is above screen center (slightly upper-middle)', () => {
+    const result = solveFinalPose(...baseArgs);
+    expect(result.finalVisualHeadY).toBeLessThan(1080 / 2);
   });
 
   it('keeps face bottom within screen (<= screenHeight - bottomPadding)', () => {
@@ -51,16 +59,8 @@ describe('solveFinalPose', () => {
     expect(faceBottom).toBeLessThanOrEqual(1080 - 16 + 0.001);
   });
 
-  it('places face center in lower half (between center and bottom)', () => {
-    const result = solveFinalPose(...baseArgs);
-    const visualHeight = 500 * (result.maxScale / 1.0);
-    const faceCenter = result.finalVisualHeadY + (visualHeight * 0.22) / 2;
-    expect(faceCenter).toBeGreaterThan(1080 / 2);
-    expect(faceCenter).toBeLessThan(1080);
-  });
-
   it('clamps maxScale on a small screen', () => {
-    const result = solveFinalPose(800, 600, 200, 400, 1.0, 6.0, 0.22, 24, 16, 0.7);
+    const result = solveFinalPose(800, 600, 200, 400, 1.0, 6.0, 0.22, 24, 16, 0.4);
     expect(result.maxScale).toBeLessThan(6.0);
   });
 
@@ -70,7 +70,7 @@ describe('solveFinalPose', () => {
   });
 
   it('handles tiny screen without NaN', () => {
-    const result = solveFinalPose(640, 480, 200, 400, 1.0, 6.0, 0.22, 24, 16, 0.7);
+    const result = solveFinalPose(640, 480, 200, 400, 1.0, 6.0, 0.22, 24, 16, 0.4);
     expect(Number.isFinite(result.maxScale)).toBe(true);
     expect(Number.isFinite(result.finalVisualHeadY)).toBe(true);
     expect(result.maxScale).toBeGreaterThan(0);
@@ -188,12 +188,31 @@ describe('CinematicRunner — approach-top phase', () => {
   });
 });
 
+describe('CinematicRunner — approach-top keeps original scale', () => {
+  it('scale stays at startScale during approach-top', () => {
+    const runner = new CinematicRunner(makeConfig());
+    runUntilPhase(runner, 'approach-top');
+    const f1 = runner.tick(0.2);
+    const f2 = runner.tick(0.5);
+    expect(f1.scaleY).toBeCloseTo(1.0, 3);
+    expect(f2.scaleY).toBeCloseTo(1.0, 3);
+  });
+
+  it('scale stays at startScale during pause-top', () => {
+    const runner = new CinematicRunner(makeConfig());
+    runUntilPhase(runner, 'pause-top');
+    const frame = runner.tick(0.01);
+    expect(frame.scaleY).toBeCloseTo(1.0, 3);
+  });
+});
+
 describe('CinematicRunner — dash-down phase', () => {
-  it('scale grows toward maxScale', () => {
+  it('scale grows toward maxScale from startScale', () => {
     const runner = new CinematicRunner(makeConfig());
     runUntilPhase(runner, 'dash-down');
-    const f1 = runner.tick(0.1);
+    const f1 = runner.tick(0.05);
     const f2 = runner.tick(0.3);
+    expect(f1.scaleY).toBeCloseTo(1.0, 1); // 起始 ≈ startScale
     expect(f2.scaleY).toBeGreaterThan(f1.scaleY);
   });
 
@@ -406,7 +425,7 @@ describe('CinematicRunner — visual head position correctness', () => {
     expect(visualHeadY).toBeCloseTo(24, 0);
   });
 
-  it('hold visual head Y is in lower half of screen', () => {
+  it('hold visual head Y is slightly above screen center (中央偏上)', () => {
     const config = makeConfig();
     const runner = new CinematicRunner(config);
     runUntilPhase(runner, 'hold');
@@ -414,7 +433,9 @@ describe('CinematicRunner — visual head position correctness', () => {
     // 反推 visual head Y
     const visualHeadY =
       frame.positionY - config.characterHeight * (frame.scaleY / config.originalScale - 1);
-    expect(visualHeadY).toBeGreaterThanOrEqual(config.screenHeight / 2 - 0.5);
+    // 預設 targetHeadTopRatio = 0.4 → head top ≈ 432 (略小於 screenH/2 = 540)
+    expect(visualHeadY).toBeCloseTo(config.screenHeight * 0.4, 0);
+    expect(visualHeadY).toBeLessThan(config.screenHeight / 2);
   });
 
   it('hold face bottom does not exceed screen bottom', () => {

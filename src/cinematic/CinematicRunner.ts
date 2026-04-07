@@ -27,7 +27,7 @@ const DEFAULT_DESIRED_MAX_SCALE = 6.0;
 const DEFAULT_HEAD_HEIGHT_RATIO = 0.22;
 const DEFAULT_TOP_PADDING = 24;
 const DEFAULT_BOTTOM_PADDING = 16;
-const DEFAULT_TARGET_FACE_CENTER_RATIO = 0.7;
+const DEFAULT_TARGET_HEAD_TOP_RATIO = 0.4;
 
 // 各階段時長（秒）
 const ANTICIPATE_DURATION = 0.5;
@@ -44,8 +44,6 @@ const EXPRESSION_DISPLAY_DURATION = 1.6;
 const EXPRESSION_GAP_DURATION = 0.4;
 const EXPRESSION_CYCLE = EXPRESSION_DISPLAY_DURATION + EXPRESSION_GAP_DURATION;
 
-// approach-top 階段的 scale
-const APPROACH_TOP_SCALE_RATIO = 1.4;
 // dash-down 階段攝影機 zoom
 const DASH_DOWN_CAMERA_ZOOM_PEAK = 1.6;
 // impact squash
@@ -112,17 +110,16 @@ function dampedShake(elapsed: number, intensity: number, freq: number, decay: nu
 /**
  * 求解最終定格的 scale 與**視覺頭頂 Y 座標**
  *
- * 約束（使用者要求：頭部要完全在螢幕下半部）：
- *   1. visualHeadTop ≥ screenHeight / 2（頭頂不可超過螢幕垂直中央）
+ * 約束（使用者要求：impact 時頭頂在螢幕中央偏上）：
+ *   1. visualHeadTop ≈ screenHeight × targetHeadTopRatio（預設 0.40，中央略上）
  *   2. faceBottom ≤ screenHeight − bottomPadding（面部底不可超出螢幕底部）
- *   3. 面部中心盡量接近 screenHeight × targetFaceCenterRatio（下半部中間偏下）
+ *   3. scale 越大越好（接近 desiredMaxScale），但被 faceHeight ≤ 可用空間約束
  *
- * 注意：本函式只計算「視覺位置」與 scale。把 visualHeadY 轉成 SceneManager
- * 用的 currentPosition.y 由 CinematicRunner 的 positionForVisualHead 統一處理。
- *
- * 求解：
- *   a. 從 desiredMaxScale 往下試，直到 faceHeight ≤ (screenH/2 − bottomPadding)
- *   b. 在合法的 scale 下，把面部中心 clamp 到 [safeTop+faceH/2, safeBottom−faceH/2]
+ * 演算法（解析式，不需要 for 迴圈）：
+ *   desiredHeadTop = screenH × targetHeadTopRatio
+ *   maxFaceH = screenH − bottomPadding − desiredHeadTop
+ *   maxScale = desiredMaxScale clamp 到 (maxFaceH × origScale) / (charH × headRatio)
+ *   finalVisualHeadY = desiredHeadTop
  */
 export function solveFinalPose(
   screenWidth: number,
@@ -134,53 +131,29 @@ export function solveFinalPose(
   headHeightRatio: number,
   _topPadding: number,
   bottomPadding: number,
-  targetFaceCenterRatio: number,
+  targetHeadTopRatio: number,
 ): FinalPoseSolution {
-  const safeTop = screenHeight / 2;
-  const safeBottom = screenHeight - bottomPadding;
-  const availableFaceSpace = safeBottom - safeTop;
+  const desiredHeadTop = screenHeight * targetHeadTopRatio;
+  const maxFaceH = Math.max(0, screenHeight - bottomPadding - desiredHeadTop);
 
-  const minScale = Math.max(originalScale * 1.2, originalScale * 1.5);
-  let scale = desiredMaxScale;
-  let finalVisualHeadY = 0;
+  const minScale = originalScale * 1.5;
+  let scale: number;
 
-  for (let i = 0; i < 40; i++) {
-    const visualHeight = characterHeight * (scale / originalScale);
-    const faceHeight = visualHeight * headHeightRatio;
-
-    if (faceHeight <= availableFaceSpace) {
-      const desiredCenter = screenHeight * targetFaceCenterRatio;
-      const minCenter = safeTop + faceHeight / 2;
-      const maxCenter = safeBottom - faceHeight / 2;
-      const clampedCenter =
-        desiredCenter < minCenter
-          ? minCenter
-          : desiredCenter > maxCenter
-            ? maxCenter
-            : desiredCenter;
-      finalVisualHeadY = clampedCenter - faceHeight / 2;
-      break;
-    }
-
-    scale *= 0.92;
-    if (scale < minScale) {
-      scale = minScale;
-      const visualH = characterHeight * (scale / originalScale);
-      const faceH = visualH * headHeightRatio;
-      const centerFallback = Math.max(
-        safeTop + faceH / 2,
-        Math.min(safeBottom - faceH / 2, screenHeight * targetFaceCenterRatio),
-      );
-      finalVisualHeadY = centerFallback - faceH / 2;
-      break;
-    }
+  if (characterHeight * headHeightRatio > 0) {
+    // 由 maxFaceH 反推最大允許 scale
+    const scaleFromFaceSpace =
+      (maxFaceH * originalScale) / (characterHeight * headHeightRatio);
+    scale = Math.min(desiredMaxScale, scaleFromFaceSpace);
+    scale = Math.max(minScale, scale);
+  } else {
+    scale = desiredMaxScale;
   }
 
   const finalPosX = screenWidth / 2 - characterWidth / 2;
 
   return {
     maxScale: scale,
-    finalVisualHeadY,
+    finalVisualHeadY: desiredHeadTop,
     finalPosX,
   };
 }
@@ -255,8 +228,6 @@ export class CinematicRunner {
   private readonly centerX: number;
   /** 最終定格的視覺頭頂 Y（由 solveFinalPose 解出） */
   private readonly finalVisualHeadY: number;
-  /** approach-top 結束時的 scale */
-  private readonly approachTopScale: number;
   /** 最終定格的 scale */
   private readonly maxScale: number;
 
@@ -278,7 +249,7 @@ export class CinematicRunner {
     const headHeightRatio = config.headHeightRatio ?? DEFAULT_HEAD_HEIGHT_RATIO;
     const topPadding = config.topPadding ?? DEFAULT_TOP_PADDING;
     const bottomPadding = config.bottomPadding ?? DEFAULT_BOTTOM_PADDING;
-    const targetFaceCenterRatio = config.targetFaceCenterRatio ?? DEFAULT_TARGET_FACE_CENTER_RATIO;
+    const targetHeadTopRatio = config.targetHeadTopRatio ?? DEFAULT_TARGET_HEAD_TOP_RATIO;
 
     const finalPose = solveFinalPose(
       config.screenWidth,
@@ -290,12 +261,11 @@ export class CinematicRunner {
       headHeightRatio,
       topPadding,
       bottomPadding,
-      targetFaceCenterRatio,
+      targetHeadTopRatio,
     );
     this.centerX = finalPose.finalPosX;
     this.finalVisualHeadY = finalPose.finalVisualHeadY;
     this.maxScale = finalPose.maxScale;
-    this.approachTopScale = config.originalScale * APPROACH_TOP_SCALE_RATIO;
     this.topVisualHeadY = topMiddleVisualHeadY(topPadding);
 
     this.holdExpressions = shuffleExpressions(config.availableExpressions);
@@ -396,7 +366,8 @@ export class CinematicRunner {
   private tickApproachTop(): CinematicFrame {
     const t = clamp01(this.phaseElapsed / APPROACH_TOP_DURATION);
     const eased = easeInOutCubic(t);
-    const scale = lerp(this.startScale, this.approachTopScale, eased);
+    // 保持原始 scale（使用者要求：往斜上跑時不 scale）
+    const scale = this.startScale;
     const posX = lerp(this.startX, this.centerX, eased);
     const visualHeadY = lerp(this.startVisualHeadY, this.topVisualHeadY, eased);
     const cameraZoom = lerp(1.0, 1.05, eased);
@@ -426,7 +397,8 @@ export class CinematicRunner {
 
   private tickPauseTop(): CinematicFrame {
     const t = clamp01(this.phaseElapsed / PAUSE_TOP_DURATION);
-    const scale = this.approachTopScale;
+    // 保持原始 scale（使用者要求：往下跑時才開始 scale）
+    const scale = this.startScale;
     const facingRotationY = lerp(Math.PI, 0, easeInOutCubic(t));
 
     if (t >= 1) {
@@ -452,7 +424,8 @@ export class CinematicRunner {
   private tickDashDown(): CinematicFrame {
     const t = clamp01(this.phaseElapsed / DASH_DOWN_DURATION);
     const eased = easeInCubic(t);
-    const scale = lerp(this.approachTopScale, this.maxScale, eased);
+    // 從 startScale 開始成長到 maxScale（使用者要求：往下跑時才 scale）
+    const scale = lerp(this.startScale, this.maxScale, eased);
     const visualHeadY = lerp(this.topVisualHeadY, this.finalVisualHeadY, eased);
     const cameraZoom = lerp(1.05, DASH_DOWN_CAMERA_ZOOM_PEAK, eased);
 

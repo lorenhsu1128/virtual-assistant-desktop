@@ -89,8 +89,8 @@ export interface CinematicConfig {
   topPadding?: number;
   /** 面部底安全邊距（像素，預設 16） */
   bottomPadding?: number;
-  /** 最終定格時面部中心在螢幕高度的比例（預設 0.7） */
-  targetFaceCenterRatio?: number;
+  /** 最終定格時頭頂在螢幕高度的比例（預設 0.40，即中央偏上） */
+  targetHeadTopRatio?: number;
 }
 
 /**
