@@ -66,33 +66,38 @@ export class StateMachine {
   tick(input: BehaviorInput): BehaviorOutput {
     const prevState = this.state;
 
-    if (this.paused || this.state === 'drag') {
+    // drag 狀態：DragHandler 完全控制位置，StateMachine 不干預
+    if (this.state === 'drag') {
       const changed = this.pendingStateChange;
       this.pendingStateChange = false;
       return this.makeOutput(changed, null);
     }
 
-    this.stateTimer += input.deltaTime;
+    // paused 時跳過自主狀態轉移與計時器推進，但仍計算 getTargetPosition
+    // 讓 forceState 觸發的 sit/hide/peek 等能正確貼齊 platform、跟隨視窗
+    if (!this.paused) {
+      this.stateTimer += input.deltaTime;
 
-    switch (this.state) {
-      case 'idle':
-        this.tickIdle(input);
-        break;
-      case 'walk':
-        this.tickWalk(input);
-        break;
-      case 'sit':
-        this.tickSit(input);
-        break;
-      case 'hide':
-        this.tickHide(input);
-        break;
-      case 'peek':
-        this.tickPeek(input);
-        break;
-      case 'fall':
-        this.tickFall(input);
-        break;
+      switch (this.state) {
+        case 'idle':
+          this.tickIdle(input);
+          break;
+        case 'walk':
+          this.tickWalk(input);
+          break;
+        case 'sit':
+          this.tickSit(input);
+          break;
+        case 'hide':
+          this.tickHide(input);
+          break;
+        case 'peek':
+          this.tickPeek(input);
+          break;
+        case 'fall':
+          this.tickFall(input);
+          break;
+      }
     }
 
     const stateChanged = this.state !== prevState || this.pendingStateChange;
