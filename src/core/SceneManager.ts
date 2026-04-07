@@ -1444,8 +1444,16 @@ export class SceneManager {
   /** 更新角色 bounding box 尺寸（基於模型實際可見大小） */
   private updateCharacterSize(): void {
     if (!this.vrmController) return;
-    const modelSize = this.cachedModelSize;
+
+    // 直接呼叫 getModelWorldSize() 取得最新尺寸，不依賴 cachedModelSize。
+    // 原因：updateCharacterSize 通常從 setScale() 觸發（IPC 流入，render loop 之外），
+    // 此時 cachedModelSize 還是上一幀（舊 scale）的值。
+    // 直接讀取確保 setScale → updateCharacterSize 後 characterSize 立即反映新 scale。
+    const modelSize = this.vrmController.getModelWorldSize();
     if (!modelSize) return;
+
+    // 同步更新 cachedModelSize，避免下一幀 render loop 開頭重新讀取前的短暫不一致
+    this.cachedModelSize = modelSize;
 
     // getModelWorldSize() 已包含 model scale，不需再乘 this.scale
     // 使用模型實際大小，不加邊距
