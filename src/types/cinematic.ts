@@ -47,8 +47,8 @@ export interface CinematicFrame {
   positionX: number;
   /** 螢幕 Y 座標（像素，腳底基準） */
   positionY: number;
-  /** 是否轉身（背對鏡頭） */
-  facingReversed: boolean;
+  /** 模型 Y 軸旋轉（弧度）。0 = 面向鏡頭，π = 背對鏡頭，允許連續插值用於轉身 */
+  facingRotationY: number;
   /** walk 動畫速率倍率（1.0 = 正常，0 = 暫停） */
   walkSpeed: number;
   /** 攝影機 zoom 倍率：1.0 = 預設可見區域；> 1.0 = 縮小可見區域（推進感） */

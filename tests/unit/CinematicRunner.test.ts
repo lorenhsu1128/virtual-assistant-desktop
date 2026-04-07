@@ -35,11 +35,11 @@ describe('solveFinalPose', () => {
     expect(result.maxScale).toBeLessThanOrEqual(6.0);
   });
 
-  it('keeps head top within screen (>= topPadding)', () => {
+  it('keeps head top in lower half (>= screenHeight / 2)', () => {
     const result = solveFinalPose(...baseArgs);
     const visualHeight = 500 * (result.maxScale / 1.0);
     const headTop = result.finalPosY - visualHeight;
-    expect(headTop).toBeGreaterThanOrEqual(24 - 0.001);
+    expect(headTop).toBeGreaterThanOrEqual(1080 / 2 - 0.001);
   });
 
   it('keeps face bottom within screen (<= screenHeight - bottomPadding)', () => {
@@ -48,6 +48,15 @@ describe('solveFinalPose', () => {
     const headTop = result.finalPosY - visualHeight;
     const faceBottom = headTop + visualHeight * 0.22;
     expect(faceBottom).toBeLessThanOrEqual(1080 - 16 + 0.001);
+  });
+
+  it('places face center in lower half (between center and bottom)', () => {
+    const result = solveFinalPose(...baseArgs);
+    const visualHeight = 500 * (result.maxScale / 1.0);
+    const headTop = result.finalPosY - visualHeight;
+    const faceCenter = headTop + visualHeight * 0.22 / 2;
+    expect(faceCenter).toBeGreaterThan(1080 / 2);
+    expect(faceCenter).toBeLessThan(1080);
   });
 
   it('clamps maxScale on a small screen', () => {
@@ -271,11 +280,13 @@ describe('CinematicRunner — hold phase expressions', () => {
 });
 
 describe('CinematicRunner — retreat phase', () => {
-  it('reverses facing', () => {
+  it('reverses facing near the end', () => {
     const runner = new CinematicRunner(makeConfig({ availableExpressions: [] }));
     runUntilPhase(runner, 'retreat');
+    // 跑過轉身時間（retreat 前 30% 轉身 = 0.45s）
+    runner.tick(0.5);
     const frame = runner.tick(0.1);
-    expect(frame.facingReversed).toBe(true);
+    expect(frame.facingRotationY).toBeCloseTo(Math.PI, 1);
   });
 
   it('moves back toward start position', () => {
@@ -289,6 +300,59 @@ describe('CinematicRunner — retreat phase', () => {
     const f2 = runner.tick(0.5);
     // 應該往 startX = 100 移動
     expect(Math.abs(f2.positionX - 100)).toBeLessThan(Math.abs(f1.positionX - 100));
+  });
+});
+
+describe('CinematicRunner — facing rotation transitions', () => {
+  it('anticipate faces camera (rotation 0)', () => {
+    const runner = new CinematicRunner(makeConfig({ availableExpressions: [] }));
+    const frame = runner.tick(0.1);
+    expect(frame.phase).toBe('anticipate');
+    expect(frame.facingRotationY).toBe(0);
+  });
+
+  it('approach-top turns back to camera over time (0 → π)', () => {
+    const runner = new CinematicRunner(makeConfig({ availableExpressions: [] }));
+    runUntilPhase(runner, 'approach-top');
+    // 追蹤 rotation 隨時間遞增
+    const f1 = runner.tick(0.05);
+    const f2 = runner.tick(0.5);
+    expect(f2.facingRotationY).toBeGreaterThan(f1.facingRotationY);
+    // 到尾端應該接近 π
+    runner.tick(0.5);
+    // 已在 pause-top 或 approach-top 尾段
+  });
+
+  it('approach-top ends with back to camera (rotation close to π)', () => {
+    const runner = new CinematicRunner(makeConfig({ availableExpressions: [] }));
+    runUntilPhase(runner, 'approach-top');
+    // approach-top 總長 1s，前 60% 完成轉身 → 0.6s 後應該 ≈ π
+    const frame = runner.tick(0.7);
+    expect(frame.facingRotationY).toBeCloseTo(Math.PI, 1);
+  });
+
+  it('pause-top turns to face camera (π → 0)', () => {
+    const runner = new CinematicRunner(makeConfig({ availableExpressions: [] }));
+    runUntilPhase(runner, 'pause-top');
+    const f1 = runner.tick(0.01);
+    // pause-top 總長 0.25s，結尾應該 ≈ 0
+    const f2 = runner.tick(0.24);
+    expect(f1.facingRotationY).toBeGreaterThan(f2.facingRotationY);
+    expect(f2.facingRotationY).toBeLessThan(0.5);
+  });
+
+  it('dash-down faces camera (rotation 0)', () => {
+    const runner = new CinematicRunner(makeConfig({ availableExpressions: [] }));
+    runUntilPhase(runner, 'dash-down');
+    const frame = runner.tick(0.1);
+    expect(frame.facingRotationY).toBe(0);
+  });
+
+  it('hold faces camera (rotation 0)', () => {
+    const runner = new CinematicRunner(makeConfig({ availableExpressions: [] }));
+    runUntilPhase(runner, 'hold');
+    const frame = runner.tick(0.1);
+    expect(frame.facingRotationY).toBe(0);
   });
 });
 
@@ -309,7 +373,7 @@ describe('CinematicRunner — done frame', () => {
     expect(frame.positionY).toBe(456);
     expect(frame.scaleX).toBe(1.5);
     expect(frame.scaleY).toBe(1.5);
-    expect(frame.facingReversed).toBe(false);
+    expect(frame.facingRotationY).toBe(0);
     expect(frame.cameraZoom).toBe(1.0);
   });
 });

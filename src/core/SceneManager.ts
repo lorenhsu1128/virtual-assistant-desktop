@@ -743,9 +743,9 @@ export class SceneManager {
         this.currentPosition.x = frame.positionX;
         this.currentPosition.y = frame.positionY;
 
-        // 套用朝向（retreat 時轉身）
+        // 套用朝向（approach-top/pause-top/retreat 使用連續旋轉做轉身動作）
         if (this.vrmController) {
-          this.vrmController.setFacingRotationY(frame.facingReversed ? Math.PI : 0);
+          this.vrmController.setFacingRotationY(frame.facingRotationY);
         }
 
         // 套用攝影機 zoom（縮小可見區域 = 視覺放大）
