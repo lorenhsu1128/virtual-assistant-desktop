@@ -364,6 +364,28 @@ export class VRMController {
   }
 
   /**
+   * 設定模型非等向縮放（squash / stretch 演出用）
+   *
+   * 用於 cinematic 演出的撞擊瞬間 squash 效果。
+   * 注意：演出結束後須以 setModelScale(uniform) 復原為等向。
+   */
+  setModelScaleNonUniform(x: number, y: number, z: number): void {
+    if (this.vrm) {
+      this.vrm.scene.scale.set(x, y, z);
+    }
+  }
+
+  /**
+   * 重置 SpringBone 物理狀態
+   *
+   * 將所有 spring tail 快照到當前 bind pose 並清零 verlet 速度。
+   * 用於演出大幅 scale / 位移後避免頭髮 / 衣物彈跳（依 LESSONS.md 教訓）。
+   */
+  resetSpringBones(): void {
+    this.vrm?.springBoneManager?.reset();
+  }
+
+  /**
    * 設定模型在世界空間中的位置（全螢幕模式用）
    *
    * 將 VRM 模型平移到指定的世界座標，模型原點在腳底。

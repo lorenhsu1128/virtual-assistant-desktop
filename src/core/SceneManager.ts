@@ -130,6 +130,8 @@ export class SceneManager {
     position: { x: number; y: number };
     scale: number;
     timeScale: number;
+    cameraOrtho: { left: number; right: number; top: number; bottom: number };
+    cameraPosition: { x: number; y: number; z: number };
   } | null = null;
 
   private targetFps: number;
@@ -525,11 +527,22 @@ export class SceneManager {
 
     const canvas = this.renderer.domElement;
 
-    // 保存狀態
+    // 保存狀態（含攝影機 ortho bounds 與位置）
     this.preCinematicState = {
       position: { ...this.currentPosition },
       scale: this.scale,
       timeScale: this.animationManager?.getTimeScale() ?? 1,
+      cameraOrtho: {
+        left: this.camera.left,
+        right: this.camera.right,
+        top: this.camera.top,
+        bottom: this.camera.bottom,
+      },
+      cameraPosition: {
+        x: this.camera.position.x,
+        y: this.camera.position.y,
+        z: this.camera.position.z,
+      },
     };
 
     // 暫停自主移動
@@ -547,6 +560,7 @@ export class SceneManager {
       originalPosition: { ...this.currentPosition },
       originalScale: this.scale,
       availableExpressions: expressions,
+      desiredMaxScale: 6.0,
     });
 
     // 播放 walk 動畫
@@ -557,7 +571,7 @@ export class SceneManager {
   private stopCinematic(): void {
     if (!this.preCinematicState) return;
 
-    // 恢復位置和 scale
+    // 恢復位置和 scale（uniform，清除任何 squash 殘留）
     this.currentPosition = { ...this.preCinematicState.position };
     this.setScale(this.preCinematicState.scale);
 
@@ -569,6 +583,16 @@ export class SceneManager {
 
     // 恢復模型朝向
     this.vrmController?.setFacingRotationY(0);
+
+    // 恢復攝影機 ortho bounds 與位置
+    const ortho = this.preCinematicState.cameraOrtho;
+    this.camera.left = ortho.left;
+    this.camera.right = ortho.right;
+    this.camera.top = ortho.top;
+    this.camera.bottom = ortho.bottom;
+    this.camera.updateProjectionMatrix();
+    const camPos = this.preCinematicState.cameraPosition;
+    this.camera.position.set(camPos.x, camPos.y, camPos.z);
 
     // 恢復自主移動
     this.stateMachine?.resume();
@@ -699,25 +723,45 @@ export class SceneManager {
       this.debugMoveDir = null;
     }
 
-    // 演出系統優先：覆蓋 position / scale / animation，跳過 StateMachine
+    // 演出系統優先：覆蓋 position / scale / camera / animation，跳過 StateMachine
     if (this.cinematicRunner) {
       const frame = this.cinematicRunner.tick(deltaTime);
 
       if (frame.phase === 'done') {
         this.stopCinematic();
       } else {
-        // 套用 scale（baseScale × frame.scale）
+        // 套用非等向 scale（squash 用）
         if (this.vrmController) {
-          this.vrmController.setModelScale(this.baseScale * frame.scale);
+          this.vrmController.setModelScaleNonUniform(
+            this.baseScale * frame.scaleX,
+            this.baseScale * frame.scaleY,
+            this.baseScale * frame.scaleZ,
+          );
         }
 
         // 套用位置
         this.currentPosition.x = frame.positionX;
         this.currentPosition.y = frame.positionY;
 
-        // 套用朝向（run-out 時轉身）
+        // 套用朝向（retreat 時轉身）
         if (this.vrmController) {
           this.vrmController.setFacingRotationY(frame.facingReversed ? Math.PI : 0);
+        }
+
+        // 套用攝影機 zoom（縮小可見區域 = 視覺放大）
+        if (this.preCinematicState) {
+          const baseOrtho = this.preCinematicState.cameraOrtho;
+          const inv = 1 / Math.max(0.01, frame.cameraZoom);
+          this.camera.left = baseOrtho.left * inv;
+          this.camera.right = baseOrtho.right * inv;
+          this.camera.top = baseOrtho.top * inv;
+          this.camera.bottom = baseOrtho.bottom * inv;
+          this.camera.updateProjectionMatrix();
+
+          // 套用 camera shake（pixel → world）
+          const baseCam = this.preCinematicState.cameraPosition;
+          this.camera.position.x = baseCam.x + frame.cameraShakeX * this.pixelToWorld;
+          this.camera.position.y = baseCam.y + frame.cameraShakeY * this.pixelToWorld;
         }
 
         // 套用動畫速率
@@ -727,6 +771,11 @@ export class SceneManager {
           } else {
             this.animationManager.setTimeScale(0);
           }
+        }
+
+        // SpringBone reset（避免大幅 scale 變化造成彈跳）
+        if (frame.springBoneReset && this.vrmController) {
+          this.vrmController.resetSpringBones();
         }
 
         // 套用表情

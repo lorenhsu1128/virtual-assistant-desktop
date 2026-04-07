@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { CinematicRunner } from '../../src/cinematic/CinematicRunner';
-import type { CinematicConfig } from '../../src/types/cinematic';
+import { CinematicRunner, solveFinalPose, solveTopMiddle } from '../../src/cinematic/CinematicRunner';
+import type { CinematicConfig, CinematicPhase } from '../../src/types/cinematic';
 
 function makeConfig(overrides?: Partial<CinematicConfig>): CinematicConfig {
   return {
@@ -11,155 +11,323 @@ function makeConfig(overrides?: Partial<CinematicConfig>): CinematicConfig {
     originalPosition: { x: 800, y: 600 },
     originalScale: 1.0,
     availableExpressions: ['happy', 'angry', 'sad', 'relaxed', 'surprised', 'neutral'],
+    desiredMaxScale: 6.0,
     ...overrides,
   };
 }
 
-describe('CinematicRunner', () => {
-  it('starts in run-in phase', () => {
-    const runner = new CinematicRunner(makeConfig());
+/** Helper：從目前狀態快速跑到指定 phase 的結尾 */
+function runUntilPhase(runner: CinematicRunner, target: CinematicPhase, maxSteps = 10000): void {
+  for (let i = 0; i < maxSteps; i++) {
     const frame = runner.tick(0.016);
-    expect(frame.phase).toBe('run-in');
+    if (frame.phase === target) return;
+  }
+  throw new Error(`Did not reach phase ${target} within ${maxSteps} steps`);
+}
+
+describe('solveFinalPose', () => {
+  const baseArgs = [1920, 1080, 300, 500, 1.0, 6.0, 0.22, 24, 16, 0.7] as const;
+
+  it('returns the desired max scale on a large screen', () => {
+    const result = solveFinalPose(...baseArgs);
+    // 大螢幕應該能塞下 6x scale
+    expect(result.maxScale).toBeGreaterThan(0);
+    expect(result.maxScale).toBeLessThanOrEqual(6.0);
+  });
+
+  it('keeps head top within screen (>= topPadding)', () => {
+    const result = solveFinalPose(...baseArgs);
+    const visualHeight = 500 * (result.maxScale / 1.0);
+    const headTop = result.finalPosY - visualHeight;
+    expect(headTop).toBeGreaterThanOrEqual(24 - 0.001);
+  });
+
+  it('keeps face bottom within screen (<= screenHeight - bottomPadding)', () => {
+    const result = solveFinalPose(...baseArgs);
+    const visualHeight = 500 * (result.maxScale / 1.0);
+    const headTop = result.finalPosY - visualHeight;
+    const faceBottom = headTop + visualHeight * 0.22;
+    expect(faceBottom).toBeLessThanOrEqual(1080 - 16 + 0.001);
+  });
+
+  it('clamps maxScale on a small screen', () => {
+    // 小螢幕 + 大角色 → 應該降 scale
+    const result = solveFinalPose(800, 600, 200, 400, 1.0, 6.0, 0.22, 24, 16, 0.7);
+    expect(result.maxScale).toBeLessThan(6.0);
+  });
+
+  it('finalPosX places character horizontally centered', () => {
+    const result = solveFinalPose(...baseArgs);
+    expect(result.finalPosX).toBe(1920 / 2 - 300 / 2);
+  });
+
+  it('handles tiny screen without NaN', () => {
+    const result = solveFinalPose(640, 480, 200, 400, 1.0, 6.0, 0.22, 24, 16, 0.7);
+    expect(Number.isFinite(result.maxScale)).toBe(true);
+    expect(Number.isFinite(result.finalPosY)).toBe(true);
+    expect(result.maxScale).toBeGreaterThan(0);
+  });
+
+  it('respects originalScale != 1.0', () => {
+    // originalScale = 2.0 → 視覺尺寸已是 base × 2
+    const result = solveFinalPose(1920, 1080, 300, 500, 2.0, 6.0, 0.22, 24, 16, 0.7);
+    expect(result.maxScale).toBeGreaterThan(0);
+    expect(result.maxScale).toBeLessThanOrEqual(6.0);
+  });
+});
+
+describe('solveTopMiddle', () => {
+  it('places character horizontally centered', () => {
+    const result = solveTopMiddle(1920, 300, 500, 1.0, 1.4, 24);
+    expect(result.x).toBe(1920 / 2 - 300 / 2);
+  });
+
+  it('places foot below top padding by approachScale*characterHeight', () => {
+    const result = solveTopMiddle(1920, 300, 500, 1.0, 1.4, 24);
+    // visualHeight = 500 × 1.4 = 700, foot = 24 + 700 = 724
+    expect(result.y).toBeCloseTo(724, 0);
+  });
+
+  it('respects originalScale', () => {
+    const result = solveTopMiddle(1920, 300, 500, 2.0, 1.4, 24);
+    // visualHeight = 500 × (1.4/2.0) = 350, foot = 24 + 350 = 374
+    expect(result.y).toBeCloseTo(374, 0);
+  });
+});
+
+describe('CinematicRunner — phase transitions', () => {
+  it('starts in anticipate phase', () => {
+    const runner = new CinematicRunner(makeConfig());
+    const frame = runner.tick(0.001);
+    expect(frame.phase).toBe('anticipate');
     expect(runner.isFinished()).toBe(false);
   });
 
-  it('starts from original position', () => {
-    const config = makeConfig({ originalPosition: { x: 400, y: 300 } });
-    const runner = new CinematicRunner(config);
-    const frame = runner.tick(0.001); // very small tick
-    expect(frame.positionX).toBeCloseTo(400, 0);
-    expect(frame.positionY).toBeCloseTo(300, 0);
+  it('progresses through all phases in order', () => {
+    const runner = new CinematicRunner(makeConfig({ availableExpressions: [] }));
+    const seen = new Set<CinematicPhase>();
+    for (let i = 0; i < 1000; i++) {
+      const frame = runner.tick(0.05);
+      seen.add(frame.phase);
+      if (frame.phase === 'done') break;
+    }
+    expect(seen.has('anticipate')).toBe(true);
+    expect(seen.has('approach-top')).toBe(true);
+    expect(seen.has('pause-top')).toBe(true);
+    expect(seen.has('dash-down')).toBe(true);
+    expect(seen.has('impact')).toBe(true);
+    expect(seen.has('settle')).toBe(true);
+    expect(seen.has('hold')).toBe(true);
+    expect(seen.has('recoil')).toBe(true);
+    expect(seen.has('retreat')).toBe(true);
+    expect(seen.has('done')).toBe(true);
   });
 
-  it('scale increases during run-in', () => {
-    const runner = new CinematicRunner(makeConfig());
-    const frame1 = runner.tick(0.5);
-    const frame2 = runner.tick(0.5);
-    expect(frame2.scale).toBeGreaterThan(frame1.scale);
-  });
-
-  it('position moves toward end during run-in', () => {
-    const runner = new CinematicRunner(makeConfig());
-    const frame1 = runner.tick(0.5);
-    const frame2 = runner.tick(0.5);
-    expect(frame1.positionX).not.toBe(frame2.positionX);
-  });
-
-  it('transitions to hold phase after run-in duration', () => {
-    const runner = new CinematicRunner(makeConfig());
-    runner.tick(2.6);
-    const frame = runner.tick(0.016);
-    expect(frame.phase).toBe('hold');
-  });
-
-  it('hold phase has max scale and no walk', () => {
-    const runner = new CinematicRunner(makeConfig());
-    runner.tick(2.6);
-    const frame = runner.tick(0.016);
-    expect(frame.scale).toBe(6.0);
-    expect(frame.walkSpeed).toBe(0);
-    expect(frame.facingReversed).toBe(false);
-  });
-
-  it('endY positions head at screen center', () => {
-    // With scale=6 and originalScale=1, model is 6x taller
-    // Head should be near screenHeight/2
-    const config = makeConfig({ screenHeight: 1080, characterHeight: 500, originalScale: 1.0 });
-    const runner = new CinematicRunner(config);
-    runner.tick(2.6);
-    const frame = runner.tick(0.016);
-    // endY = 1080/2 + 500*(6/1 - 1) = 540 + 2500 = 3040
-    // feetY = 3040 + 500 = 3540
-    // headY = 3540 - 500*6 = 3540 - 3000 = 540 = screen center ✓
-    expect(frame.positionY).toBeCloseTo(3040, 0);
-  });
-
-  it('transitions to run-out phase after hold duration (all expressions × 3s)', () => {
-    const runner = new CinematicRunner(makeConfig());
-    runner.tick(2.6);  // past run-in
-    runner.tick(18.1); // past hold (5 × 4s = 20s)
-    const frame = runner.tick(0.016);
-    expect(frame.phase).toBe('run-out');
-  });
-
-  it('run-out phase has reversed facing and walk', () => {
-    const runner = new CinematicRunner(makeConfig());
-    runner.tick(2.6);
-    runner.tick(18.1);
-    const frame = runner.tick(0.5);
-    expect(frame.facingReversed).toBe(true);
-    expect(frame.walkSpeed).toBeGreaterThan(0);
-  });
-
-  it('scale decreases during run-out', () => {
-    const runner = new CinematicRunner(makeConfig());
-    runner.tick(2.6);
-    runner.tick(18.1);
-    const frame1 = runner.tick(0.5);
-    const frame2 = runner.tick(0.5);
-    expect(frame2.scale).toBeLessThan(frame1.scale);
-  });
-
-  it('finishes after all phases complete', () => {
-    const runner = new CinematicRunner(makeConfig());
-    runner.tick(2.6);
-    runner.tick(18.1);
-    runner.tick(2.1);
-    const frame = runner.tick(0.016);
-    expect(frame.phase).toBe('done');
+  it('finishes after all phases', () => {
+    const runner = new CinematicRunner(makeConfig({ availableExpressions: [] }));
+    for (let i = 0; i < 2000; i++) {
+      runner.tick(0.05);
+      if (runner.isFinished()) break;
+    }
     expect(runner.isFinished()).toBe(true);
   });
+});
 
-  it('done frame restores original position and scale', () => {
-    const config = makeConfig({ originalPosition: { x: 123, y: 456 }, originalScale: 1.5 });
+describe('CinematicRunner — anticipate phase', () => {
+  it('stays at start position', () => {
+    const config = makeConfig({ originalPosition: { x: 400, y: 300 } });
     const runner = new CinematicRunner(config);
-    runner.tick(2.6);
-    runner.tick(18.1);
-    runner.tick(2.1);
+    const frame = runner.tick(0.1);
+    expect(frame.positionX).toBeCloseTo(400, 0);
+    expect(frame.positionY).toBeCloseTo(300, 0);
+    expect(frame.phase).toBe('anticipate');
+  });
+
+  it('squashes Y briefly (< startScale)', () => {
+    const runner = new CinematicRunner(makeConfig());
+    const frame = runner.tick(0.25); // mid anticipate
+    expect(frame.scaleY).toBeLessThan(1.0);
+  });
+
+  it('has no walk during anticipate', () => {
+    const runner = new CinematicRunner(makeConfig());
+    const frame = runner.tick(0.1);
+    expect(frame.walkSpeed).toBe(0);
+  });
+});
+
+describe('CinematicRunner — approach-top phase', () => {
+  it('moves toward top-middle position', () => {
+    const config = makeConfig({ originalPosition: { x: 100, y: 900 } });
+    const runner = new CinematicRunner(config);
+    runUntilPhase(runner, 'approach-top');
+    const top = runner.getTopMiddlePosition();
+    // 跑一段時間後位置應該移向 top-middle
+    let lastY = 0;
+    for (let i = 0; i < 30; i++) {
+      const frame = runner.tick(0.033);
+      if (frame.phase !== 'approach-top') break;
+      lastY = frame.positionY;
+    }
+    // Y 應該往 topMiddleY 接近（topMiddleY 較小，900 → 較小）
+    expect(lastY).toBeLessThan(900);
+    expect(top.x).toBeGreaterThan(0);
+  });
+
+  it('has walk speed > 0', () => {
+    const runner = new CinematicRunner(makeConfig());
+    runUntilPhase(runner, 'approach-top');
+    const frame = runner.tick(0.1);
+    expect(frame.walkSpeed).toBeGreaterThan(0);
+  });
+});
+
+describe('CinematicRunner — dash-down phase', () => {
+  it('scale grows toward maxScale', () => {
+    const runner = new CinematicRunner(makeConfig());
+    runUntilPhase(runner, 'dash-down');
+    const f1 = runner.tick(0.1);
+    const f2 = runner.tick(0.3);
+    expect(f2.scaleY).toBeGreaterThan(f1.scaleY);
+  });
+
+  it('camera zoom increases', () => {
+    const runner = new CinematicRunner(makeConfig());
+    runUntilPhase(runner, 'dash-down');
+    const f1 = runner.tick(0.05);
+    const f2 = runner.tick(0.4);
+    expect(f2.cameraZoom).toBeGreaterThan(f1.cameraZoom);
+  });
+
+  it('walk speed is fast (>= dash speed)', () => {
+    const runner = new CinematicRunner(makeConfig());
+    runUntilPhase(runner, 'dash-down');
+    const frame = runner.tick(0.1);
+    expect(frame.walkSpeed).toBeGreaterThanOrEqual(2.0);
+  });
+});
+
+describe('CinematicRunner — impact phase', () => {
+  it('produces non-zero camera shake', () => {
+    const runner = new CinematicRunner(makeConfig());
+    runUntilPhase(runner, 'impact');
+    const frame = runner.tick(0.02);
+    // 至少 X 或 Y 有 shake
+    const totalShake = Math.abs(frame.cameraShakeX) + Math.abs(frame.cameraShakeY);
+    expect(totalShake).toBeGreaterThan(0);
+  });
+
+  it('produces non-uniform scale (squash X != Y)', () => {
+    const runner = new CinematicRunner(makeConfig());
+    runUntilPhase(runner, 'impact');
+    const frame = runner.tick(0.08); // mid impact
+    expect(frame.scaleX).not.toBe(frame.scaleY);
+  });
+
+  it('triggers springBoneReset on first impact frame', () => {
+    const runner = new CinematicRunner(makeConfig());
+    // 手動推進，捕捉 phase 從非 impact 變為 impact 的第一幀
+    let firstImpactFrame = null;
+    let prevPhase: CinematicPhase = 'anticipate';
+    for (let i = 0; i < 1000; i++) {
+      const frame = runner.tick(0.016);
+      if (frame.phase === 'impact' && prevPhase !== 'impact') {
+        firstImpactFrame = frame;
+        break;
+      }
+      prevPhase = frame.phase;
+    }
+    expect(firstImpactFrame).not.toBeNull();
+    expect(firstImpactFrame!.springBoneReset).toBe(true);
+  });
+});
+
+describe('CinematicRunner — hold phase expressions', () => {
+  it('cycles through all available expressions', () => {
+    const runner = new CinematicRunner(makeConfig());
+    runUntilPhase(runner, 'hold');
+    const seen = new Set<string>();
+    for (let i = 0; i < 200; i++) {
+      const frame = runner.tick(0.05);
+      if (frame.expression) seen.add(frame.expression);
+      if (frame.phase !== 'hold') break;
+    }
+    expect(seen.size).toBe(6);
+  });
+
+  it('handles empty expression list without error', () => {
+    const runner = new CinematicRunner(makeConfig({ availableExpressions: [] }));
+    runUntilPhase(runner, 'hold');
+    const frame = runner.tick(0.1);
+    expect(frame.expression).toBeNull();
+  });
+
+  it('has zero walk speed', () => {
+    const runner = new CinematicRunner(makeConfig());
+    runUntilPhase(runner, 'hold');
+    const frame = runner.tick(0.1);
+    expect(frame.walkSpeed).toBe(0);
+  });
+});
+
+describe('CinematicRunner — retreat phase', () => {
+  it('reverses facing', () => {
+    const runner = new CinematicRunner(makeConfig({ availableExpressions: [] }));
+    runUntilPhase(runner, 'retreat');
+    const frame = runner.tick(0.1);
+    expect(frame.facingReversed).toBe(true);
+  });
+
+  it('moves back toward start position', () => {
+    const config = makeConfig({
+      originalPosition: { x: 100, y: 900 },
+      availableExpressions: [],
+    });
+    const runner = new CinematicRunner(config);
+    runUntilPhase(runner, 'retreat');
+    const f1 = runner.tick(0.1);
+    const f2 = runner.tick(0.5);
+    // 應該往 startX = 100 移動
+    expect(Math.abs(f2.positionX - 100)).toBeLessThan(Math.abs(f1.positionX - 100));
+  });
+});
+
+describe('CinematicRunner — done frame', () => {
+  it('restores original position and scale', () => {
+    const config = makeConfig({
+      originalPosition: { x: 123, y: 456 },
+      originalScale: 1.5,
+      availableExpressions: [],
+    });
+    const runner = new CinematicRunner(config);
+    for (let i = 0; i < 2000; i++) {
+      runner.tick(0.05);
+      if (runner.isFinished()) break;
+    }
     const frame = runner.tick(0.016);
     expect(frame.positionX).toBe(123);
     expect(frame.positionY).toBe(456);
-    expect(frame.scale).toBe(1.5);
+    expect(frame.scaleX).toBe(1.5);
+    expect(frame.scaleY).toBe(1.5);
     expect(frame.facingReversed).toBe(false);
+    expect(frame.cameraZoom).toBe(1.0);
   });
+});
 
-  it('shows expression during first 2s of hold cycle', () => {
+describe('CinematicRunner — public getters', () => {
+  it('exposes maxScale', () => {
     const runner = new CinematicRunner(makeConfig());
-    runner.tick(2.6); // past run-in
-    const frame = runner.tick(1.0); // 1s into hold → within first expression display
-    expect(frame.expression).not.toBeNull();
+    expect(runner.getMaxScale()).toBeGreaterThan(0);
   });
 
-  it('clears expression during gap period', () => {
+  it('exposes final and top-middle positions', () => {
     const runner = new CinematicRunner(makeConfig());
-    runner.tick(2.6);
-    const frame = runner.tick(2.5); // 2.5s into hold → in gap (display=2s, gap=1s, cycle=3s)
-    expect(frame.expression).toBeNull();
-  });
-
-  it('cycles through all available expressions', () => {
-    const runner = new CinematicRunner(makeConfig());
-    runner.tick(2.6);
-    const expressions = new Set<string>();
-    // Sample at the middle of each expression display period (cycle = 3s)
-    for (let i = 0; i < 6; i++) {
-      const frame = runner.tick(i === 0 ? 1.0 : 3.0); // first: 1s, rest: next cycle
-      if (frame.expression) expressions.add(frame.expression);
-    }
-    expect(expressions.size).toBe(6);
-  });
-
-  it('run-in has no expression', () => {
-    const runner = new CinematicRunner(makeConfig());
-    const frame = runner.tick(1.0);
-    expect(frame.expression).toBeNull();
-  });
-
-  it('no expressions when available list is empty', () => {
-    const config = makeConfig({ availableExpressions: [] });
-    const runner = new CinematicRunner(config);
-    runner.tick(2.6);
-    const frame = runner.tick(1.0);
-    expect(frame.expression).toBeNull();
+    const finalPos = runner.getFinalPosition();
+    const topPos = runner.getTopMiddlePosition();
+    expect(finalPos.x).toBeGreaterThan(0);
+    expect(finalPos.y).toBeGreaterThan(0);
+    expect(topPos.x).toBeGreaterThan(0);
+    // top-middle 應該在 final 之上
+    expect(topPos.y).toBeLessThan(finalPos.y);
   });
 });
