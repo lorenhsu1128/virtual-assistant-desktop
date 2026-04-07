@@ -10,6 +10,12 @@ interface LoadedAnimation {
   clip: THREE.AnimationClip;
 }
 
+/** 系統內建 idle 動畫條目（SYS_IDLE_*.vrma） */
+interface SysIdleClip {
+  name: string;
+  clip: THREE.AnimationClip;
+}
+
 /**
  * 偽 inertialization transition 狀態（階段 C）
  *
@@ -83,11 +89,22 @@ export class AnimationManager {
   /** 進行中的 cubic transition（階段 C）；null = 無 transition */
   private transitionState: TransitionState | null = null;
 
-  /** idle 輪播計時器 */
+  /** idle 輪播計時器（僅在 fallback 模式使用，sys idle 模式由 finished 事件驅動） */
   private idleTimer = 0;
   private idleWaitTime = 0;
   private isPlayingAction = false;
   private loopEnabled = true;
+
+  /**
+   * 系統內建 idle 動畫池（SYS_IDLE_*.vrma）
+   *
+   * 非空時 idle 模式只從此池隨機連續播放，每段播完後接下一段，
+   * 不再使用使用者動畫的 idle 分類，也不再使用 idleTimer。
+   */
+  private sysIdleClips: SysIdleClip[] = [];
+
+  /** 是否正在播放 sys idle 動畫（用於 finished 事件分流） */
+  private isPlayingSysIdle = false;
 
   /** 系統動畫（獨立於使用者動畫，優先級最高） */
   private systemAnimations: Map<string, THREE.AnimationClip> = new Map();
@@ -152,6 +169,12 @@ export class AnimationManager {
    * 從該分類中隨機選取一個動畫播放。
    */
   playByCategory(category: AnimationCategory): boolean {
+    // idle 分類：若有 sys idle 池則一律由 playNextIdle 處理
+    if (category === 'idle' && this.sysIdleClips.length > 0) {
+      this.playNextIdle();
+      return true;
+    }
+
     const animations = this.animationsByCategory.get(category);
     if (!animations || animations.length === 0) return false;
 
@@ -199,6 +222,17 @@ export class AnimationManager {
       console.warn(`[AnimationManager] Failed to load system animation '${name}':`, e);
       return false;
     }
+  }
+
+  /**
+   * 註冊系統內建 idle 動畫池
+   *
+   * 設定後 idle 模式只會從此池隨機連續播放（LoopOnce + finished 事件接力），
+   * 完全取代使用者動畫的 idle 分類。傳入空陣列可恢復為使用者 idle 分類行為。
+   */
+  setSysIdleClips(entries: SysIdleClip[]): void {
+    this.sysIdleClips = entries.slice();
+    console.log(`[AnimationManager] sys idle pool set: ${this.sysIdleClips.length} clips`);
   }
 
   /** 取得系統動畫 clip（供 StepAnalyzer 等外部分析用） */
@@ -266,6 +300,15 @@ export class AnimationManager {
     // 不需要顯式 fadeOut：playClip / playNextIdle 內部會 startTransition
     // 把當前 systemAction 作為 oldAction 進行 cubic 衰減
     this.systemAction = null;
+
+    // sys idle 模式：忽略 savedState（避免恢復到舊 sys idle 的 clamped pose），
+    // 直接挑一支新的 sys idle 接續
+    if (this.sysIdleClips.length > 0) {
+      this.savedState = null;
+      this.playNextIdle();
+      this.resetIdleTimer();
+      return;
+    }
 
     // 恢復先前動畫
     if (this.savedState) {
@@ -355,7 +398,10 @@ export class AnimationManager {
     if (this.isPlayingAction) return;
     if (!this.loopEnabled) return;
 
-    // idle 輪播計時
+    // sys idle 模式由 mixer 'finished' 事件驅動接力，不使用計時器
+    if (this.sysIdleClips.length > 0) return;
+
+    // idle 輪播計時（fallback 模式）
     this.idleTimer += deltaTime;
     if (this.idleTimer >= this.idleWaitTime) {
       this.playNextIdle();
@@ -469,6 +515,8 @@ export class AnimationManager {
   ): void {
     this.previousAction = this.currentAction;
     this.isPlayingAction = isAction;
+    // 任何 action 取代 sys idle 時，清除 sys idle 接力旗標
+    if (isAction) this.isPlayingSysIdle = false;
 
     const action = this.mixer.clipAction(clip);
     action.reset();
@@ -495,6 +543,13 @@ export class AnimationManager {
       this.isPlayingAction = false;
       this.playNextIdle(true);
       this.resetIdleTimer();
+      return;
+    }
+
+    // sys idle 模式：一段 idle 播完 → 隨機接下一段
+    // 系統動畫播放中時不接力（systemAction 會把 sys idle 暫停在 saved state）
+    if (this.isPlayingSysIdle && !this.systemAction) {
+      this.playNextIdle();
     }
   };
 
@@ -512,6 +567,21 @@ export class AnimationManager {
    *                         以掩蓋 action 結尾 pose 差異
    */
   private playNextIdle(returnFromAction = false): void {
+    // 優先使用系統內建 SYS_IDLE 池：LoopOnce 隨機連續播放，由 finished 事件接力
+    if (this.sysIdleClips.length > 0) {
+      const idx = Math.floor(Math.random() * this.sysIdleClips.length);
+      const sys = this.sysIdleClips[idx];
+      const fade = returnFromAction
+        ? RETURN_TO_IDLE_FADE
+        : getCrossfadeDurationFor('idle');
+      this.isPlayingSysIdle = true;
+      this.playClip(sys.clip, false, false, fade);
+      this.currentDisplayName = sys.name;
+      return;
+    }
+
+    // fallback：使用使用者定義的 idle 分類動畫，或全部動畫
+    this.isPlayingSysIdle = false;
     let pool = this.animationsByCategory.get('idle');
     if (!pool || pool.length === 0) {
       // fallback：沒有 idle 動畫時，從全部動畫中輪播

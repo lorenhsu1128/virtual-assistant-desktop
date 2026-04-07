@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import { ipc } from './bridge/ElectronIPC';
 import { SceneManager } from './core/SceneManager';
 import { VRMController } from './core/VRMController';
@@ -14,6 +15,7 @@ import { ExpressionManager } from './expression/ExpressionManager';
 import { DebugOverlay } from './debug/DebugOverlay';
 import { analyzeWalkAnimation } from './animation/StepAnalyzer';
 import { mirrorAnimationClip } from './animation/AnimationMirror';
+import { isSysIdleFile } from './vrm-picker/pickerLogic';
 import { WindowMeshManager } from './occlusion/WindowMeshManager';
 
 /** IPC 事件 unlisten 函式集合（beforeunload 時統一清除） */
@@ -278,6 +280,33 @@ async function initializeApp(config: AppConfig, appPath: string): Promise<void> 
         `${sysVrmaDir}/SYS_HIDE_SHOW_LOOP_LEFT.vrma`,
       );
       debugLog('System animations loaded (drag, walk, sit_01~07, hide_show_loop_left/right from files)');
+    }
+
+    // 載入系統內建 SYS_IDLE_*.vrma 池（idle 模式只播這些）
+    try {
+      const allVrma = await ipc.scanVrmaFiles(sysVrmaDir);
+      const sysIdleFiles = allVrma.filter(isSysIdleFile);
+      const sysIdleClips: { name: string; clip: THREE.AnimationClip }[] = [];
+      for (const filePath of sysIdleFiles) {
+        const url = ipc.convertToAssetUrl(filePath);
+        try {
+          const clip = await vrmController.loadVRMAnimation(url);
+          if (clip) {
+            const fileName = filePath.replace(/\\/g, '/').split('/').pop() ?? filePath;
+            sysIdleClips.push({ name: fileName, clip });
+          }
+        } catch (e) {
+          console.warn('[main] failed to load SYS_IDLE clip:', filePath, e);
+        }
+      }
+      if (sysIdleClips.length > 0) {
+        animationManager.setSysIdleClips(sysIdleClips);
+        debugLog(`SYS_IDLE pool loaded: ${sysIdleClips.length} clips`);
+      } else {
+        console.warn('[main] no SYS_IDLE_*.vrma loaded; idle will fall back to user animations');
+      }
+    } catch (e) {
+      console.warn('[main] SYS_IDLE scan/load failed:', e);
     }
 
     // 步伐分析：從行走動畫計算擬真移動速度
