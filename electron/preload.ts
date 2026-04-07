@@ -79,12 +79,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   // ── Asset URL Conversion ──
-  // In Electron, local files can be loaded via file:// protocol
-  // or via a custom protocol registered in main.ts
+  // 將本地檔案路徑轉為 local-file:// protocol URL
+  // Windows: C:/path → local-file:///C:/path
+  // macOS:   /Users/path → local-file://localhost/Users/path
   convertToAssetUrl: (filePath: string) => {
-    // Normalize path separators and encode for URL
-    // Triple slash (:///) means no host — avoids drive letter being parsed as hostname
     const normalized = filePath.replace(/\\/g, '/');
+    // macOS/Linux 路徑以 / 開頭，用 localhost 避免路徑首段被解析為 hostname
+    if (normalized.startsWith('/')) {
+      return `local-file://localhost${normalized}`;
+    }
+    // Windows 磁碟代號 C:/... — 三斜線表示空 host
     return `local-file:///${normalized}`;
   },
 });

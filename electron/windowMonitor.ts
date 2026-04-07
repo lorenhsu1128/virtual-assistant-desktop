@@ -1,5 +1,6 @@
 import { BrowserWindow } from 'electron';
 import { createRequire } from 'node:module';
+import { isWindows } from './platform/index.js';
 
 const require = createRequire(import.meta.url);
 
@@ -56,9 +57,11 @@ let IsZoomed: ((hWnd: number) => number) | null = null;
 /**
  * Load koffi and bind Windows API functions.
  * Uses intptr_t for HWND so koffi returns plain numbers (no opaque pointers).
+ * macOS / Linux 環境直接跳過（無 user32.dll）。
  */
 function ensureKoffi(): boolean {
   if (koffiLoaded) return true;
+  if (!isWindows) return false;
 
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -219,8 +222,13 @@ export class WindowMonitor {
   private mainWindow: BrowserWindow | null = null;
   private ownHwnd = 0;
 
-  /** Start polling */
+  /** Start polling（非 Windows 平台跳過） */
   start(mainWindow: BrowserWindow): void {
+    if (!isWindows) {
+      console.log('[WindowMonitor] Skipped — not running on Windows');
+      return;
+    }
+
     this.mainWindow = mainWindow;
 
     const handle = mainWindow.getNativeWindowHandle();

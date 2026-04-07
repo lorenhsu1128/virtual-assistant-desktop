@@ -11,6 +11,8 @@
     "build:electron": "tsc -p tsconfig.electron.json",
     "preview": "vite preview",
     "package": "pnpm build && electron-builder",
+    "package:win": "pnpm build && electron-builder --win",
+    "package:mac": "pnpm build && electron-builder --mac",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint src/ tests/ --ext .ts,.tsx",

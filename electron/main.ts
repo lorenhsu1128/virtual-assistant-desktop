@@ -12,6 +12,11 @@ import { registerIpcHandlers } from './ipcHandlers.js';
 import { WindowMonitor } from './windowMonitor.js';
 import { SystemTray } from './systemTray.js';
 import { ensureConfigDir } from './fileManager.js';
+import {
+  getWindowOptions,
+  applyPostCreateSetup,
+  resolveLocalFilePath,
+} from './platform/index.js';
 
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 
@@ -60,37 +65,23 @@ protocol.registerSchemesAsPrivileged([
   },
 ]);
 
-/** Create the main transparent fullscreen window covering the entire screen (including taskbar) */
+/** Create the main transparent window（平台參數由 electron/platform/ 提供） */
 function createMainWindow(): BrowserWindow {
   const primaryDisplay = screen.getPrimaryDisplay();
   const bounds = primaryDisplay.bounds;
 
   const win = new BrowserWindow({
-    x: bounds.x,
-    y: bounds.y,
-    width: bounds.width,
-    height: bounds.height,
-    transparent: true,
-    frame: false,
-    thickFrame: false,
-    focusable: false,
-    alwaysOnTop: true,
-    skipTaskbar: true,
-    resizable: false,
-    hasShadow: false,
+    ...getWindowOptions(bounds),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
-      // Allow loading local resources
       webSecurity: false,
     },
   });
 
-  // 強制覆蓋整個螢幕（含工作列），避免 Windows 自動限制到 workArea
-  win.setBounds({ x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height });
-  win.setAlwaysOnTop(true, 'screen-saver');
+  applyPostCreateSetup(win, bounds);
 
   // DevTools: auto-open for debugging
   if (isDev) {
@@ -120,14 +111,8 @@ app.whenReady().then(async () => {
   // Register protocol handler for local file access
   // Converts local-file://C:/path/to/file.vrm to actual file reads
   protocol.handle('local-file', (request) => {
-    // URL format: local-file:///C:/path/to/file
-    // new URL() parses this as pathname = /C:/path/to/file
     const parsed = new URL(request.url);
-    let filePath = decodeURIComponent(parsed.pathname);
-    // Remove leading slash before drive letter on Windows (e.g., /C:/path → C:/path)
-    if (filePath.match(/^\/[A-Za-z]:\//)) {
-      filePath = filePath.substring(1);
-    }
+    const filePath = resolveLocalFilePath(decodeURIComponent(parsed.pathname));
     return net.fetch(url.pathToFileURL(filePath).toString());
   });
 
