@@ -45,6 +45,7 @@ interface TrayMenuData {
   isLoopEnabled: boolean;
   isDebugEnabled: boolean;
   currentExpression: string | null;
+  displays: { index: number; label: string }[];
 }
 
 /**
@@ -216,6 +217,18 @@ export class SystemTray {
       label: '\u91cd\u7f6e\u56de\u684c\u9762\u6b63\u4e2d\u592e',
       click: () => this.emitAction('reset_position'),
     });
+
+    // 螢幕子選單（多螢幕時才顯示）
+    if (data && data.displays.length > 1) {
+      template.push({ type: 'separator' });
+      template.push({
+        label: '\u87a2\u5e55',
+        submenu: data.displays.map((d) => ({
+          label: d.label,
+          click: () => this.emitAction(`switch_display_${d.index}`),
+        })),
+      });
+    }
 
     template.push({ type: 'separator' });
 

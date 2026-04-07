@@ -9,6 +9,7 @@ import { DragHandler } from './interaction/DragHandler';
 import { HitTestManager } from './interaction/HitTestManager';
 import { DEFAULT_CONFIG, type AppConfig } from './types/config';
 import type { TrayMenuData } from './types/tray';
+import type { DisplayInfo } from './types/window';
 import { ExpressionManager } from './expression/ExpressionManager';
 import { DebugOverlay } from './debug/DebugOverlay';
 import { analyzeWalkAnimation } from './animation/StepAnalyzer';
@@ -330,19 +331,24 @@ async function initializeBehaviorSystem(
   animationManager: AnimationManager | null,
   canvas: HTMLCanvasElement,
 ): Promise<void> {
-  // 螢幕資訊
-  const displays = await ipc.getDisplayInfo();
-  if (displays.length > 0) {
-    const primaryDisplay = displays[0];
+  // 螢幕資訊（多螢幕支援）
+  let cachedDisplays: DisplayInfo[] = await ipc.getDisplayInfo();
+  if (cachedDisplays.length > 0) {
+    const initialIndex = Math.max(
+      0,
+      Math.min(config.currentDisplayIndex ?? 0, cachedDisplays.length - 1),
+    );
 
-    // 螢幕原點（整個螢幕，含工作列）
-    sceneManager.setScreenOrigin(primaryDisplay.x, primaryDisplay.y);
+    if (initialIndex !== 0) {
+      await ipc.moveToDisplay(initialIndex);
+    }
 
-    // workArea（不含工作列，用於平面位置和角色活動範圍）
-    const wa = primaryDisplay.workArea ?? primaryDisplay;
-    sceneManager.setWorkArea(wa.x, wa.y, wa.width, wa.height);
+    // 告知 SceneManager 多螢幕資訊（會自動套用對應 display 的 workArea）
+    sceneManager.setDisplays(cachedDisplays, initialIndex);
 
-    // 角色初始位置：workArea 中央
+    // 角色初始位置：當前 display 的 workArea 中央
+    const initialDisplay = cachedDisplays[initialIndex];
+    const wa = initialDisplay.workArea ?? initialDisplay;
     const charBounds = sceneManager.getCharacterBounds();
     sceneManager.setCurrentPosition({
       x: wa.x + (wa.width - charBounds.width) / 2,
@@ -480,6 +486,10 @@ async function initializeBehaviorSystem(
       isLoopEnabled: animationManager?.isLoopEnabled() ?? true,
       isDebugEnabled: debugOverlay.isEnabled(),
       currentExpression: expressionManager.getManualExpression(),
+      displays: cachedDisplays.map((d, i) => ({
+        index: i,
+        label: `Display ${i + 1} (${d.width}x${d.height})`,
+      })),
     };
     ipc.sendMenuData(menuData);
   };
@@ -524,7 +534,9 @@ async function initializeBehaviorSystem(
         break;
       case 'reset_position':
         ipc.getDisplayInfo().then((displays) => {
-          const d = displays[0] ?? { x: 0, y: 0, width: screen.width, height: screen.height };
+          cachedDisplays = displays;
+          const idx = sceneManager.getCurrentDisplayIndex();
+          const d = displays[idx] ?? displays[0] ?? { x: 0, y: 0, width: screen.width, height: screen.height };
           const wb = d.workArea ?? d;
           const cb = sceneManager.getCharacterBounds();
           const cx = wb.x + (wb.width - cb.width) / 2;
@@ -584,6 +596,28 @@ async function initializeBehaviorSystem(
           const name = actionId.slice('set_expr::'.length);
           expressionManager.setManualExpression(name);
           vrmController.setBlendShape(name, 1.0);
+        }
+        // Dynamic action: switch display
+        else if (actionId.startsWith('switch_display_')) {
+          const idx = parseInt(actionId.slice('switch_display_'.length), 10);
+          (async () => {
+            await ipc.moveToDisplay(idx);
+            cachedDisplays = await ipc.getDisplayInfo();
+            sceneManager.setDisplays(cachedDisplays, idx);
+            // 重置角色到目標螢幕 workArea 中央
+            const d = cachedDisplays[idx];
+            if (d) {
+              const wa = d.workArea ?? d;
+              const cb = sceneManager.getCharacterBounds();
+              sceneManager.setCurrentPosition({
+                x: wa.x + (wa.width - cb.width) / 2,
+                y: wa.y + (wa.height - cb.height) / 2,
+              });
+            }
+            config.currentDisplayIndex = idx;
+            ipc.writeConfig(config);
+            pushTrayMenuData();
+          })();
         }
         break;
     }

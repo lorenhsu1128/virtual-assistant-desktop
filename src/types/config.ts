@@ -32,6 +32,8 @@ export interface AppConfig {
   moveSpeedMultiplier: number;
   /** 系統預設資產根目錄（相對於 app 根目錄，子目錄約定 vrm/ + vrma/） */
   systemAssetsDir: string;
+  /** 當前所在的 display index（啟動時恢復） */
+  currentDisplayIndex?: number;
 }
 
 /** 2D 位置 */

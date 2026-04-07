@@ -123,6 +123,16 @@ export function registerIpcHandlers(
     return { width, height };
   });
 
+  // ── Multi-Display ──
+
+  ipcMain.handle('move_to_display', (_event, displayIndex: number) => {
+    const displays = screen.getAllDisplays();
+    const d = displays[displayIndex];
+    if (!d) return;
+    mainWindow.setBounds(d.bounds);
+    mainWindow.setAlwaysOnTop(true, 'screen-saver');
+  });
+
   // ── Mouse Passthrough ──
 
   ipcMain.handle('set_ignore_cursor_events', (_event, ignore: boolean) => {

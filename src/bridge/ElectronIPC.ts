@@ -24,6 +24,7 @@ interface ElectronAPI {
   getWindowPosition(): Promise<{ x: number; y: number }>;
   setWindowSize(width: number, height: number): Promise<void>;
   getWindowSize(): Promise<{ width: number; height: number }>;
+  moveToDisplay(displayIndex: number): Promise<void>;
   setIgnoreCursorEvents(ignore: boolean): Promise<void>;
   closeWindow(): Promise<void>;
   getAppPath(): Promise<string>;
@@ -228,6 +229,19 @@ class ElectronIPC {
     } catch (e) {
       console.warn('[ElectronIPC] getDisplayInfo failed:', e);
       return [];
+    }
+  }
+
+  // ── Multi-Display ──
+
+  /**
+   * 將桌寵視窗移到指定 display（等同於 setBounds 為該螢幕 bounds）
+   */
+  async moveToDisplay(displayIndex: number): Promise<void> {
+    try {
+      await window.electronAPI.moveToDisplay(displayIndex);
+    } catch (e) {
+      console.warn('[ElectronIPC] moveToDisplay failed:', e);
     }
   }
 

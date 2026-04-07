@@ -5,7 +5,7 @@ import type { FallbackAnimation } from '../animation/FallbackAnimation';
 import type { StateMachine } from '../behavior/StateMachine';
 import type { BehaviorAnimationBridge } from '../behavior/BehaviorAnimationBridge';
 import type { ExpressionManager } from '../expression/ExpressionManager';
-import type { Rect, WindowRect } from '../types/window';
+import type { Rect, WindowRect, DisplayInfo } from '../types/window';
 import type { BehaviorOutput, Platform } from '../types/behavior';
 import type { DebugOverlay } from '../debug/DebugOverlay';
 import type { WindowMeshManager } from '../occlusion/WindowMeshManager';
@@ -72,6 +72,8 @@ export class SceneManager {
   private workAreaOrigin = { x: 0, y: 0 };
   /** workArea 尺寸（邏輯像素） */
   private workAreaSize = { width: 1920, height: 1040 };
+  /** 多螢幕：當前所在的 display index */
+  private currentDisplayIndex = 0;
   /** 3D 平面清單（用於角色坐下） */
   private platforms: Platform[] = [];
   /** 工作列平面 3D Mesh（debug 可見） */
@@ -357,6 +359,26 @@ export class SceneManager {
   /** 設定螢幕原點（用於 screenToWorld 座標轉換） */
   setScreenOrigin(x: number, y: number): void {
     this.screenOrigin = { x, y };
+  }
+
+  /**
+   * 設定多螢幕清單與當前所在 display
+   *
+   * 單螢幕時 displays 長度為 1。立即套用該 display 的 workArea。
+   */
+  setDisplays(displays: DisplayInfo[], initialIndex: number): void {
+    this.currentDisplayIndex = Math.max(0, Math.min(initialIndex, displays.length - 1));
+    const d = displays[this.currentDisplayIndex];
+    if (d) {
+      const wa = d.workArea ?? d;
+      this.setScreenOrigin(d.x, d.y);
+      this.setWorkArea(wa.x, wa.y, wa.width, wa.height);
+    }
+  }
+
+  /** 當前所在的 display index */
+  getCurrentDisplayIndex(): number {
+    return this.currentDisplayIndex;
   }
 
   /** 更新當前角色位置（螢幕座標） */

@@ -36,6 +36,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setWindowSize: (width: number, height: number) => ipcRenderer.invoke('set_window_size', width, height),
   getWindowSize: () => ipcRenderer.invoke('get_window_size'),
 
+  // ── Multi-Display ──
+  moveToDisplay: (displayIndex: number) =>
+    ipcRenderer.invoke('move_to_display', displayIndex),
+
   // ── Mouse Passthrough ──
   setIgnoreCursorEvents: (ignore: boolean) => ipcRenderer.invoke('set_ignore_cursor_events', ignore),
 
