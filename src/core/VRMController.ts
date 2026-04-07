@@ -16,6 +16,20 @@ export class VRMController {
   private scene: THREE.Scene;
   private loader: GLTFLoader;
 
+  // ── Hip 跨幀平滑（階段 B）──
+  /** 平滑後的 hip 世界座標（用於吸收動畫切換造成的瞬間跳變） */
+  private smoothedHipsWorld = new THREE.Vector3();
+  /** 平滑狀態是否已初始化（首次或載入新模型後重置） */
+  private smoothedHipsValid = false;
+  /**
+   * 平滑速率（per second）：
+   * 距離 < HIP_NEAR_THRESHOLD 時用 RATE_NEAR（緊密追蹤，正常動作）
+   * 距離 ≥ HIP_NEAR_THRESHOLD 時用 RATE_FAR（緩慢追上，吸收跳變）
+   */
+  private static readonly HIP_NEAR_THRESHOLD = 0.05; // 5 cm
+  private static readonly HIP_RATE_NEAR = 18;
+  private static readonly HIP_RATE_FAR = 4;
+
   /** 取得 VRM 實例（供 SceneManager 計算 bounding box） */
   getVRM(): VRM | null {
     return this.vrm;
@@ -57,7 +71,8 @@ export class VRMController {
     this.vrm = vrm;
     this.mixer = new THREE.AnimationMixer(vrm.scene);
     this.scene.add(vrm.scene);
-
+    // 重置 hip 平滑狀態（新模型的 hip 位置可能完全不同）
+    this.smoothedHipsValid = false;
   }
 
   /**
@@ -362,6 +377,15 @@ export class VRMController {
    * 更新 VRM 內部邏輯（SpringBone 等）
    *
    * 由 SceneManager 的 render loop 呼叫。
+   *
+   * 順序：
+   *   1. vrm.update(dt)        — SpringBone 物理（讀上一幀的 mixer 結果，已知一幀 lag 但視覺 OK）
+   *   2. mixer.update(dt)      — 套用本幀動畫到骨骼 local
+   *   3. applyHipSmoothing(dt) — 修正 vrm.scene.position 吸收 hip 跨幀跳變
+   *
+   * applyHipSmoothing 在 mixer.update 之後執行，這樣讀到的 hip world position
+   * 已反映本幀動畫。修正寫入 vrm.scene.position，下個 renderer.render()
+   * 呼叫 updateMatrixWorld 時生效。
    */
   update(deltaTime: number): void {
     if (this.vrm) {
@@ -370,6 +394,58 @@ export class VRMController {
     if (this.mixer) {
       this.mixer.update(deltaTime);
     }
+    this.applyHipSmoothing(deltaTime);
+  }
+
+  /**
+   * Hip 跨幀平滑：吸收動畫切換造成的 hip 瞬間跳變
+   *
+   * 演算法（指數平滑 + 距離自適應速率）：
+   *   1. 讀取 mixer 套用後的 hip world position（actual）
+   *   2. 維護一個 smoothedHipsWorld，每幀以 lerp 追上 actual
+   *   3. 距離小（正常動作）→ 用較高速率（HIP_RATE_NEAR）緊密追蹤
+   *      距離大（動畫切換造成的跳變）→ 用較低速率（HIP_RATE_FAR）緩慢追上
+   *   4. 套用 (smoothed - actual) 到 vrm.scene.position 作為補償
+   *      → 渲染時 hip 出現在 smoothed 位置，視覺上連續
+   *
+   * vrm.scene.position 每幀都被 SceneManager.updateModelWorldPosition 重置，
+   * 所以本方法的修正不會跨幀累積。
+   */
+  private applyHipSmoothing(deltaTime: number): void {
+    if (!this.vrm?.humanoid) return;
+    const hips = this.vrm.humanoid.getNormalizedBoneNode('hips');
+    if (!hips) return;
+
+    // 取得 mixer 套用後的 hip world position（透過 getWorldPosition 觸發 matrix 更新）
+    hips.getWorldPosition(VRMController._tempWorldPos);
+
+    if (!this.smoothedHipsValid) {
+      // 首次或重置後：smoothed 直接設為 actual
+      this.smoothedHipsWorld.copy(VRMController._tempWorldPos);
+      this.smoothedHipsValid = true;
+      return;
+    }
+
+    // 計算 smoothed 與 actual 的距離
+    const dx = VRMController._tempWorldPos.x - this.smoothedHipsWorld.x;
+    const dy = VRMController._tempWorldPos.y - this.smoothedHipsWorld.y;
+    const dz = VRMController._tempWorldPos.z - this.smoothedHipsWorld.z;
+    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+    // 距離自適應速率
+    const rate = dist < VRMController.HIP_NEAR_THRESHOLD
+      ? VRMController.HIP_RATE_NEAR
+      : VRMController.HIP_RATE_FAR;
+    const lerpFactor = 1 - Math.exp(-rate * deltaTime);
+
+    // smoothed 朝 actual 追上
+    this.smoothedHipsWorld.lerp(VRMController._tempWorldPos, lerpFactor);
+
+    // 套用補償：vrm.scene.position += (smoothed - actual)
+    // 結果：渲染時 hip 位置 = actual + (smoothed - actual) = smoothed
+    this.vrm.scene.position.x += this.smoothedHipsWorld.x - VRMController._tempWorldPos.x;
+    this.vrm.scene.position.y += this.smoothedHipsWorld.y - VRMController._tempWorldPos.y;
+    this.vrm.scene.position.z += this.smoothedHipsWorld.z - VRMController._tempWorldPos.z;
   }
 
   /** 暫時偏移 VRM scene 位置（供 SpringBone 偵測移動用） */
@@ -412,5 +488,7 @@ export class VRMController {
       this.mixer.stopAllAction();
       this.mixer = null;
     }
+    // 重置 hip 平滑狀態
+    this.smoothedHipsValid = false;
   }
 }
