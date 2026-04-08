@@ -164,11 +164,15 @@ describe('boneMapping — A_POSE_REFERENCE_DIR', () => {
     expect(left.z).toBe(right.z);
   });
 
-  it('vertical chain 都沿父 +Y', () => {
-    const verticalBones: VRMHumanoidBoneName[] = ['spine', 'chest', 'upperChest', 'neck', 'head'];
+  it('vertical chain 都沿父 +Y（spine→neck）', () => {
+    const verticalBones: VRMHumanoidBoneName[] = ['spine', 'chest', 'upperChest', 'neck'];
     for (const bone of verticalBones) {
       expect(A_POSE_REFERENCE_DIR[bone].y).toBeGreaterThan(0);
     }
+  });
+
+  it('head 沿父 -Z（earMid - nose 在 rest 時為向後）', () => {
+    expect(A_POSE_REFERENCE_DIR.head.z).toBeLessThan(0);
   });
 
   it('腳掌沿父 +Z（向前）', () => {

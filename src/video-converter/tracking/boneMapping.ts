@@ -306,6 +306,7 @@ const Y_DOWN: Vec3 = { x: 0, y: -1, z: 0 };
 const X_LEFT: Vec3 = { x: -1, y: 0, z: 0 };
 const X_RIGHT: Vec3 = { x: 1, y: 0, z: 0 };
 const Z_FORWARD: Vec3 = { x: 0, y: 0, z: 1 };
+const Z_BACKWARD: Vec3 = { x: 0, y: 0, z: -1 };
 
 export const A_POSE_REFERENCE_DIR: Record<VRMHumanoidBoneName, Vec3> = {
   // 軀幹：垂直向上鏈
@@ -313,8 +314,11 @@ export const A_POSE_REFERENCE_DIR: Record<VRMHumanoidBoneName, Vec3> = {
   spine: { ...Y_UP },
   chest: { ...Y_UP },
   upperChest: { ...Y_UP },
+  // neck：BodySolver 用 (NOSE - shoulderMid) 當 world 方向，rest 時為 +Y
   neck: { ...Y_UP },
-  head: { ...Y_UP },
+  // head：BodySolver 用 (earMid - NOSE) 當 world 方向，rest 時為 -Z
+  // （耳朵在鼻子正後方）
+  head: { ...Z_BACKWARD },
 
   // 頭部附屬
   leftEye: { ...Z_FORWARD },
