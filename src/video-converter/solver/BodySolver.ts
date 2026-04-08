@@ -40,6 +40,29 @@ import {
 
 export type RefDirMap = Partial<Record<VRMHumanoidBoneName, Vec3>>;
 
+/** 預設能見度門檻（低於此值視為不可靠） */
+export const DEFAULT_VISIBILITY_THRESHOLD = 0.5;
+
+/**
+ * 檢查 landmark 陣列中某個索引的能見度是否達到門檻。
+ *
+ * MediaPipe pose landmarks 的 visibility 欄位為 [0, 1]，數值越高表示該點
+ * 越確定被相機看到。undefined 視為 1（向下相容沒有 visibility 的測試資料）。
+ */
+function isVisible(lm: Landmark[], idx: number, threshold: number): boolean {
+  const v = lm[idx]?.visibility;
+  if (v === undefined) return true;
+  return v >= threshold;
+}
+
+/** 檢查多個 landmark 索引是否全部可見 */
+function allVisible(lm: Landmark[], indices: number[], threshold: number): boolean {
+  for (const i of indices) {
+    if (!isVisible(lm, i, threshold)) return false;
+  }
+  return true;
+}
+
 export interface SolvedBody {
   /** 髖部世界座標位置（公尺，相對 MediaPipe 原點） */
   hipsTranslation: Vec3 | null;
@@ -141,6 +164,15 @@ export class BodySolver {
   private refDirs: Required<RefDirMap> = { ...A_POSE_REFERENCE_DIR };
 
   /**
+   * 能見度門檻（plan 第 8 節風險 #1）。
+   *
+   * MediaPipe pose landmarks 對畫面外 / 遮擋的部位仍會輸出低能見度估值，
+   * 直接套用會產生雜訊姿勢。門檻以下的 bone 不寫入 rotations，呼叫端
+   * 會自動保留前一幀狀態（Preview / CaptureBuffer 的預設行為）。
+   */
+  private visibilityThreshold = DEFAULT_VISIBILITY_THRESHOLD;
+
+  /**
    * 用實際 VRM bind pose 校正後的 REF_DIR 覆蓋預設值。未在 map 中的
    * 骨骼維持預設值（A_POSE_REFERENCE_DIR）。
    *
@@ -152,6 +184,15 @@ export class BodySolver {
 
   getRefDirs(): Required<RefDirMap> {
     return this.refDirs;
+  }
+
+  /** 設定能見度門檻，clamp 在 [0, 1] */
+  setVisibilityThreshold(v: number): void {
+    this.visibilityThreshold = Math.max(0, Math.min(1, v));
+  }
+
+  getVisibilityThreshold(): number {
+    return this.visibilityThreshold;
   }
 
   /**
@@ -167,6 +208,8 @@ export class BodySolver {
     };
     if (world.length < POSE_LANDMARK_COUNT) return out;
 
+    const thresh = this.visibilityThreshold;
+
     // ── 1. Hips orientation（從髖肩四邊形推三軸）──
     const LH = toVec(world[POSE.LEFT_HIP]);
     const RH = toVec(world[POSE.RIGHT_HIP]);
@@ -176,31 +219,52 @@ export class BodySolver {
     const hipMid = midpoint(LH, RH);
     const shoulderMid = midpoint(LS, RS);
 
-    const hipRight = normalize(sub(RH, LH));
-    const torsoUp = normalize(sub(shoulderMid, hipMid));
-    // 用 cross 產生正交基底，確保三軸彼此正交（即使 right/up 不完全正交也成立）
-    const hipForward = normalize(cross(hipRight, torsoUp));
-    const hipUp = normalize(cross(hipForward, hipRight));
+    // 能見度檢查：hips 依賴 LH / RH / LS / RS 四點
+    const hipsVisible = allVisible(
+      world,
+      [POSE.LEFT_HIP, POSE.RIGHT_HIP, POSE.LEFT_SHOULDER, POSE.RIGHT_SHOULDER],
+      thresh,
+    );
 
-    // 把基底向量當成旋轉矩陣的「列」（每行儲一個分量）。
-    // quatFromMat3 期望 row-major：第 i 列 j 行 = (right, up, forward)[j].(x|y|z)[i]
-    const hipsWorldQ = quatFromMat3([
-      hipRight.x, hipUp.x, hipForward.x,
-      hipRight.y, hipUp.y, hipForward.y,
-      hipRight.z, hipUp.z, hipForward.z,
-    ]);
-    out.rotations.hips = hipsWorldQ;
+    let hipsWorldQ: Quat;
+    if (hipsVisible) {
+      const hipRight = normalize(sub(RH, LH));
+      const torsoUp = normalize(sub(shoulderMid, hipMid));
+      // 用 cross 產生正交基底，確保三軸彼此正交（即使 right/up 不完全正交也成立）
+      const hipForward = normalize(cross(hipRight, torsoUp));
+      const hipUp = normalize(cross(hipForward, hipRight));
+
+      // 把基底向量當成旋轉矩陣的「列」（每行儲一個分量）。
+      // quatFromMat3 期望 row-major：第 i 列 j 行 = (right, up, forward)[j].(x|y|z)[i]
+      hipsWorldQ = quatFromMat3([
+        hipRight.x, hipUp.x, hipForward.x,
+        hipRight.y, hipUp.y, hipForward.y,
+        hipRight.z, hipUp.z, hipForward.z,
+      ]);
+      out.rotations.hips = hipsWorldQ;
+      out.hipsTranslation = hipMid;
+    } else {
+      // 跳過 hips 旋轉（呼叫端保留前一幀），但仍提供 identity 作為下游
+      // child bone 的累積世界 quat fallback，避免 undefined 壞掉計算
+      hipsWorldQ = quatIdentity();
+    }
     out.ancestorWorldQ.hips = hipsWorldQ;
-    out.hipsTranslation = hipMid;
 
     // ── 2. Spine 鏈：spine 承擔整段旋轉，chest / upperChest 維持 identity ──
     // 在 hips 局部空間下，spine 應指向 torsoUp 方向
-    const spineLocalDir = quatRotateVec(quatConj(hipsWorldQ), torsoUp);
-    out.rotations.spine = quatFromUnitVectors(this.refDirs.spine, spineLocalDir);
-    out.rotations.chest = quatIdentity();
-    out.rotations.upperChest = quatIdentity();
+    // 能見度不足時跳過 spine / chest / upperChest 旋轉
+    if (hipsVisible) {
+      const torsoUp = normalize(sub(shoulderMid, hipMid));
+      const spineLocalDir = quatRotateVec(quatConj(hipsWorldQ), torsoUp);
+      out.rotations.spine = quatFromUnitVectors(this.refDirs.spine, spineLocalDir);
+      out.rotations.chest = quatIdentity();
+      out.rotations.upperChest = quatIdentity();
+    }
 
-    const spineWorldQ = quatMul(hipsWorldQ, out.rotations.spine);
+    // 累積 world quat：若沒寫入 spine（能見度不足），用 hips 的 world quat
+    // 作 fallback（等同 spine = identity）
+    const spineLocal = out.rotations.spine ?? quatIdentity();
+    const spineWorldQ = quatMul(hipsWorldQ, spineLocal);
     const chestWorldQ = spineWorldQ; // chest = identity
     const upperChestWorldQ = chestWorldQ; // upperChest = identity
     out.ancestorWorldQ.spine = spineWorldQ;
@@ -208,11 +272,22 @@ export class BodySolver {
     out.ancestorWorldQ.upperChest = upperChestWorldQ;
 
     // ── 3. Neck（從鼻子方向推） ──
+    // 能見度檢查：需要 NOSE + 肩膀中點（shoulderMid 來自 LS/RS）
+    const neckVisible = allVisible(
+      world,
+      [POSE.NOSE, POSE.LEFT_SHOULDER, POSE.RIGHT_SHOULDER],
+      thresh,
+    );
     const NOSE = toVec(world[POSE.NOSE]);
-    const neckWorldDir = normalize(sub(NOSE, shoulderMid));
-    const neckLocalDir = quatRotateVec(quatConj(upperChestWorldQ), neckWorldDir);
-    out.rotations.neck = quatFromUnitVectors(this.refDirs.neck, neckLocalDir);
-    const neckWorldQ = quatMul(upperChestWorldQ, out.rotations.neck);
+    let neckWorldQ: Quat;
+    if (neckVisible) {
+      const neckWorldDir = normalize(sub(NOSE, shoulderMid));
+      const neckLocalDir = quatRotateVec(quatConj(upperChestWorldQ), neckWorldDir);
+      out.rotations.neck = quatFromUnitVectors(this.refDirs.neck, neckLocalDir);
+      neckWorldQ = quatMul(upperChestWorldQ, out.rotations.neck);
+    } else {
+      neckWorldQ = upperChestWorldQ;
+    }
     out.ancestorWorldQ.neck = neckWorldQ;
 
     // ── 4. Head（三點 rigid body 基底：耳線 + 鼻方向） ──
@@ -225,16 +300,23 @@ export class BodySolver {
     //   X = 角色右方（LEFT_EAR → RIGHT_EAR）
     //   Z = 角色前方（earMid → NOSE）
     //   Y = 向上（cross(Z, X) 再 re-ortho）
-    const LE = toVec(world[POSE.LEFT_EAR]);
-    const RE = toVec(world[POSE.RIGHT_EAR]);
-    const earMid = midpoint(LE, RE);
-    const headRightAxis = sub(RE, LE);
-    const headForwardAxis = sub(NOSE, earMid);
-    const headBasis = orthoBasisZPrimary(headRightAxis, headForwardAxis);
-    out.rotations.head = headBasis
-      ? basisToLocalQ(headBasis, neckWorldQ)
-      : quatIdentity();
-    out.ancestorWorldQ.head = quatMul(neckWorldQ, out.rotations.head);
+    const headVisible = allVisible(
+      world,
+      [POSE.LEFT_EAR, POSE.RIGHT_EAR, POSE.NOSE],
+      thresh,
+    );
+    if (headVisible) {
+      const LE = toVec(world[POSE.LEFT_EAR]);
+      const RE = toVec(world[POSE.RIGHT_EAR]);
+      const earMid = midpoint(LE, RE);
+      const headRightAxis = sub(RE, LE);
+      const headForwardAxis = sub(NOSE, earMid);
+      const headBasis = orthoBasisZPrimary(headRightAxis, headForwardAxis);
+      out.rotations.head = headBasis
+        ? basisToLocalQ(headBasis, neckWorldQ)
+        : quatIdentity();
+    }
+    out.ancestorWorldQ.head = quatMul(neckWorldQ, out.rotations.head ?? quatIdentity());
 
     // ── 5. Shoulders（無對應 landmark，固定 identity） ──
     out.rotations.leftShoulder = quatIdentity();
@@ -271,6 +353,17 @@ export class BodySolver {
     const lowerArmBone: VRMHumanoidBoneName =
       side === 'left' ? 'leftLowerArm' : 'rightLowerArm';
     const handBone: VRMHumanoidBoneName = side === 'left' ? 'leftHand' : 'rightHand';
+
+    // 能見度檢查：整條手臂依賴 shoulder / elbow / wrist，三者任一不可見
+    // 就整隻手臂跳過（保留前一幀），避免把部分可見的 bone 跟不可見的 bone
+    // 混用造成斷裂
+    if (!allVisible(world, [idxShoulder, idxElbow, idxWrist], this.visibilityThreshold)) {
+      // 設定 ancestor world quat 為父鏈，避免 undefined 壞掉後續累積
+      out.ancestorWorldQ[upperArmBone] = shoulderWorldQ;
+      out.ancestorWorldQ[lowerArmBone] = shoulderWorldQ;
+      out.ancestorWorldQ[handBone] = shoulderWorldQ;
+      return;
+    }
 
     const shoulder = toVec(world[idxShoulder]);
     const elbow = toVec(world[idxElbow]);
@@ -316,21 +409,26 @@ export class BodySolver {
     //       RIGHT: cross(wristToPinky, wristToIndex)
     //   basis 由 orthoBasisYPrimary(palmNormal, Y) 建立
     //
-    // 退化（三點共線 / 手離畫面）時 fallback 為 identity，避免 NaN。
-    const indexLm = toVec(world[idxIndex]);
-    const pinkyLm = toVec(world[idxPinky]);
-    const fingerToWrist = sub(wrist, midpoint(indexLm, pinkyLm));
-    const wristToIndex = sub(indexLm, wrist);
-    const wristToPinky = sub(pinkyLm, wrist);
-    const palmNormal =
-      side === 'left'
-        ? cross(wristToIndex, wristToPinky)
-        : cross(wristToPinky, wristToIndex);
-    const handBasis = orthoBasisYPrimary(palmNormal, fingerToWrist);
-    out.rotations[handBone] = handBasis
-      ? basisToLocalQ(handBasis, lowerArmWorldQ)
-      : quatIdentity();
-    out.ancestorWorldQ[handBone] = quatMul(lowerArmWorldQ, out.rotations[handBone]);
+    // 退化（三點共線 / 手離畫面）或 index/pinky 能見度不足時跳過手部。
+    if (allVisible(world, [idxIndex, idxPinky], this.visibilityThreshold)) {
+      const indexLm = toVec(world[idxIndex]);
+      const pinkyLm = toVec(world[idxPinky]);
+      const fingerToWrist = sub(wrist, midpoint(indexLm, pinkyLm));
+      const wristToIndex = sub(indexLm, wrist);
+      const wristToPinky = sub(pinkyLm, wrist);
+      const palmNormal =
+        side === 'left'
+          ? cross(wristToIndex, wristToPinky)
+          : cross(wristToPinky, wristToIndex);
+      const handBasis = orthoBasisYPrimary(palmNormal, fingerToWrist);
+      if (handBasis) {
+        out.rotations[handBone] = basisToLocalQ(handBasis, lowerArmWorldQ);
+      }
+    }
+    out.ancestorWorldQ[handBone] = quatMul(
+      lowerArmWorldQ,
+      out.rotations[handBone] ?? quatIdentity(),
+    );
   }
 
   /** 解單側腿（upperLeg → lowerLeg → foot），父鏈為 hips */
@@ -351,6 +449,14 @@ export class BodySolver {
     const lowerLegBone: VRMHumanoidBoneName =
       side === 'left' ? 'leftLowerLeg' : 'rightLowerLeg';
     const footBone: VRMHumanoidBoneName = side === 'left' ? 'leftFoot' : 'rightFoot';
+
+    // 能見度檢查：整條腿依賴 hip / knee / ankle
+    if (!allVisible(world, [idxHip, idxKnee, idxAnkle], this.visibilityThreshold)) {
+      out.ancestorWorldQ[upperLegBone] = hipsWorldQ;
+      out.ancestorWorldQ[lowerLegBone] = hipsWorldQ;
+      out.ancestorWorldQ[footBone] = hipsWorldQ;
+      return;
+    }
 
     const hip = toVec(world[idxHip]);
     const knee = toVec(world[idxKnee]);
@@ -386,15 +492,20 @@ export class BodySolver {
     //     得到 +X 世界方向，無需 L/R 鏡像翻轉。
     //   basis = orthoBasisZPrimary(xHint, heelToToe)
     //
-    // 退化時 fallback identity。
-    const heelToToe = sub(footIdx, heel);
-    const ankleToHeel = sub(heel, ankle);
-    const ankleToToe = sub(footIdx, ankle);
-    const footRightHint = cross(ankleToToe, ankleToHeel);
-    const footBasis = orthoBasisZPrimary(footRightHint, heelToToe);
-    out.rotations[footBone] = footBasis
-      ? basisToLocalQ(footBasis, lowerLegWorldQ)
-      : quatIdentity();
-    out.ancestorWorldQ[footBone] = quatMul(lowerLegWorldQ, out.rotations[footBone]);
+    // 退化 / heel 或 foot_index 能見度不足時跳過 foot。
+    if (allVisible(world, [idxHeel, idxFoot], this.visibilityThreshold)) {
+      const heelToToe = sub(footIdx, heel);
+      const ankleToHeel = sub(heel, ankle);
+      const ankleToToe = sub(footIdx, ankle);
+      const footRightHint = cross(ankleToToe, ankleToHeel);
+      const footBasis = orthoBasisZPrimary(footRightHint, heelToToe);
+      if (footBasis) {
+        out.rotations[footBone] = basisToLocalQ(footBasis, lowerLegWorldQ);
+      }
+    }
+    out.ancestorWorldQ[footBone] = quatMul(
+      lowerLegWorldQ,
+      out.rotations[footBone] ?? quatIdentity(),
+    );
   }
 }

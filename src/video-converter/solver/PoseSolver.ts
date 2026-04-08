@@ -11,7 +11,11 @@ import type { Quat } from '../math/Quat';
 import type { Vec3 } from '../math/Vector';
 import type { HolisticResult } from '../tracking/landmarkTypes';
 import type { VRMHumanoidBoneName } from '../tracking/boneMapping';
-import { BodySolver, type RefDirMap } from './BodySolver';
+import {
+  BodySolver,
+  DEFAULT_VISIBILITY_THRESHOLD,
+  type RefDirMap,
+} from './BodySolver';
 import { HandSolver } from './HandSolver';
 import { EyeGazeSolver } from './EyeGazeSolver';
 import { applyKalidokitArmAdjust } from './armPostProcess';
@@ -26,11 +30,18 @@ export interface PoseSolverOptions {
   enableHands: boolean;
   /** 是否處理眼睛（部分 VRM 模型無 eye bone，套用前要檢查） */
   enableEyes: boolean;
+  /**
+   * BodySolver 能見度門檻（plan 第 8 節風險 #1）。
+   * MediaPipe pose landmarks 在畫面外 / 遮擋時仍會輸出低能見度估值，
+   * 低於此值的 bone 會被跳過（保留前一幀），預設 0.5。
+   */
+  visibilityThreshold: number;
 }
 
 export const DEFAULT_POSE_SOLVER_OPTIONS: PoseSolverOptions = {
   enableHands: true,
   enableEyes: true,
+  visibilityThreshold: DEFAULT_VISIBILITY_THRESHOLD,
 };
 
 export class PoseSolver {
@@ -38,11 +49,16 @@ export class PoseSolver {
   private handSolver = new HandSolver();
   private eyeSolver = new EyeGazeSolver();
 
-  constructor(private opts: PoseSolverOptions = DEFAULT_POSE_SOLVER_OPTIONS) {}
+  constructor(private opts: PoseSolverOptions = DEFAULT_POSE_SOLVER_OPTIONS) {
+    this.bodySolver.setVisibilityThreshold(this.opts.visibilityThreshold);
+  }
 
   /** 更新解算選項（不重建 solver 實例） */
   setOptions(opts: Partial<PoseSolverOptions>): void {
     this.opts = { ...this.opts, ...opts };
+    if (opts.visibilityThreshold !== undefined) {
+      this.bodySolver.setVisibilityThreshold(this.opts.visibilityThreshold);
+    }
   }
 
   getOptions(): PoseSolverOptions {

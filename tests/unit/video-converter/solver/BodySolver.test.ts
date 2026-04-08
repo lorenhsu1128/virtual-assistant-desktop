@@ -225,6 +225,116 @@ describe('BodySolver — 退化輸入', () => {
   });
 });
 
+describe('BodySolver — 能見度門檻', () => {
+  const solver = new BodySolver();
+
+  /** 把所有 landmark 的 visibility 設為指定值 */
+  function setAllVisibility(pose: Landmark[], v: number): Landmark[] {
+    return pose.map((p) => ({ ...p, visibility: v }));
+  }
+
+  it('預設門檻為 0.5', () => {
+    expect(new BodySolver().getVisibilityThreshold()).toBe(0.5);
+  });
+
+  it('setVisibilityThreshold clamp 到 [0, 1]', () => {
+    const s = new BodySolver();
+    s.setVisibilityThreshold(-0.5);
+    expect(s.getVisibilityThreshold()).toBe(0);
+    s.setVisibilityThreshold(1.5);
+    expect(s.getVisibilityThreshold()).toBe(1);
+    s.setVisibilityThreshold(0.7);
+    expect(s.getVisibilityThreshold()).toBe(0.7);
+  });
+
+  it('所有 landmark 能見度均 < 0.5 → rotations 幾乎為空', () => {
+    const pose = setAllVisibility(makeRestPose(), 0.1);
+    const result = solver.solve(pose);
+    // hips 被跳過，hipsTranslation 為 null
+    expect(result.hipsTranslation).toBeNull();
+    expect(result.rotations.hips).toBeUndefined();
+    expect(result.rotations.spine).toBeUndefined();
+    expect(result.rotations.leftUpperArm).toBeUndefined();
+    expect(result.rotations.rightFoot).toBeUndefined();
+  });
+
+  it('只有下半身能見度低 → 上半身 bone 仍解算', () => {
+    const pose = setAllVisibility(makeRestPose(), 1.0);
+    // 把下半身降到 0.1
+    for (const idx of [
+      POSE.LEFT_HIP,
+      POSE.RIGHT_HIP,
+      POSE.LEFT_KNEE,
+      POSE.RIGHT_KNEE,
+      POSE.LEFT_ANKLE,
+      POSE.RIGHT_ANKLE,
+      POSE.LEFT_HEEL,
+      POSE.RIGHT_HEEL,
+      POSE.LEFT_FOOT_INDEX,
+      POSE.RIGHT_FOOT_INDEX,
+    ]) {
+      pose[idx] = { ...pose[idx], visibility: 0.1 };
+    }
+    const result = solver.solve(pose);
+    // hips 依賴 LH / RH → 低能見度 → 跳過
+    expect(result.rotations.hips).toBeUndefined();
+    // 手臂依賴 shoulder / elbow / wrist → 三者都可見 → 有解
+    expect(result.rotations.leftUpperArm).toBeDefined();
+    expect(result.rotations.rightUpperArm).toBeDefined();
+    // 腿依賴 hip / knee / ankle → 跳過
+    expect(result.rotations.leftUpperLeg).toBeUndefined();
+    expect(result.rotations.leftFoot).toBeUndefined();
+  });
+
+  it('只有單側手臂能見度低 → 該側手臂跳過，另一側正常', () => {
+    const pose = setAllVisibility(makeRestPose(), 1.0);
+    pose[POSE.LEFT_ELBOW] = { ...pose[POSE.LEFT_ELBOW], visibility: 0.1 };
+    const result = solver.solve(pose);
+    expect(result.rotations.leftUpperArm).toBeUndefined();
+    expect(result.rotations.leftLowerArm).toBeUndefined();
+    expect(result.rotations.leftHand).toBeUndefined();
+    expect(result.rotations.rightUpperArm).toBeDefined();
+    expect(result.rotations.rightLowerArm).toBeDefined();
+    expect(result.rotations.rightHand).toBeDefined();
+  });
+
+  it('手可見但 index / pinky 不可見 → 手臂有解但 hand 跳過', () => {
+    const pose = setAllVisibility(makeRestPose(), 1.0);
+    pose[POSE.LEFT_INDEX] = { ...pose[POSE.LEFT_INDEX], visibility: 0.1 };
+    pose[POSE.LEFT_PINKY] = { ...pose[POSE.LEFT_PINKY], visibility: 0.1 };
+    const result = solver.solve(pose);
+    expect(result.rotations.leftUpperArm).toBeDefined();
+    expect(result.rotations.leftLowerArm).toBeDefined();
+    expect(result.rotations.leftHand).toBeUndefined();
+  });
+
+  it('腳可見但 heel 不可見 → 腿部有解但 foot 跳過', () => {
+    const pose = setAllVisibility(makeRestPose(), 1.0);
+    pose[POSE.LEFT_HEEL] = { ...pose[POSE.LEFT_HEEL], visibility: 0.1 };
+    const result = solver.solve(pose);
+    expect(result.rotations.leftUpperLeg).toBeDefined();
+    expect(result.rotations.leftLowerLeg).toBeDefined();
+    expect(result.rotations.leftFoot).toBeUndefined();
+  });
+
+  it('低能見度時 ancestorWorldQ 仍為有效四元數（不 undefined）', () => {
+    const pose = setAllVisibility(makeRestPose(), 0.1);
+    const result = solver.solve(pose);
+    // ancestorWorldQ 必須永遠有 hips 條目，以免下游計算壞掉
+    expect(result.ancestorWorldQ.hips).toBeDefined();
+    expect(Number.isFinite(result.ancestorWorldQ.hips!.w)).toBe(true);
+  });
+
+  it('沒有 visibility 欄位的 landmark 視為可見（向下相容）', () => {
+    // makeRestPose 的 lm() helper 預設 visibility = 1
+    // 但若完全沒給也應該視為可見
+    const pose = makeRestPose().map(({ x, y, z }) => ({ x, y, z }));
+    const result = solver.solve(pose);
+    expect(result.rotations.hips).toBeDefined();
+    expect(isNearIdentity(result.rotations.hips!)).toBe(true);
+  });
+});
+
 describe('BodySolver — head rigid basis (三點基底)', () => {
   const solver = new BodySolver();
 
@@ -288,15 +398,15 @@ describe('BodySolver — hand rigid basis (wrist + index + pinky)', () => {
     expect(isNearIdentity(result.rotations.rightHand!, 1e-4)).toBe(true);
   });
 
-  it('退化（index / pinky 與 wrist 同位）→ fallback identity', () => {
+  it('退化（index / pinky 與 wrist 同位）→ 跳過 leftHand', () => {
     const pose = makeRestPose();
     pose[POSE.LEFT_INDEX] = lm(-0.18, 0.85, 0);
     pose[POSE.LEFT_PINKY] = lm(-0.18, 0.85, 0);
     const result = solver.solve(pose);
-    expect(Number.isFinite(result.rotations.leftHand!.x)).toBe(true);
-    expect(Number.isFinite(result.rotations.leftHand!.y)).toBe(true);
-    expect(Number.isFinite(result.rotations.leftHand!.z)).toBe(true);
-    expect(Number.isFinite(result.rotations.leftHand!.w)).toBe(true);
+    // rigid basis 退化時不寫入 rotations（呼叫端保留前一幀）
+    expect(result.rotations.leftHand).toBeUndefined();
+    // 但 ancestorWorldQ 仍為有效四元數（供下游累積）
+    expect(Number.isFinite(result.ancestorWorldQ.leftHand!.w)).toBe(true);
   });
 
   it('手掌翻轉（index/pinky 左右對調）→ hand 非 identity', () => {
@@ -326,15 +436,15 @@ describe('BodySolver — foot rigid basis (ankle + heel + foot_index)', () => {
     expect(isNearIdentity(result.rotations.leftFoot!, 1e-4)).toBe(false);
   });
 
-  it('退化（heel / ankle / foot_index 共線）→ fallback identity，不 NaN', () => {
+  it('退化（heel / ankle / foot_index 共線）→ 跳過 leftFoot', () => {
     const pose = makeRestPose();
     pose[POSE.LEFT_HEEL] = lm(-0.12, 0.1, 0);
     pose[POSE.LEFT_FOOT_INDEX] = lm(-0.12, 0.1, 0.1);
     // ankle / heel / foot_index 全部共線在 (−0.12, 0.1, *)
     const result = solver.solve(pose);
-    expect(Number.isFinite(result.rotations.leftFoot!.x)).toBe(true);
-    expect(Number.isFinite(result.rotations.leftFoot!.y)).toBe(true);
-    expect(Number.isFinite(result.rotations.leftFoot!.z)).toBe(true);
-    expect(Number.isFinite(result.rotations.leftFoot!.w)).toBe(true);
+    // rigid basis 退化時不寫入 rotations
+    expect(result.rotations.leftFoot).toBeUndefined();
+    // ancestorWorldQ 仍為有效四元數
+    expect(Number.isFinite(result.ancestorWorldQ.leftFoot!.w)).toBe(true);
   });
 });

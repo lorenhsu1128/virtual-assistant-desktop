@@ -64,7 +64,11 @@ const state: AppState = {
   vrmSwitcher: new VrmSwitcher(),
   // Stage 1 預設關閉手指（plan 第 8 節 Open Question 1：手指即時預覽
   // 門檻由 spike 決定，spike A 結果為手指穩定，但保守起見預設 OFF）
-  poseSolver: new PoseSolver({ enableHands: false, enableEyes: true }),
+  poseSolver: new PoseSolver({
+    enableHands: false,
+    enableEyes: true,
+    visibilityThreshold: 0.5,
+  }),
   captureBuffer: new CaptureBuffer(),
   bufferDuration: 0,
   // Stage 2 離線平滑器（plan 第 2.6 / 5.5 節）
