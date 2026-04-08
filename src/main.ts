@@ -16,6 +16,7 @@ import { DebugOverlay } from './debug/DebugOverlay';
 import { analyzeWalkAnimation } from './animation/StepAnalyzer';
 import { mirrorAnimationClip } from './animation/AnimationMirror';
 import { isSysIdleFile } from './vrm-picker/pickerLogic';
+import { CharacterContextMenu } from './interaction/CharacterContextMenu';
 import { WindowMeshManager } from './occlusion/WindowMeshManager';
 
 /** IPC 事件 unlisten 函式集合（beforeunload 時統一清除） */
@@ -342,6 +343,15 @@ async function initializeApp(config: AppConfig, appPath: string): Promise<void> 
     await initializeBehaviorSystem(config, sceneManager, vrmController, animationManager, canvas);
   } catch (e) {
     console.warn('[main] v0.2 behavior system initialization failed, basic rendering continues:', e);
+  }
+
+  // ── 角色右鍵選單（測試用假資料） ──
+  try {
+    const characterMenu = new CharacterContextMenu();
+    cleanupFns.push(() => characterMenu.dispose());
+    debugLog('character context menu ready');
+  } catch (e) {
+    console.warn('[main] character context menu initialization failed:', e);
   }
 }
 
