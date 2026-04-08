@@ -11,6 +11,8 @@
 import * as THREE from 'three';
 import type { CaptureBufferData, CaptureFrame } from '../video-converter/capture/types';
 import type { VRMHumanoidBoneName } from '../video-converter/tracking/boneMapping';
+import type { Quat } from '../video-converter/math/Quat';
+import type { Vec3 } from '../video-converter/math/Vector';
 
 /**
  * 將 CaptureBufferData 轉為 THREE.AnimationClip。
@@ -49,9 +51,9 @@ export function bufferToClip(data: CaptureBufferData, clipName: string): THREE.A
   for (const bone of allBones) {
     const times: number[] = [];
     const values: number[] = []; // x,y,z,w 連續儲存
-    let last: { x: number; y: number; z: number; w: number } | null = null;
+    let last: Quat | null = null;
     for (const f of frames) {
-      const q = f.boneRotations[bone] ?? last;
+      const q: Quat | null = f.boneRotations[bone] ?? last;
       if (!q) continue; // 該幀之前完全沒值，跳過
       times.push(toSeconds(f.timestampMs));
       values.push(q.x, q.y, q.z, q.w);
@@ -67,9 +69,9 @@ export function bufferToClip(data: CaptureBufferData, clipName: string): THREE.A
   // ── Hips position track ──
   const hipsTimes: number[] = [];
   const hipsValues: number[] = [];
-  let lastHips: { x: number; y: number; z: number } | null = null;
+  let lastHips: Vec3 | null = null;
   for (const f of frames) {
-    const h = f.hipsTranslation ?? lastHips;
+    const h: Vec3 | null = f.hipsTranslation ?? lastHips;
     if (!h) continue;
     hipsTimes.push(toSeconds(f.timestampMs));
     hipsValues.push(h.x, h.y, h.z);

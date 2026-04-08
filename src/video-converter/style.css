@@ -102,7 +102,7 @@ body {
 #vc-video-stage {
   flex: 1 1 auto;
   position: relative;
-  display: none; /* Phase 8 才啟用 */
+  display: none; /* 由 main.ts 在影片載入後設為 block */
 }
 
 #vc-video {
