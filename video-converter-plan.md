@@ -925,8 +925,13 @@ return concat(header, JSON chunk, BIN chunk)
   Proximal 順序差）。Phase 13 VRMA 匯出時需處理
 
 ### Hand / Eye 追蹤
-- **Stage 1 預設關閉 hands**：`enableHands: false`。HandSolver 已實作但
-  finger REF_DIR 校正未做（BONE_CHILD_FOR_CALIBRATION 沒包含 fingers）
+- **Stage 1 預設啟用 hands**（2026-04-08 後）：`enableHands: true`。
+  HandSolver 使用 Kalidokit 風格 1 DOF Z-axis bending（每節手指由
+  `angleBetween3DCoords(prev, curr, next)` 推得 clamp 到 `[-π/2, 0]` 的
+  euler Z，左右手 `invert` 翻轉），不依賴 REF_DIR 校正。PoseSolver 端
+  對端測試（`tests/unit/video-converter/solver/PoseSolver.test.ts`）
+  涵蓋左右手 routing / enable 切換 / landmark 不足降級等情境。
+  使用者可透過 SettingsPanel 即時關閉（若影響 fps）
 - **Eye 追蹤**：EyeGazeSolver 已實作但多數 VRM 模型沒有 leftEye/rightEye
   humanoid bone，套用時會被靜默跳過
 

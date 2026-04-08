@@ -21,7 +21,7 @@ export interface SettingsState {
 }
 
 export const DEFAULT_SETTINGS: SettingsState = {
-  enableHands: false,
+  enableHands: true,
   enableEyes: true,
   gaussianSigma: 1.5,
   gaussianHalfWindow: 3,

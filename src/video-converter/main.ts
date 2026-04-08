@@ -62,10 +62,11 @@ const state: AppState = {
   overlay: null,
   preview: null,
   vrmSwitcher: new VrmSwitcher(),
-  // Stage 1 預設關閉手指（plan 第 8 節 Open Question 1：手指即時預覽
-  // 門檻由 spike 決定，spike A 結果為手指穩定，但保守起見預設 OFF）
+  // Stage 1 預設啟用手指（plan §14：HandSolver 使用 1 DOF Z bending，
+  // 已有完整單元測試驗證攤平 / 彎曲 / 左右鏡像正確）。若實測影響 fps，
+  // 使用者可透過 SettingsPanel 關閉。
   poseSolver: new PoseSolver({
-    enableHands: false,
+    enableHands: true,
     enableEyes: true,
     visibilityThreshold: 0.5,
   }),
@@ -112,7 +113,7 @@ async function bootstrap(): Promise<void> {
   const settingsContainer = $<HTMLDivElement>('vc-settings-panel');
   const settingsBtn = $<HTMLButtonElement>('vc-settings-btn');
   state.settings = new SettingsPanel(settingsContainer, {
-    enableHands: false,
+    enableHands: true,
     enableEyes: true,
     gaussianSigma: 1.5,
     gaussianHalfWindow: 3,
