@@ -9,7 +9,6 @@ import type { Rect, WindowRect, DisplayInfo } from '../types/window';
 import type { BehaviorOutput, Platform } from '../types/behavior';
 import type { DebugOverlay } from '../debug/DebugOverlay';
 import type { WindowMeshManager } from '../occlusion/WindowMeshManager';
-import { CinematicRunner } from '../cinematic/CinematicRunner';
 
 /** 幀率模式 */
 type FpsMode = 'foreground' | 'background' | 'powerSave';
@@ -120,19 +119,6 @@ export class SceneManager {
   private cachedOcclusionRatio = 0;
   private cachedOffScreenRatio = 0;
   private ratiosCachedThisFrame = false;
-
-  /** 演出控制器（非 null 時演出進行中） */
-  private cinematicRunner: CinematicRunner | null = null;
-  /** 演出中最後套用的表情（用於清除） */
-  private cinematicLastExpression: string | null = null;
-  /** 演出前保存的狀態 */
-  private preCinematicState: {
-    position: { x: number; y: number };
-    scale: number;
-    timeScale: number;
-    cameraOrtho: { left: number; right: number; top: number; bottom: number };
-    cameraPosition: { x: number; y: number; z: number };
-  } | null = null;
 
   private targetFps: number;
   private fpsMode: FpsMode = 'foreground';
@@ -521,99 +507,6 @@ export class SceneManager {
     return this.scale;
   }
 
-  /** 開始衝向鏡頭演出 */
-  startCinematic(): void {
-    if (this.cinematicRunner) return; // 已在演出中
-
-    const canvas = this.renderer.domElement;
-
-    // 保存狀態（含攝影機 ortho bounds 與位置）
-    this.preCinematicState = {
-      position: { ...this.currentPosition },
-      scale: this.scale,
-      timeScale: this.animationManager?.getTimeScale() ?? 1,
-      cameraOrtho: {
-        left: this.camera.left,
-        right: this.camera.right,
-        top: this.camera.top,
-        bottom: this.camera.bottom,
-      },
-      cameraPosition: {
-        x: this.camera.position.x,
-        y: this.camera.position.y,
-        z: this.camera.position.z,
-      },
-    };
-
-    // 暫停自主移動
-    this.stateMachine?.pause();
-
-    // 取得可用表情清單與動態 head height ratio
-    const expressions = this.vrmController?.getBlendShapes() ?? [];
-    const headHeightRatio = this.vrmController?.getHeadHeightRatio() ?? 0.22;
-
-    // 建立演出控制器
-    this.cinematicRunner = new CinematicRunner({
-      screenWidth: canvas.clientWidth || canvas.width,
-      screenHeight: canvas.clientHeight || canvas.height,
-      characterWidth: this.characterSize.width,
-      characterHeight: this.characterSize.height,
-      originalPosition: { ...this.currentPosition },
-      originalScale: this.scale,
-      availableExpressions: expressions,
-      desiredMaxScale: 6.0,
-      headHeightRatio,
-    });
-
-    // 播放 walk 動畫（cinematic 直接呼叫 AnimationManager，
-    // 不經 Bridge，因此不會觸發 walk 步伐重分析 — StateMachine 被暫停中）
-    this.animationManager?.playStateRandom('walk');
-  }
-
-  /** 結束演出，恢復原始狀態 */
-  private stopCinematic(): void {
-    if (!this.preCinematicState) return;
-
-    // 恢復位置和 scale（uniform，清除任何 squash 殘留）
-    this.currentPosition = { ...this.preCinematicState.position };
-    this.setScale(this.preCinematicState.scale);
-
-    // 恢復動畫速率
-    this.animationManager?.setTimeScale(this.preCinematicState.timeScale);
-
-    // 停止 walk 狀態動畫，恢復 idle
-    this.animationManager?.stopStateAnimation();
-
-    // 恢復模型朝向
-    this.vrmController?.setFacingRotationY(0);
-
-    // 恢復攝影機 ortho bounds 與位置
-    const ortho = this.preCinematicState.cameraOrtho;
-    this.camera.left = ortho.left;
-    this.camera.right = ortho.right;
-    this.camera.top = ortho.top;
-    this.camera.bottom = ortho.bottom;
-    this.camera.updateProjectionMatrix();
-    const camPos = this.preCinematicState.cameraPosition;
-    this.camera.position.set(camPos.x, camPos.y, camPos.z);
-
-    // 恢復自主移動
-    this.stateMachine?.resume();
-
-    // 清除演出表情
-    if (this.cinematicLastExpression && this.vrmController) {
-      this.vrmController.setBlendShape(this.cinematicLastExpression, 0);
-    }
-    this.cinematicLastExpression = null;
-    this.cinematicRunner = null;
-    this.preCinematicState = null;
-  }
-
-  /** 演出是否正在進行 */
-  isCinematicPlaying(): boolean {
-    return this.cinematicRunner !== null;
-  }
-
   /** 取得像素到世界座標的轉換比例 */
   getPixelToWorld(): number {
     return this.pixelToWorld;
@@ -724,79 +617,6 @@ export class SceneManager {
         case 'down': this.currentPosition.y += step; break;
       }
       this.debugMoveDir = null;
-    }
-
-    // 演出系統優先：覆蓋 position / scale / camera / animation，跳過 StateMachine
-    if (this.cinematicRunner) {
-      const frame = this.cinematicRunner.tick(deltaTime);
-
-      if (frame.phase === 'done') {
-        this.stopCinematic();
-      } else {
-        // 套用非等向 scale（squash 用）
-        if (this.vrmController) {
-          this.vrmController.setModelScaleNonUniform(
-            this.baseScale * frame.scaleX,
-            this.baseScale * frame.scaleY,
-            this.baseScale * frame.scaleZ,
-          );
-        }
-
-        // 套用位置
-        this.currentPosition.x = frame.positionX;
-        this.currentPosition.y = frame.positionY;
-
-        // 套用朝向（approach-top/pause-top/retreat 使用連續旋轉做轉身動作）
-        if (this.vrmController) {
-          this.vrmController.setFacingRotationY(frame.facingRotationY);
-        }
-
-        // 套用攝影機 zoom（縮小可見區域 = 視覺放大）
-        if (this.preCinematicState) {
-          const baseOrtho = this.preCinematicState.cameraOrtho;
-          const inv = 1 / Math.max(0.01, frame.cameraZoom);
-          this.camera.left = baseOrtho.left * inv;
-          this.camera.right = baseOrtho.right * inv;
-          this.camera.top = baseOrtho.top * inv;
-          this.camera.bottom = baseOrtho.bottom * inv;
-          this.camera.updateProjectionMatrix();
-
-          // 套用 camera shake（pixel → world）
-          const baseCam = this.preCinematicState.cameraPosition;
-          this.camera.position.x = baseCam.x + frame.cameraShakeX * this.pixelToWorld;
-          this.camera.position.y = baseCam.y + frame.cameraShakeY * this.pixelToWorld;
-        }
-
-        // 套用動畫速率
-        if (this.animationManager) {
-          if (frame.walkSpeed > 0) {
-            this.animationManager.setTimeScale(frame.walkSpeed);
-          } else {
-            this.animationManager.setTimeScale(0);
-          }
-        }
-
-        // SpringBone reset（避免大幅 scale 變化造成彈跳）
-        if (frame.springBoneReset && this.vrmController) {
-          this.vrmController.resetSpringBones();
-        }
-
-        // 套用表情
-        if (this.vrmController) {
-          if (frame.expression && frame.expression !== this.cinematicLastExpression) {
-            // 清除前一個表情
-            if (this.cinematicLastExpression) {
-              this.vrmController.setBlendShape(this.cinematicLastExpression, 0);
-            }
-            this.vrmController.setBlendShape(frame.expression, 1);
-            this.cinematicLastExpression = frame.expression;
-          } else if (!frame.expression && this.cinematicLastExpression) {
-            // 間隔期間清除表情
-            this.vrmController.setBlendShape(this.cinematicLastExpression, 0);
-            this.cinematicLastExpression = null;
-          }
-        }
-      }
     }
 
     // Step 1: StateMachine（碰撞/穿越已移除，僅保留基本狀態機）
@@ -1307,8 +1127,6 @@ export class SceneManager {
 
   private resolveCharacterZ(output: BehaviorOutput | null): number {
     const DEFAULT_Z = 8.5;
-    // 演出中置頂
-    if (this.cinematicRunner) return DEFAULT_Z;
     if (!output || !this.windowMeshManager) return DEFAULT_Z;
 
     // 偵測前景視窗改變 → 清除拖曳後置頂

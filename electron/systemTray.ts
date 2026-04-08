@@ -200,12 +200,6 @@ export class SystemTray {
 
     template.push({ type: 'separator' });
 
-    // 特殊演出
-    template.push({
-      label: '\u885d\u5411\u93e1\u982d',
-      click: () => this.emitAction('cinematic_run'),
-    });
-
     // 重置鏡頭角度
     template.push({
       label: '\u91cd\u7f6e\u93e1\u982d\u89d2\u5ea6',

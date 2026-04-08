@@ -239,7 +239,7 @@ assets/system/vrma/SYS_IDLE_21.vrma   ← 新增
 | `src/animation/AnimationMirror.ts` | `mirrorAnimationClip` 左右骨骼翻轉 |
 | `src/behavior/BehaviorAnimationBridge.ts` | 狀態→池映射、peek side 選擇、walk/hide callback |
 | `src/main.ts: loadAllSystemAnimations` | 啟動時一次性掃描與載入 |
-| `src/core/SceneManager.ts` | Bridge callback 注入、cinematic 直接呼叫 playStateRandom |
+| `src/core/SceneManager.ts` | Bridge callback 注入（walk 步伐重分析）、render loop 主迴圈 |
 | `tests/unit/systemAnimationMatcher.test.ts` | 檔名辨識測試（21 tests） |
 | `tests/unit/BehaviorAnimationBridge.test.ts` | Bridge 狀態轉換測試（11 tests） |
 

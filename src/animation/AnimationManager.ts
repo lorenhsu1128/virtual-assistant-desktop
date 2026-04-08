@@ -299,8 +299,7 @@ export class AnimationManager {
   /**
    * 停止當前的狀態池動畫並回到 idle 池
    *
-   * 由 BehaviorAnimationBridge 在離開非 idle 狀態時呼叫（例如 walk → idle），
-   * 或由 cinematic runner 結束時呼叫。
+   * 由 BehaviorAnimationBridge 在離開非 idle 狀態時呼叫（例如 walk → idle）。
    */
   stopStateAnimation(): void {
     if (this.currentPoolState === null) return;

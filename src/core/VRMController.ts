@@ -364,65 +364,6 @@ export class VRMController {
   }
 
   /**
-   * 設定模型非等向縮放（squash / stretch 演出用）
-   *
-   * 用於 cinematic 演出的撞擊瞬間 squash 效果。
-   * 注意：演出結束後須以 setModelScale(uniform) 復原為等向。
-   */
-  setModelScaleNonUniform(x: number, y: number, z: number): void {
-    if (this.vrm) {
-      this.vrm.scene.scale.set(x, y, z);
-    }
-  }
-
-  /**
-   * 重置 SpringBone 物理狀態
-   *
-   * 將所有 spring tail 快照到當前 bind pose 並清零 verlet 速度。
-   * 用於演出大幅 scale / 位移後避免頭髮 / 衣物彈跳（依 LESSONS.md 教訓）。
-   */
-  resetSpringBones(): void {
-    this.vrm?.springBoneManager?.reset();
-  }
-
-  /**
-   * 動態計算「頭部高度佔總身高的比例」
-   *
-   * 用於 cinematic 演出的 solveFinalPose，取代 hardcoded 0.22。
-   *
-   * 計算方式：
-   *   1. 從 vrm.humanoid 取得 head bone 世界座標（head bone 約位於頸-頭交界）
-   *   2. 取得整體 bbox（vrm.scene 包含所有 mesh）
-   *   3. 頭部高度 = box.max.y − headBoneWorld.y（從頭骨基部到頭頂）
-   *   4. 比例 = 頭部高度 / 總身高
-   *   5. clamp 在 [0.10, 0.35] 防止異常值
-   *
-   * 失敗（無 humanoid 或 head bone）回傳 0.22 fallback。
-   */
-  getHeadHeightRatio(): number {
-    const FALLBACK = 0.22;
-    if (!this.vrm?.humanoid) return FALLBACK;
-    const headBone = this.vrm.humanoid.getNormalizedBoneNode('head');
-    if (!headBone) return FALLBACK;
-
-    // 確保 matrix 為最新
-    this.vrm.scene.updateMatrixWorld(true);
-
-    const headWorld = new THREE.Vector3();
-    headBone.getWorldPosition(headWorld);
-
-    const box = new THREE.Box3().setFromObject(this.vrm.scene);
-    const totalHeight = box.max.y - box.min.y;
-    if (totalHeight <= 0) return FALLBACK;
-
-    const headHeight = box.max.y - headWorld.y;
-    const ratio = headHeight / totalHeight;
-    if (!Number.isFinite(ratio) || ratio <= 0) return FALLBACK;
-
-    return Math.max(0.1, Math.min(0.35, ratio));
-  }
-
-  /**
    * 設定模型在世界空間中的位置（全螢幕模式用）
    *
    * 將 VRM 模型平移到指定的世界座標，模型原點在腳底。

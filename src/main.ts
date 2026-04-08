@@ -559,9 +559,6 @@ async function initializeBehaviorSystem(
       case 'speed_075': if (animationManager) { animationManager.setTimeScale(0.75); config.animationSpeed = 0.75; ipc.writeConfig(config); } break;
       case 'speed_100': if (animationManager) { animationManager.setTimeScale(1.0); config.animationSpeed = 1.0; ipc.writeConfig(config); } break;
       case 'speed_125': if (animationManager) { animationManager.setTimeScale(1.25); config.animationSpeed = 1.25; ipc.writeConfig(config); } break;
-      case 'cinematic_run':
-        sceneManager.startCinematic();
-        break;
       case 'settings':
         // TODO: 開啟設定視窗
         console.log('[main] Settings window not yet implemented');
