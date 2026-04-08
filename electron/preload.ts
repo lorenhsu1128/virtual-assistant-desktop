@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // ── Video Converter Window ──
   openVideoConverter: () => ipcRenderer.invoke('open_video_converter'),
+  pickVideoFile: () => ipcRenderer.invoke('pick_video_file'),
 
   // ── Window Monitor ──
   getWindowList: () => ipcRenderer.invoke('get_window_list'),

@@ -115,6 +115,20 @@ export function registerIpcHandlers(
     openVideoConverterWindow(mainWindow);
   });
 
+  ipcMain.handle('pick_video_file', async (event) => {
+    const senderWindow = BrowserWindow.fromWebContents(event.sender) ?? mainWindow;
+    const result = await dialog.showOpenDialog(senderWindow, {
+      title: '選擇影片',
+      filters: [
+        { name: 'Video files', extensions: ['mp4', 'webm', 'mov', 'mkv', 'avi'] },
+        { name: 'All files', extensions: ['*'] },
+      ],
+      properties: ['openFile'],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0];
+  });
+
   ipcMain.handle('apply_vrm_model', async (_event, vrmPath: string) => {
     const config = await fileManager.readConfig();
     config.vrmModelPath = vrmPath;

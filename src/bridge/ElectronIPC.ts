@@ -23,6 +23,7 @@ interface ElectronAPI {
   openVrmPicker(): Promise<void>;
   applyVrmModel(vrmPath: string): Promise<boolean>;
   openVideoConverter(): Promise<void>;
+  pickVideoFile(): Promise<string | null>;
   getWindowList(): Promise<WindowRect[]>;
   getDisplayInfo(): Promise<DisplayInfo[]>;
   setWindowPosition(x: number, y: number): Promise<void>;
@@ -241,6 +242,19 @@ class ElectronIPC {
       await window.electronAPI.openVideoConverter();
     } catch (e) {
       console.warn('[ElectronIPC] openVideoConverter failed:', e);
+    }
+  }
+
+  /**
+   * Open native file picker for video files (mp4 / webm / mov / mkv / avi).
+   * Returns absolute path or null if cancelled.
+   */
+  async pickVideoFile(): Promise<string | null> {
+    try {
+      return await window.electronAPI.pickVideoFile();
+    } catch (e) {
+      console.warn('[ElectronIPC] pickVideoFile failed:', e);
+      return null;
     }
   }
 
