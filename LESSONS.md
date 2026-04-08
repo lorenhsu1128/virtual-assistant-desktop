@@ -155,6 +155,52 @@
 
 ---
 
+## 影片動作轉換器（v0.4）
+
+### [2026-04-08] `[跨平台]` — Electron renderer 不支援 window.prompt() / confirm() / alert()
+
+- **錯誤**：在 video-converter renderer 用 `window.prompt('輸入名稱')` 取得使用者輸入動畫名稱，觸發 `Error: prompt() is not supported.`
+- **正確做法**：Electron renderer 預設禁用這三個原生對話框 API。改用 inline HTML input 元素（toolbar 旁邊）、HTML modal 或 IPC 呼叫 main process 的 dialog API
+- **受影響檔案**：`src/video-converter/main.ts`、`video-converter.html`
+- **根因**：Electron 安全考量，避免阻塞 main thread；nodeIntegration 關閉後這些 BrowserWindow 級別的 dialog 都不可用
+
+### [2026-04-08] `[跨平台]` — MediaPipe detectForVideo 內部 timestamp 嚴格單調，resetTimestamp 無法清除
+
+- **錯誤**：Stage 1 用 `video.currentTime * 1000` 餵 detectForVideo，Stage 2 又從 t=0 開始呼叫，觸發 `INVALID_ARGUMENT: Packet timestamp mismatch on a calculator receiving from stream "input_frames_image"`。MediaPipeRunner.resetTimestamp() 只清本地 lastDetectTimestampMs guard，**無法清除 MediaPipe calculator graph 內部的時間戳狀態**
+- **正確做法**：Stage 1 / Stage 2 / 任何時候都用 `performance.now()` 作為 detectForVideo 的 timestamp（全域單調遞增）。CaptureBuffer 仍然存 video time（用於 sampleAt 與 timeline scrub）。MediaPipe 只關心單調性，buffer 關心實際時間，兩個角色分離
+- **受影響檔案**：`src/video-converter/main.ts`（detectLoop / runStage2）
+- **根因**：MediaPipe 的 InputStreamHandler 預設為嚴格 monotonic，packet 時間戳必須大於前一個。Reset 需要重建 landmarker（5-15 秒）或永遠用單調遞增源
+
+### [2026-04-08] `[跨平台]` — UTF-8 中文檔案禁用 PowerShell `Set-Content` 寫回
+
+- **錯誤**：用 `powershell -Command "(Get-Content x.ts -Raw) -replace ... | Set-Content x.ts"` 對含中文註解的 TS 檔做批次替換，PowerShell 預設用 CP950 (Big5) 寫檔，整個檔的 UTF-8 中文註解全部變亂碼
+- **正確做法**：批次字串替換用 Edit tool 的 `replace_all: true` 而非 PowerShell pipe；或在 PowerShell 中明確指定 `-Encoding UTF8`
+- **受影響檔案**：當時是 `src/video-converter/solver/BodySolver.ts`，已 git checkout 還原
+- **根因**：Windows PowerShell 5.x 預設輸出編碼跟系統 ANSI codepage 走（zh-TW 為 CP950），Get-Content -Raw 讀取雖正確解 UTF-8，但 Set-Content 寫回會用 ANSI
+
+### [2026-04-08] `[跨平台]` — VRM bind pose 反推 REF_DIR 是 solver 校正最關鍵步驟
+
+- **錯誤**：BodySolver 的 A_POSE_REFERENCE_DIR 用「rest pose 垂直向下」假設，但實際 VRM 1.0 normalized bind 是 T-pose / A-pose，findRotation 的基線不對，視覺上姿勢被放大 1.5–2 倍
+- **正確做法**：載入 VRM 後動態計算每根骨骼的 child position 作為該骨骼的 REF_DIR（在 bone 自身的 local frame），用 `vrmController.getBoneNode(child).position` 即可。透過 BodySolver.setRefDirs() 注入。對於沒有 child 的 bone（head）不在校正範圍，要嘛跳過、要嘛用 rigid-body 三點基底重做
+- **受影響檔案**：`src/video-converter/solver/BodySolver.ts`、`src/video-converter/preview/PreviewCharacterScene.ts`
+- **根因**：VRM 1.0 normalized humanoid 每根骨骼的 rest 軸方向是 model-specific，寫死的常數只能涵蓋少數 case。動態校正才是 plan Open Question 2 的正解
+
+### [2026-04-08] `[跨平台]` — VRMController 在 vrm.scene 套 rotation.y = π，hips bone local 需補償
+
+- **錯誤**：BodySolver 算出 hipsWorldQ 後直接呼叫 setBoneRotation('hips', q)，但 vrm.scene 已被 VRMController 套了 180° Y 反轉（讓模型面相機），結果 hips 世界旋轉 = sceneRot × hips_local 多了一層 Y180，模型方向錯亂
+- **正確做法**：對 hips bone 特殊處理：`hips_local = quatMul(Y180, hipsWorldQ)`（Y180 自我反向，inverse 仍是 Y180）。其他 bone 不受影響，因為它們是相對父骨骼的 local rotation，與 scene rotation 解耦
+- **受影響檔案**：`src/video-converter/preview/PreviewCharacterScene.ts` (applyPose)
+- **根因**：scene root 的旋轉會疊加到 root bone 的 world rotation，但其他 bone 已經透過 hierarchy 被覆蓋
+
+### [2026-04-08] `[跨平台]` — MediaPipe poseWorldLandmarks 用 image-down convention，需翻 Y 與 Z
+
+- **錯誤**：BodySolver 直接吃 MediaPipe poseWorldLandmarks 的座標，模型整個倒立（hips 繞 X 軸 180°）
+- **正確做法**：在 MediaPipeRunner.detect() 出口處對 poseWorldLandmarks 做 `y = -y, z = -z` 轉換（image down → world up，camera-toward → forward-away）。**不影響 poseLandmarks**（normalized 2D image coords，給 SkeletonOverlay 在 2D canvas 用，必須維持 image down）
+- **受影響檔案**：`src/video-converter/tracking/MediaPipeRunner.ts`
+- **根因**：MediaPipe Tasks Vision 的 worldLandmarks 沿用 image space convention（X right, Y down, Z toward camera），與標準 3D 右手系（Y up Z forward）相反
+
+---
+
 ## 如何新增教訓
 
 當你修正了 Claude Code 的錯誤後，請執行：

@@ -34,12 +34,13 @@
 | v0.2 | ✅ 完成 | 自主移動狀態機 + 拖曳 + 軌道攝影機 + 視窗碰撞/吸附/遮擋（Windows-only） |
 | v0.3 | ✅ 完成 | 表情系統（自動+手動）+ 系統托盤 + Debug overlay |
 | v0.3.x | ✅ 完成 | VRM Picker 預覽對話框 + 動作 / 表情過渡平順化（cubic transition + hip 平滑 + SpringBone 保護） |
+| v0.4 | 🟡 進行中 | 影片動作轉換器（MediaPipe HolisticLandmarker → 自研混合 solver → .vad.json + .vrma 匯出 → 主視窗 tray「使用者動畫 ▸」播放）；姿勢校正待精修，head/wrist/foot 方向待重做 |
 | 平台支援 | 🟡 進行中 | Windows 完整 / macOS 渲染+動畫+表情+自主移動，視窗感知功能停用 |
-| v0.4+ | 未開始 | — |
+| v0.5+ | 未開始 | 麥克風唇形同步 + SpringBone 物理運算（原 v0.4） |
 
 ### 系統托盤選單功能（左鍵點擊）
 
-顯示桌寵 | 動畫 ▸ | 表情 ▸ | 縮放 ▸ | 動畫速率 ▸ | 暫停/恢復自主移動 | 暫停/恢復自動表情 | 暫停/恢復動畫循環 | 重置鏡頭角度 | 重置回桌面正中央 | 更換 VRM 模型 | 瀏覽 VRM 模型...（自訂預覽對話框） | 更換動畫資料夾 | Debug 模式 | 設定(TODO) | 結束
+顯示桌寵 | 動畫 ▸ | 表情 ▸ | **使用者動畫 ▸** | 縮放 ▸ | 動畫速率 ▸ | 暫停/恢復自主移動 | 暫停/恢復自動表情 | 暫停/恢復動畫循環 | 重置鏡頭角度 | 重置回桌面正中央 | 更換 VRM 模型 | 瀏覽 VRM 模型...（自訂預覽對話框） | 更換動畫資料夾 | **影片動作轉換器** | Debug 模式 | Spike ▸（dev）| 設定(TODO) | 結束
 
 ### Debug overlay 功能
 
@@ -65,6 +66,9 @@
 ```
 assets/system/vrma/ → 系統內建 .vrma 動畫（SYS_{STATE}_NN.vrma）
                       啟動時掃描，按狀態分池（見 animation-guide.md）
+~/.virtual-assistant-desktop/user-vrma/ → 影片動作轉換器輸出（v0.4）
+                      <name>.vad.json + <name>.vrma 配對；主視窗 tray
+                      「使用者動畫 ▸」自動掃描列出
 src/                → TypeScript 前端（主視窗 renderer process）
   core/             → 渲染核心（SceneManager, VRMController）
   animation/        → 動畫系統（AnimationManager, FallbackAnimation,
@@ -78,6 +82,21 @@ src/                → TypeScript 前端（主視窗 renderer process）
   types/            → 共用型別（config, animation, window, behavior, collision, tray, vrmPicker）
   vrm-picker/       → VRM 模型瀏覽對話框（獨立 BrowserWindow renderer）
                       main.ts / PreviewScene.ts / pickerLogic.ts / style.css
+  video-converter/  → 影片動作轉換器（v0.4，獨立 BrowserWindow renderer）
+    main.ts         → 入口 orchestration（VideoSource + MediaPipe + Solver
+                      + CaptureBuffer + Preview + Timeline + Settings）
+    math/           → 自研 3D 數學工具（Vector / Quat / Euler / helpers），零依賴
+    tracking/       → MediaPipe 整合（landmarkTypes / boneMapping /
+                      MediaPipeRunner — HolisticLandmarker GPU→CPU fallback）
+    solver/         → 混合 PoseSolver（BodySolver MiKaPo+Kalidokit /
+                      HandSolver / EyeGazeSolver）
+    filters/        → OneEuroFilter（Stage 1）/ GaussianQuatSmoother（Stage 2）
+    capture/        → CaptureBuffer + types + smoothBuffer per-bone 平滑
+    preview/        → PreviewCharacterScene（獨立 Three.js 場景） + VrmSwitcher
+    video/          → VideoSource（HTMLVideoElement 包裝）+ SkeletonOverlay
+    export/         → VadJsonWriter / VadJsonReader / VrmaExporter
+                      （GLTFExporter + VRMC_vrm_animation 注入）
+    ui/             → Timeline（scrub 時間軸）+ SettingsPanel
 electron/           → Electron 主程序（main process）
   main.ts           → 應用程式入口、BrowserWindow 建立
   preload.ts        → contextBridge 暴露 IPC API（主視窗與 picker 共用）
@@ -87,6 +106,8 @@ electron/           → Electron 主程序（main process）
   windowRegion.ts   → [已棄用] koffi FFI 視窗裁切（改用 3D depth occlusion）
   systemTray.ts     → 系統托盤選單
   vrmPickerWindow.ts → VRM 模型瀏覽對話框 BrowserWindow 管理
+  videoConverterWindow.ts → 影片動作轉換器 BrowserWindow 管理（v0.4）
+  spikeWindow.ts     → Phase 0 spike 視窗（dev-only）
   platform/         → 跨平台抽象層（Windows / macOS 差異集中於此）
     index.ts        → isWindows / isMac 旗標 + 統一匯出
     windowConfig.ts → 各平台 BrowserWindow 參數（含 picker 視窗）
@@ -95,6 +116,8 @@ src-tauri/          → [已棄用] 舊 Rust 後端（保留作參考）
 src-settings/       → Svelte 設定視窗（尚未實作）
 index.html          → 主視窗 HTML 入口
 vrm-picker.html     → VRM 模型瀏覽對話框 HTML 入口
+video-converter.html → 影片動作轉換器 HTML 入口
+spike-mediapipe.html / spike-vrma-export.html → Phase 0 spike 入口
 tests/              → Vitest 測試（unit/）
 ```
 
@@ -156,8 +179,9 @@ tests/              → Vitest 測試（unit/）
 | v0.1 | 透明視窗 + VRM 模型載入渲染 + .vrma 動畫系統 |
 | v0.2 | 視窗互動（碰撞/吸附/遮擋）+ 自主移動狀態機 + 拖曳 |
 | v0.3 | 表情系統（自動+手動）+ 系統托盤 + Debug overlay |
-| v0.4 | 麥克風唇形同步 + SpringBone 物理運算 |
-| v0.5 | 攝影機臉部追蹤 + 進階設定介面 + 自動更新 |
+| v0.4 | 影片動作轉換器（MediaPipe + 自研 solver + .vad.json/.vrma 匯出 + 主視窗使用者動畫整合） |
+| v0.5 | 麥克風唇形同步 + SpringBone 物理運算 |
+| v0.6 | 攝影機臉部追蹤 + 進階設定介面 + 自動更新 |
 
 ## 重要參考文件
 
