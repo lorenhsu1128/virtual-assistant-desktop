@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Spike B — VRMA round-trip</title>
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        background: #1e1e2e;
+        color: #e0e0e0;
+        font-family: 'Segoe UI', 'Microsoft JhengHei', sans-serif;
+        height: 100vh;
+        overflow: hidden;
+      }
+      #spike-root {
+        display: grid;
+        grid-template-rows: auto auto 1fr auto;
+        height: 100vh;
+      }
+      #spike-header {
+        padding: 16px 24px;
+        background: #252537;
+        border-bottom: 1px solid #3a3a4e;
+      }
+      #spike-header h1 {
+        margin: 0 0 4px 0;
+        font-size: 18px;
+        font-weight: 600;
+      }
+      #spike-header p {
+        margin: 0;
+        font-size: 13px;
+        color: #9898a8;
+      }
+      #spike-controls {
+        padding: 12px 24px;
+        background: #2a2a3e;
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+        border-bottom: 1px solid #3a3a4e;
+      }
+      button {
+        background: #4a5aff;
+        color: #fff;
+        border: none;
+        padding: 8px 16px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 13px;
+      }
+      button:hover { background: #5a6aff; }
+      button:disabled {
+        background: #3a3a4e;
+        color: #6a6a7e;
+        cursor: not-allowed;
+      }
+      #spike-body {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        overflow: hidden;
+      }
+      #spike-canvas-wrap {
+        position: relative;
+        background: #15151f;
+      }
+      #spike-canvas {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+      #spike-log {
+        background: #1a1a26;
+        padding: 16px;
+        overflow-y: auto;
+        font-family: 'Cascadia Code', Consolas, monospace;
+        font-size: 12px;
+        line-height: 1.6;
+        border-left: 1px solid #3a3a4e;
+      }
+      .log-info { color: #88c0d0; }
+      .log-success { color: #a3be8c; }
+      .log-warn { color: #ebcb8b; }
+      .log-error { color: #bf616a; }
+      .log-section {
+        color: #b48ead;
+        font-weight: 600;
+        margin-top: 8px;
+        border-top: 1px dashed #3a3a4e;
+        padding-top: 8px;
+      }
+      #spike-footer {
+        padding: 10px 24px;
+        background: #252537;
+        border-top: 1px solid #3a3a4e;
+        font-size: 12px;
+        color: #9898a8;
+      }
+      input[type='file'] {
+        color: #c0c0d0;
+        font-size: 12px;
+      }
+      label {
+        font-size: 12px;
+        color: #9898a8;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="spike-root">
+      <div id="spike-header">
+        <h1>Spike B — VRMA round-trip 驗證</h1>
+        <p>驗證 Three.js GLTFExporter + 注入 VRMC_vrm_animation extension 能否產出被 VRMAnimationLoaderPlugin 正確讀回的 .vrma</p>
+      </div>
+      <div id="spike-controls">
+        <button id="btn-export">1. 產出測試 VRMA</button>
+        <button id="btn-download" disabled>2. 下載 spike-output.vrma</button>
+        <label for="file-vrm">3. 載入 VRM：</label>
+        <input type="file" id="file-vrm" accept=".vrm" />
+        <label for="file-vrma">4. 載入 VRMA：</label>
+        <input type="file" id="file-vrma" accept=".vrma" />
+        <button id="btn-play" disabled>5. 播放驗證</button>
+        <button id="btn-clear">清空 log</button>
+      </div>
+      <div id="spike-body">
+        <div id="spike-canvas-wrap">
+          <canvas id="spike-canvas"></canvas>
+        </div>
+        <div id="spike-log"></div>
+      </div>
+      <div id="spike-footer">
+        成功準則：spike-output.vrma 能被 VRMAnimationLoaderPlugin 解析、humanBones 對應正確、套到 VRM 後手臂與 hip 動起來
+      </div>
+    </div>
+    <script type="module" src="/src/spike/vrma-export.ts"></script>
+  </body>
+</html>

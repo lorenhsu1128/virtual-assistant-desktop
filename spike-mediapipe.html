@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Spike A — MediaPipe HolisticLandmarker</title>
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        background: #1e1e2e;
+        color: #e0e0e0;
+        font-family: 'Segoe UI', 'Microsoft JhengHei', sans-serif;
+        height: 100vh;
+        overflow: hidden;
+      }
+      #spike-root {
+        display: grid;
+        grid-template-rows: auto auto 1fr auto;
+        height: 100vh;
+      }
+      #spike-header {
+        padding: 16px 24px;
+        background: #252537;
+        border-bottom: 1px solid #3a3a4e;
+      }
+      #spike-header h1 {
+        margin: 0 0 4px 0;
+        font-size: 18px;
+        font-weight: 600;
+      }
+      #spike-header p {
+        margin: 0;
+        font-size: 13px;
+        color: #9898a8;
+      }
+      #spike-controls {
+        padding: 12px 24px;
+        background: #2a2a3e;
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+        border-bottom: 1px solid #3a3a4e;
+      }
+      button {
+        background: #4a5aff;
+        color: #fff;
+        border: none;
+        padding: 8px 16px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 13px;
+      }
+      button:hover:not(:disabled) { background: #5a6aff; }
+      button:disabled {
+        background: #3a3a4e;
+        color: #6a6a7e;
+        cursor: not-allowed;
+      }
+      label {
+        font-size: 12px;
+        color: #9898a8;
+      }
+      input[type='file'] {
+        color: #c0c0d0;
+        font-size: 12px;
+      }
+      select {
+        background: #1a1a26;
+        color: #e0e0e0;
+        border: 1px solid #3a3a4e;
+        padding: 6px 10px;
+        border-radius: 4px;
+        font-size: 12px;
+      }
+      #spike-body {
+        display: grid;
+        grid-template-columns: 1.3fr 1fr;
+        overflow: hidden;
+      }
+      #video-wrap {
+        position: relative;
+        background: #15151f;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      #spike-video {
+        max-width: 100%;
+        max-height: 100%;
+        display: block;
+      }
+      #spike-overlay {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        pointer-events: none;
+      }
+      #right-pane {
+        display: grid;
+        grid-template-rows: auto 1fr;
+        border-left: 1px solid #3a3a4e;
+      }
+      #stats-panel {
+        padding: 16px;
+        background: #252537;
+        border-bottom: 1px solid #3a3a4e;
+      }
+      .stat-row {
+        display: flex;
+        justify-content: space-between;
+        font-size: 13px;
+        padding: 4px 0;
+        border-bottom: 1px dashed #3a3a4e;
+      }
+      .stat-row:last-child { border-bottom: none; }
+      .stat-label { color: #9898a8; }
+      .stat-value {
+        font-family: 'Cascadia Code', Consolas, monospace;
+        color: #a3be8c;
+      }
+      .stat-value.warn { color: #ebcb8b; }
+      .stat-value.error { color: #bf616a; }
+      #spike-log {
+        background: #1a1a26;
+        padding: 12px 16px;
+        overflow-y: auto;
+        font-family: 'Cascadia Code', Consolas, monospace;
+        font-size: 11px;
+        line-height: 1.5;
+      }
+      .log-info { color: #88c0d0; }
+      .log-success { color: #a3be8c; }
+      .log-warn { color: #ebcb8b; }
+      .log-error { color: #bf616a; }
+      .log-section {
+        color: #b48ead;
+        font-weight: 600;
+        margin-top: 6px;
+        border-top: 1px dashed #3a3a4e;
+        padding-top: 6px;
+      }
+      #spike-footer {
+        padding: 10px 24px;
+        background: #252537;
+        border-top: 1px solid #3a3a4e;
+        font-size: 12px;
+        color: #9898a8;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="spike-root">
+      <div id="spike-header">
+        <h1>Spike A — MediaPipe HolisticLandmarker</h1>
+        <p>驗證 @mediapipe/tasks-vision 的 HolisticLandmarker 在 Electron/Chromium 的可用性、GPU delegate、單幀延遲</p>
+      </div>
+      <div id="spike-controls">
+        <label for="delegate-select">Delegate：</label>
+        <select id="delegate-select">
+          <option value="GPU">GPU（優先）</option>
+          <option value="CPU">CPU</option>
+        </select>
+        <button id="btn-init">1. 初始化 HolisticLandmarker</button>
+        <label for="file-video">2. 載入影片：</label>
+        <input type="file" id="file-video" accept="video/*" />
+        <button id="btn-start" disabled>3. 開始偵測</button>
+        <button id="btn-stop" disabled>停止</button>
+        <button id="btn-clear">清空 log</button>
+      </div>
+      <div id="spike-body">
+        <div id="video-wrap">
+          <video id="spike-video" playsinline muted></video>
+          <canvas id="spike-overlay"></canvas>
+        </div>
+        <div id="right-pane">
+          <div id="stats-panel">
+            <div class="stat-row">
+              <span class="stat-label">Delegate</span>
+              <span class="stat-value" id="stat-delegate">—</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">Init 耗時</span>
+              <span class="stat-value" id="stat-init">—</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">已處理幀數</span>
+              <span class="stat-value" id="stat-frames">0</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">平均延遲</span>
+              <span class="stat-value" id="stat-avg">—</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">中位 p50</span>
+              <span class="stat-value" id="stat-p50">—</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">P95</span>
+              <span class="stat-value" id="stat-p95">—</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">Pose landmarks</span>
+              <span class="stat-value" id="stat-pose">—</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">Left hand</span>
+              <span class="stat-value" id="stat-lhand">—</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">Right hand</span>
+              <span class="stat-value" id="stat-rhand">—</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">Face landmarks</span>
+              <span class="stat-value" id="stat-face">—</span>
+            </div>
+          </div>
+          <div id="spike-log"></div>
+        </div>
+      </div>
+      <div id="spike-footer">
+        成功準則：delegate 初始化成功、中位延遲 &lt; 33ms（30fps 可行）、4 個 landmark group 都有資料
+      </div>
+    </div>
+    <script type="module" src="/src/spike/mediapipe.ts"></script>
+  </body>
+</html>
