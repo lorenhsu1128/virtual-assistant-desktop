@@ -35,6 +35,13 @@
           <div id="vc-video-stage">
             <video id="vc-video" preload="auto" playsinline muted></video>
             <canvas id="vc-skeleton-overlay"></canvas>
+            <div id="vc-stage2-overlay" class="hidden">
+              <div class="vc-stage2-spinner"></div>
+              <div class="vc-stage2-title">高品質處理中</div>
+              <div class="vc-stage2-progress" id="vc-stage2-progress">0%</div>
+              <div class="vc-stage2-frame" id="vc-stage2-frame">0 / 0</div>
+              <div class="vc-stage2-hint">處理期間影片會高速 seek，請勿操作</div>
+            </div>
           </div>
           <div id="vc-video-placeholder">
             尚未載入影片<br />

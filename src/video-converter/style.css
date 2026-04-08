@@ -238,6 +238,74 @@ body {
   pointer-events: none;
 }
 
+/* ── Stage 2 處理覆蓋層 ──
+ * 高品質處理期間每幀 seek 會讓 video 畫面快速閃動，
+ * 用深色半透明 overlay 蓋住整個 video stage，顯示進度資訊。
+ */
+#vc-stage2-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: rgba(17, 17, 27, 0.85);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  color: #cdd6f4;
+  font-size: 14px;
+  pointer-events: auto;
+  user-select: none;
+}
+
+#vc-stage2-overlay.hidden {
+  display: none !important;
+}
+
+.vc-stage2-spinner {
+  width: 44px;
+  height: 44px;
+  border: 4px solid rgba(203, 166, 247, 0.25);
+  border-top-color: #cba6f7;
+  border-radius: 50%;
+  animation: vc-stage2-spin 0.9s linear infinite;
+  margin-bottom: 6px;
+}
+
+@keyframes vc-stage2-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.vc-stage2-title {
+  font-size: 16px;
+  color: #cba6f7;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.vc-stage2-progress {
+  font-size: 22px;
+  font-weight: 600;
+  color: #cdd6f4;
+  font-variant-numeric: tabular-nums;
+}
+
+.vc-stage2-frame {
+  font-size: 12px;
+  color: #a6adc8;
+  font-variant-numeric: tabular-nums;
+}
+
+.vc-stage2-hint {
+  font-size: 11px;
+  color: #6c7086;
+  margin-top: 4px;
+}
+
 #vc-video-placeholder,
 #vc-preview-placeholder {
   flex: 1 1 auto;

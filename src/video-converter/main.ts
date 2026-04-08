@@ -414,65 +414,86 @@ async function runStage2(hqBtn: HTMLButtonElement): Promise<void> {
   const duration = state.video.duration;
   const numFrames = Math.max(1, Math.floor(duration * HQ_FPS));
 
+  // 取得處理 overlay DOM（一次，後續重用）
+  const stage2Overlay = $<HTMLDivElement>('vc-stage2-overlay');
+  const progressEl = $<HTMLDivElement>('vc-stage2-progress');
+  const frameEl = $<HTMLDivElement>('vc-stage2-frame');
+
   console.log(`[VC] Stage 2 開始：${numFrames} 幀 @ ${HQ_FPS}fps`);
   setStatus(`Stage 2 處理中：0/${numFrames} (0%)`);
+
+  // 顯示處理 overlay 蓋住 video 高速 seek 造成的畫面閃爍
+  stage2Overlay.classList.remove('hidden');
+  progressEl.textContent = '0%';
+  frameEl.textContent = `0 / ${numFrames}`;
 
   const newBuffer = new CaptureBuffer();
   state.video.pause();
 
-  // MediaPipe 內部的 calculator graph 記住 Stage 1 最後一個 timestamp（影片
-  // 時間），如果 Stage 2 又從 t=0 餵給 detectForVideo 會被 reject（非單調）。
-  // 解法：Stage 2 的 MediaPipe timestamp 用 performance.now()（全域單調），
-  // CaptureBuffer 仍然存 video time。兩者分離。
-  for (let i = 0; i < numFrames; i++) {
-    if (!state.stage2Running) {
-      console.log('[VC] Stage 2 被中斷');
-      break;
-    }
-    const t = i * frameInterval;
-    await state.video.seekTo(t);
-    const mpTimestamp = performance.now();
-    const result = state.runner.detect(state.video.element, mpTimestamp);
-    if (result) {
-      const solved = state.poseSolver.solve(result);
-      newBuffer.push({
-        timestampMs: t * 1000, // 注意：存 video time，不是 mpTimestamp
-        hipsTranslation: solved.hipsTranslation,
-        boneRotations: solved.boneRotations,
-      });
+  try {
+    // MediaPipe 內部的 calculator graph 記住 Stage 1 最後一個 timestamp（影片
+    // 時間），如果 Stage 2 又從 t=0 餵給 detectForVideo 會被 reject（非單調）。
+    // 解法：Stage 2 的 MediaPipe timestamp 用 performance.now()（全域單調），
+    // CaptureBuffer 仍然存 video time。兩者分離。
+    for (let i = 0; i < numFrames; i++) {
+      if (!state.stage2Running) {
+        console.log('[VC] Stage 2 被中斷');
+        break;
+      }
+      const t = i * frameInterval;
+      await state.video.seekTo(t);
+      const mpTimestamp = performance.now();
+      const result = state.runner.detect(state.video.element, mpTimestamp);
+      if (result) {
+        const solved = state.poseSolver.solve(result);
+        newBuffer.push({
+          timestampMs: t * 1000, // 注意：存 video time，不是 mpTimestamp
+          hipsTranslation: solved.hipsTranslation,
+          boneRotations: solved.boneRotations,
+        });
+      }
+
+      // 進度回報（每 10 幀或每 5% 更新）
+      if (i % 10 === 0 || i === numFrames - 1) {
+        const pct = Math.round((i / numFrames) * 100);
+        const pctStr = pct.toString();
+        setStatus(`Stage 2 處理中：${i + 1}/${numFrames} (${pctStr}%)`);
+        state.timeline?.setCurrentTime(t);
+        hqBtn.textContent = `處理中 ${pctStr}%`;
+        progressEl.textContent = `${pctStr}%`;
+        frameEl.textContent = `${i + 1} / ${numFrames}`;
+        // 讓事件迴圈跑一下，避免 UI 卡死
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      }
     }
 
-    // 進度回報（每 10 幀或每 5% 更新）
-    if (i % 10 === 0 || i === numFrames - 1) {
-      const pct = ((i / numFrames) * 100).toFixed(0);
-      setStatus(`Stage 2 處理中：${i + 1}/${numFrames} (${pct}%)`);
-      state.timeline?.setCurrentTime(t);
-      hqBtn.textContent = `處理中 ${pct}%`;
-      // 讓事件迴圈跑一下，避免 UI 卡死
-      await new Promise<void>((resolve) => setTimeout(resolve, 0));
-    }
+    // 進入平滑階段，overlay 更新文字
+    progressEl.textContent = '平滑';
+    frameEl.textContent = `${numFrames} / ${numFrames}`;
+
+    const rawFinalized = newBuffer.finalize(HQ_FPS);
+    console.log(`[VC] Stage 2 raw: ${rawFinalized.frames.length} 幀，開始 Gaussian 平滑`);
+
+    // 離線 Gaussian 平滑
+    const smoothed = smoothCaptureBufferData(rawFinalized, state.smoother);
+
+    // 回寫 state.captureBuffer
+    state.captureBuffer.clear();
+    for (const f of smoothed.frames) state.captureBuffer.push(f);
+    state.bufferDuration = smoothed.duration;
+
+    console.log(
+      `[VC] Stage 2 完成：${smoothed.frames.length} 幀平滑後，duration=${smoothed.duration.toFixed(2)}s`
+    );
+    setStatus(
+      `Stage 2 完成（${smoothed.frames.length} 幀平滑後 / ${smoothed.duration.toFixed(2)}s）— 拖曳時間軸預覽`
+    );
+    state.timeline?.setDuration(smoothed.duration);
+  } finally {
+    // 無論成功 / 失敗 / 中斷，都要隱藏 overlay 與還原按鈕文字
+    stage2Overlay.classList.add('hidden');
+    hqBtn.textContent = '高品質處理';
   }
-
-  hqBtn.textContent = '高品質處理';
-
-  const rawFinalized = newBuffer.finalize(HQ_FPS);
-  console.log(`[VC] Stage 2 raw: ${rawFinalized.frames.length} 幀，開始 Gaussian 平滑`);
-
-  // 離線 Gaussian 平滑
-  const smoothed = smoothCaptureBufferData(rawFinalized, state.smoother);
-
-  // 回寫 state.captureBuffer
-  state.captureBuffer.clear();
-  for (const f of smoothed.frames) state.captureBuffer.push(f);
-  state.bufferDuration = smoothed.duration;
-
-  console.log(
-    `[VC] Stage 2 完成：${smoothed.frames.length} 幀平滑後，duration=${smoothed.duration.toFixed(2)}s`
-  );
-  setStatus(
-    `Stage 2 完成（${smoothed.frames.length} 幀平滑後 / ${smoothed.duration.toFixed(2)}s）— 拖曳時間軸預覽`
-  );
-  state.timeline?.setDuration(smoothed.duration);
 }
 
 function detectLoop(): void {
