@@ -67,6 +67,27 @@ function toLandmarkArray(arr: readonly (NormalizedLandmark | MpLandmark)[] | und
   return arr.map(toLandmark);
 }
 
+/**
+ * MediaPipe Pose worldLandmarks 採 image-space 慣例：Y 朝下、Z 朝相機。
+ * 本專案 solver 假設標準右手系 Y up（單元測試也是 Y up），需轉換：
+ *   - Y 取負（image down → world up）
+ *   - Z 取負（toward camera → forward away）
+ *
+ * 不影響 poseLandmarks（normalized 2D image coords），那給 SkeletonOverlay
+ * 在 2D canvas 上繪製，必須維持原始 image down 慣例。
+ */
+function toWorldLandmarkArray(
+  arr: readonly (NormalizedLandmark | MpLandmark)[] | undefined
+): Landmark[] {
+  if (!arr) return [];
+  return arr.map((lm) => ({
+    x: lm.x,
+    y: -lm.y,
+    z: -lm.z,
+    visibility: 'visibility' in lm ? (lm as { visibility?: number }).visibility : undefined,
+  }));
+}
+
 export class MediaPipeRunner {
   private landmarker: HolisticLandmarker | null = null;
   private currentDelegate: Delegate | null = null;
@@ -145,7 +166,7 @@ export class MediaPipeRunner {
 
     return {
       poseLandmarks: toLandmarkArray(raw.poseLandmarks?.[0]),
-      poseWorldLandmarks: toLandmarkArray(raw.poseWorldLandmarks?.[0]),
+      poseWorldLandmarks: toWorldLandmarkArray(raw.poseWorldLandmarks?.[0]),
       leftHandLandmarks: toLandmarkArray(raw.leftHandLandmarks?.[0]),
       rightHandLandmarks: toLandmarkArray(raw.rightHandLandmarks?.[0]),
       faceLandmarks: toLandmarkArray(raw.faceLandmarks?.[0]),

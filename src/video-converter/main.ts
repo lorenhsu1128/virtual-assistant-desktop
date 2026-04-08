@@ -17,6 +17,9 @@ import { VideoSource } from './video/VideoSource';
 import { SkeletonOverlay } from './video/SkeletonOverlay';
 import { PreviewCharacterScene } from './preview/PreviewCharacterScene';
 import { VrmSwitcher } from './preview/VrmSwitcher';
+import { PoseSolver } from './solver/PoseSolver';
+import type { SolvedPose } from './solver/PoseSolver';
+import { CaptureBuffer } from './capture/CaptureBuffer';
 
 const $ = <T extends HTMLElement>(id: string): T => {
   const el = document.getElementById(id);
@@ -30,6 +33,8 @@ interface AppState {
   overlay: SkeletonOverlay | null;
   preview: PreviewCharacterScene | null;
   vrmSwitcher: VrmSwitcher;
+  poseSolver: PoseSolver;
+  captureBuffer: CaptureBuffer;
   detecting: boolean;
   frameCount: number;
   latencySum: number;
@@ -42,6 +47,10 @@ const state: AppState = {
   overlay: null,
   preview: null,
   vrmSwitcher: new VrmSwitcher(),
+  // Stage 1 預設關閉手指（plan 第 8 節 Open Question 1：手指即時預覽
+  // 門檻由 spike 決定，spike A 結果為手指穩定，但保守起見預設 OFF）
+  poseSolver: new PoseSolver({ enableHands: false, enableEyes: true }),
+  captureBuffer: new CaptureBuffer(),
   detecting: false,
   frameCount: 0,
   latencySum: 0,
@@ -208,6 +217,7 @@ async function bootstrap(): Promise<void> {
     state.detecting = true;
     state.frameCount = 0;
     state.latencySum = 0;
+    state.captureBuffer.clear();
     state.runner.resetTimestamp();
     state.overlay.resize();
     stopBtn.disabled = false;
@@ -227,9 +237,16 @@ async function bootstrap(): Promise<void> {
     startBtn.disabled = false;
     stopBtn.disabled = true;
     state.overlay?.clear();
+    const finalized = state.captureBuffer.finalize(state.video?.nominalFps ?? 30);
     const avgMs = state.frameCount > 0 ? state.latencySum / state.frameCount : 0;
-    console.log(`[VC] 偵測停止：${state.frameCount} 幀，平均 ${avgMs.toFixed(1)}ms`);
-    setStatus(`已停止（${state.frameCount} 幀，avg ${avgMs.toFixed(1)}ms）`);
+    console.log(
+      `[VC] 偵測停止：${state.frameCount} 幀，平均 ${avgMs.toFixed(1)}ms，` +
+        `buffer.duration=${finalized.duration.toFixed(2)}s frames=${finalized.frames.length}`
+    );
+    setStatus(
+      `已停止（${state.frameCount} 幀，avg ${avgMs.toFixed(1)}ms，` +
+        `buffer ${finalized.frames.length} frames / ${finalized.duration.toFixed(2)}s）`
+    );
   });
 
   console.log('[VC] video-converter window bootstrapped (Phase 8)');
@@ -258,18 +275,28 @@ function detectLoop(): void {
     state.latencySum += dt;
     state.overlay.draw(result);
 
+    // ── PoseSolver → applyPose → CaptureBuffer ──
+    const solved: SolvedPose = state.poseSolver.solve(result);
+    state.preview?.applyPose(solved);
+    state.captureBuffer.push({
+      timestampMs: ts,
+      hipsTranslation: solved.hipsTranslation,
+      boneRotations: solved.boneRotations,
+    });
+
     // 每 30 幀印一次摘要
     if (state.frameCount % 30 === 0) {
       const avgMs = state.latencySum / state.frameCount;
+      const boneCount = Object.keys(solved.boneRotations).length;
       console.log(
         `[VC] frame ${state.frameCount} | pose=${result.poseLandmarks.length} ` +
-          `world=${result.poseWorldLandmarks.length} ` +
-          `LH=${result.leftHandLandmarks.length} RH=${result.rightHandLandmarks.length} ` +
-          `face=${result.faceLandmarks.length} | dt=${dt.toFixed(1)}ms avg=${avgMs.toFixed(1)}ms`
+          `face=${result.faceLandmarks.length} | bones=${boneCount} ` +
+          `hips=${solved.hipsTranslation ? 'yes' : 'no'} | ` +
+          `dt=${dt.toFixed(1)}ms avg=${avgMs.toFixed(1)}ms`
       );
       setStatus(
         `偵測中：${state.frameCount} 幀，avg ${avgMs.toFixed(1)}ms ` +
-          `(pose=${result.poseLandmarks.length} face=${result.faceLandmarks.length})`
+          `(bones ${boneCount}, buffer ${state.captureBuffer.length})`
       );
     }
   }

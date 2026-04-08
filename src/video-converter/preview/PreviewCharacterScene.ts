@@ -129,20 +129,30 @@ export class PreviewCharacterScene {
     this.frameModel();
   }
 
+  /** 可重用 THREE.Quaternion，避免每幀 GC */
+  private readonly _tmpQuat = new THREE.Quaternion();
+
   /**
-   * 套用一幀 SolvedPose（Phase 10 才會真正接上）。
+   * 套用一幀 SolvedPose 到 VRM。
    *
-   * Phase 9 暫為 no-op stub；保留 API 形狀讓 main.ts 不需在 Phase 10
-   * 改動其他地方。
+   * Phase 10 行為：
+   *   - 對每根 bone，把 SolvedPose 中的 Quat 轉為 THREE.Quaternion 並
+   *     呼叫 VRMController.setBoneRotation
+   *   - 不套用 hipsTranslation（避免模型位置漂移到鏡頭外）；hip 朝向
+   *     由 hips bone 的 rotation 處理，模型整體位置維持原點
+   *   - 套用後 VRMController.update() 會在下一個 tick 走 SpringBone +
+   *     hip 平滑
+   *
+   * 缺骨骼時靜默跳過（VRM 模型可能沒有 leftEye / chest 等可選骨骼，
+   * VRMController.setBoneRotation 內部已處理）。
    */
-  applyPose(_pose: SolvedPoseLike): void {
-    // TODO Phase 10: 用 vrmController 把 SolvedPose 套到骨骼
-    // 預期流程：
-    //   - hipsTranslation → vrm.scene.position
-    //   - 對每根 bone，呼叫 vrmController.setBoneRotation 或直接操作
-    //     vrm.humanoid.getNormalizedBoneNode(name).quaternion
-    //   - 透過 VRMController 的 update() 走 SpringBone + hip 平滑
-    void _pose;
+  applyPose(pose: SolvedPoseLike): void {
+    if (!this.hasModel) return;
+    for (const [boneName, q] of Object.entries(pose.boneRotations)) {
+      if (!q) continue;
+      this._tmpQuat.set(q.x, q.y, q.z, q.w);
+      this.vrmController.setBoneRotation(boneName, this._tmpQuat);
+    }
   }
 
   /** 啟動 render loop */
