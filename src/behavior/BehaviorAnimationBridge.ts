@@ -1,35 +1,38 @@
+import type * as THREE from 'three';
 import type { AnimationManager } from '../animation/AnimationManager';
 import type { StateMachine } from './StateMachine';
 import type { BehaviorOutput, BehaviorState } from '../types/behavior';
-import type { AnimationCategory } from '../types/animation';
+import type { SystemAnimationState } from '../types/animation';
 
-/** 行為狀態→動畫分類映射 */
-const STATE_TO_CATEGORY: Record<BehaviorState, AnimationCategory> = {
-  idle: 'idle',
-  walk: 'idle', // walk 由系統動畫處理，fallback 到 idle
+/**
+ * 行為狀態 → 系統動畫池 的對照
+ *
+ * 所有狀態都透過 AnimationManager.playStateRandom 從對應狀態池隨機取一支。
+ * idle 不在此表：idle 由 AnimationManager 內部以 LoopOnce + finished 事件
+ * 自動接力，Bridge 只需呼叫 stopStateAnimation（若從其他狀態轉回）。
+ */
+const STATE_TO_POOL: Partial<Record<BehaviorState, SystemAnimationState>> = {
+  walk: 'walk',
+  hide: 'hide',
   sit: 'sit',
-  hide: 'idle', // hide 由系統動畫處理（walk），fallback 到 idle
+  drag: 'drag',
   peek: 'peek',
   fall: 'fall',
-  drag: 'idle', // drag 由系統動畫處理，fallback 到 idle
 };
 
-/** 需要系統動畫的狀態（sit 使用隨機選取，見 pickSitAnimation） */
-const STATE_TO_SYSTEM_ANIMATION: Partial<Record<BehaviorState, string>> = {
-  walk: 'walk',
-  hide: 'walk', // hide 移動階段使用 walk 動畫（到達邊緣後雖仍播放，但角色已藏在視窗後不可見）
-  drag: 'drag',
-};
-
-/** sit 動畫名稱（隨機選取） */
-const SIT_ANIMATION_NAMES = [
-  'sit_01', 'sit_02', 'sit_03', 'sit_04', 'sit_05', 'sit_06', 'sit_07',
-];
+/**
+ * walk / hide 狀態切換時觸發的 callback 型別
+ *
+ * 由 SceneManager 注入，在收到 picked clip 後執行 `analyzeWalkAnimation`
+ * 並把結果（stepLength, worldSpeed）推回 StateMachine。
+ * 讓每次切換 walk 動畫都能依該 clip 的實際步伐更新移動速度。
+ */
+export type WalkClipPickedCallback = (clip: THREE.AnimationClip) => void;
 
 /**
  * 行為→動畫橋接
  *
- * 監聽 StateMachine 的狀態變化，將行為狀態對應到動畫分類，
+ * 監聽 StateMachine 的狀態變化，將行為狀態對應到系統動畫池，
  * 呼叫 AnimationManager 播放對應動畫。
  *
  * 設計原則：StateMachine 不直接呼叫 AnimationManager，
@@ -40,10 +43,22 @@ export class BehaviorAnimationBridge {
   private stateMachine: StateMachine | null;
   /** 最新的 peekSide（用於系統動畫選擇） */
   private lastPeekSide: 'left' | 'right' | null = null;
+  /** walk/hide 狀態切換時的 callback（通常用於步伐重分析） */
+  private onWalkClipPicked: WalkClipPickedCallback | null = null;
 
-  constructor(animationManager: AnimationManager, stateMachine?: StateMachine) {
+  constructor(
+    animationManager: AnimationManager,
+    stateMachine?: StateMachine,
+    onWalkClipPicked?: WalkClipPickedCallback,
+  ) {
     this.animationManager = animationManager;
     this.stateMachine = stateMachine ?? null;
+    this.onWalkClipPicked = onWalkClipPicked ?? null;
+  }
+
+  /** 設定 walk/hide 狀態切換 callback（事後注入用） */
+  setWalkClipPickedCallback(callback: WalkClipPickedCallback | null): void {
+    this.onWalkClipPicked = callback;
   }
 
   /**
@@ -60,50 +75,48 @@ export class BehaviorAnimationBridge {
 
     if (!output.stateChanged) return;
 
-    // peek 狀態：根據 peekSide 選擇左右系統動畫，用 clip duration 設定狀態持續時間
-    if (output.currentState === 'peek' && this.lastPeekSide) {
-      const peekAnim = this.lastPeekSide === 'left'
-        ? 'hide_show_loop_left'
-        : 'hide_show_loop_right';
-      this.animationManager.playSystemAnimation(peekAnim, false, 0.5);
+    const currentState = output.currentState;
 
-      // 用實際動畫長度覆蓋 StateMachine 的 peek duration
-      const clip = this.animationManager.getSystemAnimationClip(peekAnim);
-      if (clip && this.stateMachine) {
-        this.stateMachine.setStateDuration(clip.duration);
+    // 回到 idle → 停止狀態動畫，由 AnimationManager 接管 idle 輪播
+    if (currentState === 'idle') {
+      this.animationManager.stopStateAnimation();
+      return;
+    }
+
+    const poolState = STATE_TO_POOL[currentState];
+    if (!poolState) {
+      console.warn(`[BehaviorBridge] no pool mapping for state: ${currentState}`);
+      return;
+    }
+
+    // peek 狀態：根據 peekSide 選擇左右
+    if (poolState === 'peek') {
+      const side = this.lastPeekSide ?? 'right';
+      const picked = this.animationManager.playStateRandom('peek', side);
+      if (picked && this.stateMachine) {
+        // 用實際動畫長度覆蓋 StateMachine 的 peek duration
+        this.stateMachine.setStateDuration(picked.clip.duration);
+      } else if (!picked) {
+        console.warn('[BehaviorBridge] peek pool empty, no animation played');
       }
       return;
     }
 
-    // sit 狀態：隨機選取一個 sit 動畫（站姿到坐姿差異最大，用最長 crossfade）
-    if (output.currentState === 'sit') {
-      const sitAnim = SIT_ANIMATION_NAMES[Math.floor(Math.random() * SIT_ANIMATION_NAMES.length)];
-      // 診斷：sit 狀態渲染消失 bug 調查用，記錄選中的動畫名
-      console.log('[BehaviorBridge] sit → playing system animation:', sitAnim);
-      // 與 AnimationManager.getCrossfadeDurationFor('sit') = 1.5 對齊
-      this.animationManager.playSystemAnimation(sitAnim, true, 1.5);
-      return;
-    }
-
-    // 檢查是否需要系統動畫（stateChanged 已在上方過濾，直接播放）
-    const systemAnim = STATE_TO_SYSTEM_ANIMATION[output.currentState];
-    if (systemAnim) {
-      this.animationManager.playSystemAnimation(systemAnim);
-      return;
-    }
-
-    // 離開系統動畫狀態 → 停止系統動畫
-    if (this.animationManager.isSystemAnimationPlaying()) {
-      this.animationManager.stopSystemAnimation();
-      return; // stopSystemAnimation 會恢復先前動畫
-    }
-
-    // 一般狀態→動畫分類映射
-    const category = STATE_TO_CATEGORY[output.currentState];
-    if (!this.animationManager.playByCategory(category)) {
-      if (category !== 'idle') {
-        this.animationManager.playByCategory('idle');
+    // walk / hide 狀態：播放後呼叫 callback 重新分析步伐
+    if (poolState === 'walk' || poolState === 'hide') {
+      const picked = this.animationManager.playStateRandom(poolState);
+      if (picked) {
+        this.onWalkClipPicked?.(picked.clip);
+      } else {
+        console.warn(`[BehaviorBridge] ${poolState} pool empty, no animation played`);
       }
+      return;
+    }
+
+    // sit / drag / fall 等其他狀態：直接播放對應池
+    const picked = this.animationManager.playStateRandom(poolState);
+    if (!picked) {
+      console.warn(`[BehaviorBridge] ${poolState} pool empty, no animation played`);
     }
   }
 }

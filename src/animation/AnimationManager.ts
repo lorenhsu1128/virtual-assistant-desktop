@@ -1,18 +1,23 @@
 import * as THREE from 'three';
-import type { AnimationCategory, AnimationEntry } from '../types/animation';
+import type {
+  AnimationCategory,
+  AnimationEntry,
+  SystemAnimationState,
+} from '../types/animation';
+import { SYSTEM_STATE_PLAY_CONFIG } from '../types/animation';
 
 /** 動畫載入函式型別（由 VRMController 提供，避免直接依賴 @pixiv/three-vrm） */
 export type AnimationLoader = (url: string) => Promise<THREE.AnimationClip | null>;
 
-/** 載入後的動畫資料 */
+/** 載入後的動畫資料（使用者動畫分類） */
 interface LoadedAnimation {
   entry: AnimationEntry;
   clip: THREE.AnimationClip;
 }
 
-/** 系統內建 idle 動畫條目（SYS_IDLE_*.vrma） */
-interface SysIdleClip {
-  name: string;
+/** 系統動畫池內的單一 clip（檔名 + Three.js clip） */
+export interface LoadedPoolClip {
+  fileName: string;
   clip: THREE.AnimationClip;
 }
 
@@ -37,12 +42,12 @@ const CROSSFADE_DURATION = 0.5;
 /** action 結束後回到 idle 的 crossfade 時長（較長以掩蓋 pose 差異） */
 const RETURN_TO_IDLE_FADE = 1.0;
 
-/** idle 動畫之間的等待時間隨機範圍（秒）— 從 0.5-2 拉長到 5-12 避免神經抽搐 */
+/** idle 動畫之間的等待時間隨機範圍（秒）— fallback 模式使用 */
 const IDLE_WAIT_MIN = 5;
 const IDLE_WAIT_MAX = 12;
 
 /**
- * 依分類取得 crossfade 過渡時長（秒）
+ * 依分類取得 crossfade 過渡時長（秒）— 使用者動畫用
  *
  * 不同類別動作的姿態差異不同，使用差異化時長：
  *   idle：相對相似 → 0.7s
@@ -69,15 +74,24 @@ function getCrossfadeDurationFor(category: AnimationCategory): number {
  * 管理所有 .vrma 動畫的載入、索引、播放控制。
  * 不直接依賴 @pixiv/three-vrm —— 透過 AnimationLoader 函式載入動畫，
  * 由 VRMController 封裝 VRM-specific 的轉換邏輯。
+ *
+ * 兩種動畫來源：
+ *   1. 使用者動畫分類（animations.json + AnimationEntry）
+ *      — 透過 loadAnimations 載入，按 AnimationCategory 索引
+ *      — 由右鍵選單觸發的 action 動畫屬於此來源
+ *   2. 系統動畫池（assets/system/vrma/SYS_*.vrma）
+ *      — 透過 setStatePool 注入，按 SystemAnimationState 索引
+ *      — 每個狀態（idle/walk/sit/drag/peek/fall/hide）一個池
+ *      — 由 BehaviorAnimationBridge 呼叫 playStateRandom 觸發
  */
 export class AnimationManager {
   private mixer: THREE.AnimationMixer;
   private loadAnimation: AnimationLoader;
 
-  /** 按分類索引的動畫清單 */
+  /** 按分類索引的使用者動畫清單 */
   private animationsByCategory: Map<AnimationCategory, LoadedAnimation[]> = new Map();
 
-  /** 所有已載入的動畫 */
+  /** 所有已載入的使用者動畫 */
   private allAnimations: LoadedAnimation[] = [];
 
   /** 當前播放的 action */
@@ -89,34 +103,39 @@ export class AnimationManager {
   /** 進行中的 cubic transition（階段 C）；null = 無 transition */
   private transitionState: TransitionState | null = null;
 
-  /** idle 輪播計時器（僅在 fallback 模式使用，sys idle 模式由 finished 事件驅動） */
+  /** idle 輪播計時器（僅在 fallback 模式使用，sys idle pool 由 finished 事件驅動） */
   private idleTimer = 0;
   private idleWaitTime = 0;
   private isPlayingAction = false;
   private loopEnabled = true;
 
   /**
-   * 系統內建 idle 動畫池（SYS_IDLE_*.vrma）
+   * 系統動畫池（按狀態索引）
    *
-   * 非空時 idle 模式只從此池隨機連續播放，每段播完後接下一段，
-   * 不再使用使用者動畫的 idle 分類，也不再使用 idleTimer。
+   * 每個狀態對應一個 SYS_{PREFIX}_NN.vrma 檔案清單（已解析為 clip）。
+   * 由 main.ts 啟動時掃描並注入，不在此類別內載入檔案。
    */
-  private sysIdleClips: SysIdleClip[] = [];
+  private statePools: Map<SystemAnimationState, LoadedPoolClip[]> = new Map();
 
-  /** 是否正在播放 sys idle 動畫（用於 finished 事件分流） */
-  private isPlayingSysIdle = false;
+  /**
+   * peek 狀態的左側鏡像池（runtime mirror）
+   *
+   * 由 main.ts 透過 mirrorAnimationClip 從 peek pool 產生，
+   * 當 playStateRandom('peek', 'left') 時使用此池。
+   */
+  private peekLeftClips: LoadedPoolClip[] = [];
 
-  /** 系統動畫（獨立於使用者動畫，優先級最高） */
-  private systemAnimations: Map<string, THREE.AnimationClip> = new Map();
-
-  /** 當前播放中的系統動畫 action */
-  private systemAction: THREE.AnimationAction | null = null;
+  /**
+   * 當前播放的狀態池 key（null = 正在播使用者動畫或無動畫）
+   *
+   * 用於 onAnimationFinished 判斷：
+   *   - 'idle' → 接力下一支 idle
+   *   - 其他或 null → 不接力
+   */
+  private currentPoolState: SystemAnimationState | null = null;
 
   /** 當前動畫的顯示名稱（.vrma 檔名或系統動畫名） */
   private currentDisplayName: string | null = null;
-
-  /** 系統動畫播放前保存的狀態（用於恢復） */
-  private savedState: { clip: THREE.AnimationClip; loop: boolean; isAction: boolean; displayName: string | null } | null = null;
 
   constructor(mixer: THREE.AnimationMixer, loadAnimation: AnimationLoader) {
     this.mixer = mixer;
@@ -127,7 +146,7 @@ export class AnimationManager {
   }
 
   /**
-   * 載入動畫清單
+   * 載入使用者動畫清單
    *
    * @param entries 動畫條目（來自 animations.json）
    * @param folderPath 動畫資料夾路徑
@@ -164,13 +183,14 @@ export class AnimationManager {
   }
 
   /**
-   * 依分類播放動畫
+   * 依分類播放動畫（使用者動畫）
    *
    * 從該分類中隨機選取一個動畫播放。
+   * idle 分類特別：若系統 idle 池非空，委派到 playNextIdle（系統池）。
    */
   playByCategory(category: AnimationCategory): boolean {
-    // idle 分類：若有 sys idle 池則一律由 playNextIdle 處理
-    if (category === 'idle' && this.sysIdleClips.length > 0) {
+    // idle 分類：若有系統 idle 池則一律由 playNextIdle 處理
+    if (category === 'idle' && this.hasStatePool('idle')) {
       this.playNextIdle();
       return true;
     }
@@ -188,7 +208,7 @@ export class AnimationManager {
   }
 
   /**
-   * 依名稱播放動畫
+   * 依名稱播放動畫（使用者動畫）
    */
   playByName(name: string): boolean {
     const anim = this.allAnimations.find((a) => a.entry.fileName === name);
@@ -200,131 +220,94 @@ export class AnimationManager {
     return true;
   }
 
-  // ── 系統動畫 ──
+  // ═══════════════════════════════════════════════════════════════
+  // 系統動畫池（SYS_*.vrma）
+  // ═══════════════════════════════════════════════════════════════
 
   /**
-   * 載入系統動畫
+   * 設定指定狀態的系統動畫池
    *
-   * 系統動畫獨立於使用者動畫，不進入分類索引、不出現在選單中。
-   * @param name 系統動畫識別名稱（如 'drag'）
-   * @param url 動畫檔案 URL
+   * 由 main.ts 在啟動時掃描 assets/system/vrma/ 並呼叫。
+   * 傳入空陣列等同於清除該狀態的池。
    */
-  async loadSystemAnimation(name: string, url: string): Promise<boolean> {
-    try {
-      const clip = await this.loadAnimation(url);
-      if (!clip) {
-        console.warn(`[AnimationManager] System animation '${name}' produced no clip`);
-        return false;
-      }
-      this.systemAnimations.set(name, clip);
-      return true;
-    } catch (e) {
-      console.warn(`[AnimationManager] Failed to load system animation '${name}':`, e);
-      return false;
-    }
-  }
-
-  /**
-   * 註冊系統內建 idle 動畫池
-   *
-   * 設定後 idle 模式只會從此池隨機連續播放（LoopOnce + finished 事件接力），
-   * 完全取代使用者動畫的 idle 分類。傳入空陣列可恢復為使用者 idle 分類行為。
-   */
-  setSysIdleClips(entries: SysIdleClip[]): void {
-    this.sysIdleClips = entries.slice();
-    console.log(`[AnimationManager] sys idle pool set: ${this.sysIdleClips.length} clips`);
-  }
-
-  /** 取得系統動畫 clip（供 StepAnalyzer 等外部分析用） */
-  getSystemAnimationClip(name: string): THREE.AnimationClip | null {
-    return this.systemAnimations.get(name) ?? null;
-  }
-
-  /**
-   * 註冊預建的系統動畫 clip
-   *
-   * 用於 runtime 產生的動畫（如鏡像版本），不需要從檔案載入。
-   * @param name 系統動畫識別名稱
-   * @param clip 預建的 AnimationClip
-   */
-  registerSystemAnimationClip(name: string, clip: THREE.AnimationClip): void {
-    this.systemAnimations.set(name, clip);
-  }
-
-  /**
-   * 播放系統動畫
-   *
-   * 自動保存當前動畫狀態，結束後可恢復。
-   * 優先級高於所有一般動畫。
-   */
-  playSystemAnimation(name: string, loop = true, fadeDuration = CROSSFADE_DURATION): boolean {
-    const clip = this.systemAnimations.get(name);
-    if (!clip) return false;
-
-    // 保存當前狀態（用於 stopSystemAnimation 恢復）
-    if (this.currentAction && !this.systemAction) {
-      this.savedState = {
-        clip: this.currentAction.getClip(),
-        loop: this.currentAction.loop === THREE.LoopRepeat,
-        isAction: this.isPlayingAction,
-        displayName: this.currentDisplayName,
-      };
-    }
-
-    // 播放系統動畫（透過 cubic transition 銜接）
-    const action = this.mixer.clipAction(clip);
-    action.reset();
-    if (loop) {
-      action.setLoop(THREE.LoopRepeat, Infinity);
-    } else {
-      action.setLoop(THREE.LoopOnce, 1);
-      action.clampWhenFinished = true;
-    }
-    action.play();
-
-    // 階段 C：用 cubic transition 取代線性 fadeIn/fadeOut
-    this.startTransition(this.currentAction, action, fadeDuration);
-
-    this.systemAction = action;
-    this.currentAction = action;
-    this.currentDisplayName = `SYS:${name}`;
-    return true;
-  }
-
-  /**
-   * 停止系統動畫並恢復先前動畫
-   */
-  stopSystemAnimation(): void {
-    if (!this.systemAction) return;
-
-    // 不需要顯式 fadeOut：playClip / playNextIdle 內部會 startTransition
-    // 把當前 systemAction 作為 oldAction 進行 cubic 衰減
-    this.systemAction = null;
-
-    // sys idle 模式：忽略 savedState（避免恢復到舊 sys idle 的 clamped pose），
-    // 直接挑一支新的 sys idle 接續
-    if (this.sysIdleClips.length > 0) {
-      this.savedState = null;
-      this.playNextIdle();
-      this.resetIdleTimer();
+  setStatePool(state: SystemAnimationState, clips: LoadedPoolClip[]): void {
+    if (clips.length === 0) {
+      this.statePools.delete(state);
       return;
     }
+    this.statePools.set(state, clips.slice());
+    console.log(`[AnimationManager] state pool '${state}' set: ${clips.length} clips`);
 
-    // 恢復先前動畫
-    if (this.savedState) {
-      this.playClip(this.savedState.clip, this.savedState.loop, this.savedState.isAction);
-      this.currentDisplayName = this.savedState.displayName;
-      this.savedState = null;
-    } else {
-      // 無保存狀態，回到 idle 輪播
-      this.playNextIdle();
-      this.resetIdleTimer();
+    // idle 池剛設定完畢且目前無動作在播，立刻啟動 idle 輪播
+    if (state === 'idle' && !this.isPlayingAction && this.currentAction === null) {
+      this.startIdleLoop();
     }
   }
 
-  /** 是否正在播放系統動畫 */
-  isSystemAnimationPlaying(): boolean {
-    return this.systemAction !== null;
+  /**
+   * 設定 peek 狀態的左側鏡像池
+   *
+   * 由 main.ts 在載入 peek 池後，透過 mirrorAnimationClip 產生並呼叫。
+   */
+  setPeekLeftClips(clips: LoadedPoolClip[]): void {
+    this.peekLeftClips = clips.slice();
+    console.log(`[AnimationManager] peek-left mirrored pool set: ${clips.length} clips`);
+  }
+
+  /** 取得指定狀態的池（不存在時回傳 null） */
+  getStatePool(state: SystemAnimationState): LoadedPoolClip[] | null {
+    return this.statePools.get(state) ?? null;
+  }
+
+  /** 檢查指定狀態是否有可用的動畫池 */
+  hasStatePool(state: SystemAnimationState): boolean {
+    const pool = this.statePools.get(state);
+    return !!pool && pool.length > 0;
+  }
+
+  /**
+   * 從指定狀態池隨機選取並播放一支動畫
+   *
+   * @param state 要播放的狀態
+   * @param side peek 狀態專用：'left' 會從 peekLeftClips 選取，
+   *             'right' 或未指定則從 statePools.get('peek') 選取
+   * @returns 成功時回傳被選中的 entry（供 caller 做後續分析如 step length），
+   *          池為空或失敗時回傳 null
+   */
+  playStateRandom(
+    state: SystemAnimationState,
+    side?: 'left' | 'right',
+  ): LoadedPoolClip | null {
+    // peek + left 走鏡像池
+    const pool =
+      state === 'peek' && side === 'left'
+        ? this.peekLeftClips
+        : this.statePools.get(state) ?? [];
+
+    if (pool.length === 0) return null;
+
+    const picked = pool[Math.floor(Math.random() * pool.length)];
+    const config = SYSTEM_STATE_PLAY_CONFIG[state];
+
+    this.currentPoolState = state;
+    this.isPlayingAction = false;
+    this.playClip(picked.clip, config.loop, false, config.fadeDuration, config.clampWhenFinished);
+    this.currentDisplayName = `SYS:${state}:${picked.fileName}`;
+    return picked;
+  }
+
+  /**
+   * 停止當前的狀態池動畫並回到 idle 池
+   *
+   * 由 BehaviorAnimationBridge 在離開非 idle 狀態時呼叫（例如 walk → idle），
+   * 或由 cinematic runner 結束時呼叫。
+   */
+  stopStateAnimation(): void {
+    if (this.currentPoolState === null) return;
+    this.currentPoolState = null;
+    // 回到 idle 池，由 playNextIdle 挑一支新的
+    this.playNextIdle();
+    this.resetIdleTimer();
   }
 
   /** 停止當前動畫 */
@@ -340,6 +323,7 @@ export class AnimationManager {
       this.currentAction = null;
     }
     this.currentDisplayName = null;
+    this.currentPoolState = null;
   }
 
   /** 取得當前播放的 clip */
@@ -352,18 +336,23 @@ export class AnimationManager {
     return this.currentDisplayName;
   }
 
-  /** 檢查是否有該分類的動畫 */
+  /** 取得當前所屬的狀態池 key */
+  getCurrentPoolState(): SystemAnimationState | null {
+    return this.currentPoolState;
+  }
+
+  /** 檢查是否有該分類的動畫（使用者動畫） */
   hasCategory(category: AnimationCategory): boolean {
     const list = this.animationsByCategory.get(category);
     return !!list && list.length > 0;
   }
 
-  /** 取得指定分類的動畫列表 */
+  /** 取得指定分類的動畫列表（使用者動畫） */
   getAnimationsByCategory(category: AnimationCategory): AnimationEntry[] {
     return (this.animationsByCategory.get(category) ?? []).map((a) => a.entry);
   }
 
-  /** 檢查是否有任何已載入的動畫 */
+  /** 檢查是否有任何已載入的使用者動畫 */
   hasAnimations(): boolean {
     return this.allAnimations.length > 0;
   }
@@ -394,14 +383,15 @@ export class AnimationManager {
     // Phase C: cubic transition 推進（每幀執行，不受 idle 早走影響）
     this.updateTransition(deltaTime);
 
-    if (this.systemAction) return; // 系統動畫播放中，暫停 idle 輪播
+    // 非 idle 狀態的系統動畫播放中 → 暫停 idle 輪播
+    if (this.currentPoolState !== null && this.currentPoolState !== 'idle') return;
     if (this.isPlayingAction) return;
     if (!this.loopEnabled) return;
 
-    // sys idle 模式由 mixer 'finished' 事件驅動接力，不使用計時器
-    if (this.sysIdleClips.length > 0) return;
+    // 系統 idle 池非空時由 mixer 'finished' 事件驅動接力，不使用計時器
+    if (this.hasStatePool('idle')) return;
 
-    // idle 輪播計時（fallback 模式）
+    // idle 輪播計時（fallback 模式：使用者分類動畫）
     this.idleTimer += deltaTime;
     if (this.idleTimer >= this.idleWaitTime) {
       this.playNextIdle();
@@ -415,9 +405,6 @@ export class AnimationManager {
    * 取代 Three.js 預設的線性 crossFadeTo。
    * 用 ease-out cubic 衰減 oldAction.weight，讓舊動作的影響在前期保留較久，
    * 後期快速釋放，視覺效果類似 inertialization。
-   *
-   * 若有正在進行的 transition：先停止舊的，再啟動新的。
-   * oldAction 的初始 weight 取自當前 effective weight（若被中斷則從中段繼續）。
    */
   private startTransition(
     oldAction: THREE.AnimationAction | null,
@@ -438,7 +425,6 @@ export class AnimationManager {
     }
 
     newAction.setEffectiveWeight(0);
-    // 不強制設定 oldAction.weight，沿用當前 weight（可能正在 fading）
 
     this.transitionState = {
       oldAction,
@@ -457,12 +443,6 @@ export class AnimationManager {
     const t = Math.min(1, this.transitionState.elapsed / this.transitionState.duration);
 
     // ease-out cubic decay：(1-t)^3
-    // t=0:    decay=1.000  → oldWeight=initialOldWeight, newWeight=0
-    // t=0.1:  decay=0.729  → 舊動作仍保留 73% 影響（inertia 感）
-    // t=0.3:  decay=0.343
-    // t=0.5:  decay=0.125  → 半時舊動作只剩 12.5%
-    // t=0.7:  decay=0.027
-    // t=1.0:  decay=0      → newWeight=1
     const decay = (1 - t) ** 3;
     const oldWeight = this.transitionState.initialOldWeight * decay;
     const newWeight = 1 - decay;
@@ -492,11 +472,10 @@ export class AnimationManager {
     this.mixer.removeEventListener('finished', this.onAnimationFinished);
     this.transitionState = null;
     this.stopCurrent();
-    this.systemAction = null;
-    this.savedState = null;
     this.allAnimations = [];
     this.animationsByCategory.clear();
-    this.systemAnimations.clear();
+    this.statePools.clear();
+    this.peekLeftClips = [];
   }
 
   /**
@@ -505,18 +484,20 @@ export class AnimationManager {
    * @param clip 動畫 clip
    * @param loop 是否循環
    * @param isAction 是否為 action（觸發 onAnimationFinished 回 idle 邏輯）
-   * @param fadeDuration 自訂 crossfade 時長（秒），不指定時用 CROSSFADE_DURATION
+   * @param fadeDuration 自訂 crossfade 時長（秒）
+   * @param clampWhenFinished loop=false 時是否在結尾姿勢 clamp（預設 true）
    */
   private playClip(
     clip: THREE.AnimationClip,
     loop: boolean,
     isAction: boolean,
     fadeDuration: number = CROSSFADE_DURATION,
+    clampWhenFinished = true,
   ): void {
     this.previousAction = this.currentAction;
     this.isPlayingAction = isAction;
-    // 任何 action 取代 sys idle 時，清除 sys idle 接力旗標
-    if (isAction) this.isPlayingSysIdle = false;
+    // 任何 action 取代狀態池時，清除 pool 標記
+    if (isAction) this.currentPoolState = null;
 
     const action = this.mixer.clipAction(clip);
     action.reset();
@@ -525,11 +506,10 @@ export class AnimationManager {
       action.setLoop(THREE.LoopRepeat, Infinity);
     } else {
       action.setLoop(THREE.LoopOnce, 1);
-      action.clampWhenFinished = true;
+      action.clampWhenFinished = clampWhenFinished;
     }
 
     // 階段 C：用 cubic transition 取代 Three.js 線性 crossFadeTo
-    // ease-out cubic 衰減讓舊動作的影響保留更久，視覺效果類似 inertialization
     action.play();
     this.startTransition(this.previousAction, action, fadeDuration);
     this.currentAction = action;
@@ -539,16 +519,14 @@ export class AnimationManager {
   private onAnimationFinished = (): void => {
     if (this.isPlayingAction) {
       // action 播完後回到 idle 輪播
-      // 用 RETURN_TO_IDLE_FADE（1.0s）較長的 crossfade 掩蓋 action 結尾 pose 與 idle 起始 pose 的差異
       this.isPlayingAction = false;
       this.playNextIdle(true);
       this.resetIdleTimer();
       return;
     }
 
-    // sys idle 模式：一段 idle 播完 → 隨機接下一段
-    // 系統動畫播放中時不接力（systemAction 會把 sys idle 暫停在 saved state）
-    if (this.isPlayingSysIdle && !this.systemAction) {
+    // 系統 idle 模式：一段 idle 播完 → 隨機接下一段
+    if (this.currentPoolState === 'idle') {
       this.playNextIdle();
     }
   };
@@ -561,37 +539,39 @@ export class AnimationManager {
   }
 
   /**
-   * 播放下一個 idle 動畫（無 idle 分類時從所有動畫中選取）
+   * 播放下一個 idle 動畫
+   *
+   * 優先順序：
+   *   1. 系統 idle 池（SYS_IDLE_*.vrma）→ LoopOnce + finished 事件接力
+   *   2. 使用者 idle 分類
+   *   3. 所有使用者動畫（最終 fallback）
    *
    * @param returnFromAction 若為 true，使用較長的 crossfade（1.0s 取代 0.7s）
    *                         以掩蓋 action 結尾 pose 差異
    */
   private playNextIdle(returnFromAction = false): void {
-    // 優先使用系統內建 SYS_IDLE 池：LoopOnce 隨機連續播放，由 finished 事件接力
-    if (this.sysIdleClips.length > 0) {
-      const idx = Math.floor(Math.random() * this.sysIdleClips.length);
-      const sys = this.sysIdleClips[idx];
-      const fade = returnFromAction
-        ? RETURN_TO_IDLE_FADE
-        : getCrossfadeDurationFor('idle');
-      this.isPlayingSysIdle = true;
-      this.playClip(sys.clip, false, false, fade);
-      this.currentDisplayName = sys.name;
+    // 優先：系統 idle 池
+    const sysIdlePool = this.statePools.get('idle');
+    if (sysIdlePool && sysIdlePool.length > 0) {
+      const picked = sysIdlePool[Math.floor(Math.random() * sysIdlePool.length)];
+      const config = SYSTEM_STATE_PLAY_CONFIG.idle;
+      const fade = returnFromAction ? RETURN_TO_IDLE_FADE : config.fadeDuration;
+      this.currentPoolState = 'idle';
+      this.playClip(picked.clip, config.loop, false, fade, config.clampWhenFinished);
+      this.currentDisplayName = `SYS:idle:${picked.fileName}`;
       return;
     }
 
-    // fallback：使用使用者定義的 idle 分類動畫，或全部動畫
-    this.isPlayingSysIdle = false;
+    // Fallback：使用者 idle 分類
+    this.currentPoolState = null;
     let pool = this.animationsByCategory.get('idle');
     if (!pool || pool.length === 0) {
-      // fallback：沒有 idle 動畫時，從全部動畫中輪播
       pool = this.allAnimations;
     }
     if (pool.length === 0) return;
 
     const selected = this.selectByWeight(pool);
     if (selected) {
-      // idle 輪播一律循環播放，避免 T-pose
       const fade = returnFromAction
         ? RETURN_TO_IDLE_FADE
         : getCrossfadeDurationFor('idle');
@@ -600,13 +580,13 @@ export class AnimationManager {
     }
   }
 
-  /** 重置 idle 計時器 */
+  /** 重置 idle 計時器（fallback 模式用） */
   private resetIdleTimer(): void {
     this.idleTimer = 0;
     this.idleWaitTime = IDLE_WAIT_MIN + Math.random() * (IDLE_WAIT_MAX - IDLE_WAIT_MIN);
   }
 
-  /** 依權重隨機選取動畫 */
+  /** 依權重隨機選取動畫（使用者動畫專用） */
   private selectByWeight(animations: LoadedAnimation[]): LoadedAnimation | null {
     if (animations.length === 0) return null;
     if (animations.length === 1) return animations[0];

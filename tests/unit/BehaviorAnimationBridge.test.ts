@@ -1,15 +1,16 @@
 import { describe, it, expect, vi } from 'vitest';
 import { BehaviorAnimationBridge } from '../../src/behavior/BehaviorAnimationBridge';
 import type { BehaviorOutput } from '../../src/types/behavior';
-import type { AnimationManager } from '../../src/animation/AnimationManager';
+import type { AnimationManager, LoadedPoolClip } from '../../src/animation/AnimationManager';
 
+/** 建立模擬 AnimationManager（只 mock Bridge 實際呼叫的方法） */
 function makeMockAnimationManager() {
+  const fakeClip = { duration: 1.5 } as unknown as LoadedPoolClip['clip'];
+  const fakePicked: LoadedPoolClip = { fileName: 'SYS_FAKE_01.vrma', clip: fakeClip };
   return {
-    playByCategory: vi.fn().mockReturnValue(true),
-    hasCategory: vi.fn().mockReturnValue(true),
-    isSystemAnimationPlaying: vi.fn().mockReturnValue(false),
-    playSystemAnimation: vi.fn().mockReturnValue(true),
-    stopSystemAnimation: vi.fn(),
+    playStateRandom: vi.fn().mockReturnValue(fakePicked),
+    stopStateAnimation: vi.fn(),
+    hasStatePool: vi.fn().mockReturnValue(true),
   } as unknown as AnimationManager;
 }
 
@@ -22,6 +23,8 @@ function makeOutput(overrides?: Partial<BehaviorOutput>): BehaviorOutput {
     facingDirection: 1,
     attachedWindowHwnd: null,
     traversingWindowHwnd: null,
+    peekTargetHwnd: null,
+    peekSide: null,
     ...overrides,
   };
 }
@@ -33,97 +36,109 @@ describe('BehaviorAnimationBridge', () => {
 
     bridge.update(makeOutput({ stateChanged: false }));
 
-    expect(manager.playByCategory).not.toHaveBeenCalled();
+    expect(manager.playStateRandom).not.toHaveBeenCalled();
+    expect(manager.stopStateAnimation).not.toHaveBeenCalled();
   });
 
-  it('should trigger idle animation on state change to idle', () => {
+  it('should call stopStateAnimation on state change to idle', () => {
     const manager = makeMockAnimationManager();
     const bridge = new BehaviorAnimationBridge(manager);
 
-    bridge.update(makeOutput({ currentState: 'idle', stateChanged: true }));
+    bridge.update(makeOutput({ currentState: 'idle', previousState: 'walk', stateChanged: true }));
 
-    expect(manager.playByCategory).toHaveBeenCalledWith('idle');
+    expect(manager.stopStateAnimation).toHaveBeenCalled();
+    expect(manager.playStateRandom).not.toHaveBeenCalled();
   });
 
-  it('should trigger random sit system animation on state change to sit', () => {
+  it('should play random sit from sit pool on state change to sit', () => {
     const manager = makeMockAnimationManager();
     const bridge = new BehaviorAnimationBridge(manager);
 
     bridge.update(makeOutput({ currentState: 'sit', stateChanged: true }));
 
-    // sit 使用 playSystemAnimation 隨機選取 sit_01~sit_07
-    expect(manager.playSystemAnimation).toHaveBeenCalled();
-    const calledWith = (manager.playSystemAnimation as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
-    expect(calledWith).toMatch(/^sit_\d{2}$/);
+    expect(manager.playStateRandom).toHaveBeenCalledWith('sit');
   });
 
-  it('should trigger fall animation on state change to fall', () => {
+  it('should play fall pool on state change to fall', () => {
     const manager = makeMockAnimationManager();
     const bridge = new BehaviorAnimationBridge(manager);
 
     bridge.update(makeOutput({ currentState: 'fall', stateChanged: true }));
 
-    expect(manager.playByCategory).toHaveBeenCalledWith('fall');
+    expect(manager.playStateRandom).toHaveBeenCalledWith('fall');
   });
 
-  it('should trigger peek animation on state change to peek', () => {
+  it('should play peek with right side by default', () => {
     const manager = makeMockAnimationManager();
     const bridge = new BehaviorAnimationBridge(manager);
 
     bridge.update(makeOutput({ currentState: 'peek', stateChanged: true }));
 
-    expect(manager.playByCategory).toHaveBeenCalledWith('peek');
+    expect(manager.playStateRandom).toHaveBeenCalledWith('peek', 'right');
   });
 
-  it('should play system animation for walk state', () => {
+  it('should play peek with left side when peekSide is left', () => {
     const manager = makeMockAnimationManager();
     const bridge = new BehaviorAnimationBridge(manager);
 
-    bridge.update(makeOutput({ currentState: 'walk', stateChanged: true }));
+    // 先發送 peekSide='left' 的 output（stateChanged=false 也會更新 lastPeekSide）
+    bridge.update(makeOutput({ peekSide: 'left', stateChanged: false }));
+    // 再觸發狀態轉換
+    bridge.update(makeOutput({ currentState: 'peek', peekSide: 'left', stateChanged: true }));
 
-    expect(manager.playSystemAnimation).toHaveBeenCalledWith('walk');
+    expect(manager.playStateRandom).toHaveBeenCalledWith('peek', 'left');
   });
 
-  it('should play system animation for drag state', () => {
+  it('should play walk pool and trigger onWalkClipPicked callback', () => {
+    const manager = makeMockAnimationManager();
+    const onWalkClipPicked = vi.fn();
+    const bridge = new BehaviorAnimationBridge(manager, undefined, onWalkClipPicked);
+
+    bridge.update(makeOutput({ currentState: 'walk', stateChanged: true }));
+
+    expect(manager.playStateRandom).toHaveBeenCalledWith('walk');
+    expect(onWalkClipPicked).toHaveBeenCalledTimes(1);
+  });
+
+  it('should play hide pool and trigger onWalkClipPicked callback', () => {
+    const manager = makeMockAnimationManager();
+    const onWalkClipPicked = vi.fn();
+    const bridge = new BehaviorAnimationBridge(manager, undefined, onWalkClipPicked);
+
+    bridge.update(makeOutput({ currentState: 'hide', stateChanged: true }));
+
+    expect(manager.playStateRandom).toHaveBeenCalledWith('hide');
+    expect(onWalkClipPicked).toHaveBeenCalledTimes(1);
+  });
+
+  it('should play drag pool on state change to drag', () => {
     const manager = makeMockAnimationManager();
     const bridge = new BehaviorAnimationBridge(manager);
 
     bridge.update(makeOutput({ currentState: 'drag', stateChanged: true }));
 
-    expect(manager.playSystemAnimation).toHaveBeenCalledWith('drag');
+    expect(manager.playStateRandom).toHaveBeenCalledWith('drag');
   });
 
-  it('should stop system animation when leaving walk state', () => {
+  it('should NOT call onWalkClipPicked when pool is empty (playStateRandom returns null)', () => {
     const manager = makeMockAnimationManager();
-    (manager.isSystemAnimationPlaying as ReturnType<typeof vi.fn>).mockReturnValue(true);
-    const bridge = new BehaviorAnimationBridge(manager);
+    (manager.playStateRandom as ReturnType<typeof vi.fn>).mockReturnValue(null);
+    const onWalkClipPicked = vi.fn();
+    const bridge = new BehaviorAnimationBridge(manager, undefined, onWalkClipPicked);
 
-    bridge.update(makeOutput({ currentState: 'idle', previousState: 'walk', stateChanged: true }));
+    bridge.update(makeOutput({ currentState: 'walk', stateChanged: true }));
 
-    expect(manager.stopSystemAnimation).toHaveBeenCalled();
+    expect(onWalkClipPicked).not.toHaveBeenCalled();
   });
 
-  it('should fallback to idle when target category has no animation', () => {
-    const manager = makeMockAnimationManager();
-    (manager.playByCategory as ReturnType<typeof vi.fn>)
-      .mockReturnValueOnce(false) // peek failed
-      .mockReturnValueOnce(true); // idle succeeded
-    const bridge = new BehaviorAnimationBridge(manager);
-
-    bridge.update(makeOutput({ currentState: 'peek', stateChanged: true }));
-
-    expect(manager.playByCategory).toHaveBeenCalledTimes(2);
-    expect(manager.playByCategory).toHaveBeenNthCalledWith(1, 'peek');
-    expect(manager.playByCategory).toHaveBeenNthCalledWith(2, 'idle');
-  });
-
-  it('should not reference collide animation (bounce removed)', () => {
+  it('should setWalkClipPickedCallback via method after construction', () => {
     const manager = makeMockAnimationManager();
     const bridge = new BehaviorAnimationBridge(manager);
+    const onWalkClipPicked = vi.fn();
+    bridge.setWalkClipPickedCallback(onWalkClipPicked);
 
-    // No state change → no animation call
-    bridge.update(makeOutput({ stateChanged: false }));
+    bridge.update(makeOutput({ currentState: 'walk', stateChanged: true }));
 
-    expect(manager.playByCategory).not.toHaveBeenCalled();
+    expect(onWalkClipPicked).toHaveBeenCalledTimes(1);
   });
 });

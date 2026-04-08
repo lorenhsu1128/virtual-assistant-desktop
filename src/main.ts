@@ -15,8 +15,13 @@ import { ExpressionManager } from './expression/ExpressionManager';
 import { DebugOverlay } from './debug/DebugOverlay';
 import { analyzeWalkAnimation } from './animation/StepAnalyzer';
 import { mirrorAnimationClip } from './animation/AnimationMirror';
-import { isSysIdleFile } from './vrm-picker/pickerLogic';
 import { CharacterContextMenu } from './interaction/CharacterContextMenu';
+import { SYSTEM_ANIMATION_STATES } from './types/animation';
+import {
+  filterFilesByState,
+  extractBasename,
+} from './animation/systemAnimationMatcher';
+import type { LoadedPoolClip } from './animation/AnimationManager';
 import { WindowMeshManager } from './occlusion/WindowMeshManager';
 
 /** IPC 事件 unlisten 函式集合（beforeunload 時統一清除） */
@@ -245,82 +250,10 @@ async function initializeApp(config: AppConfig, appPath: string): Promise<void> 
     sceneManager.setUseFallback(true);
   }
 
-  // 載入系統動畫
+  // 載入系統動畫（統一「狀態→池」機制，詳見 /animation-guide.md）
   if (animationManager) {
     const sysVrmaDir = `${appPath}/${config.systemAssetsDir}/vrma`.replace(/\\/g, '/');
-    await animationManager.loadSystemAnimation(
-      'drag',
-      `${sysVrmaDir}/SYS_DRAGGING.vrma`,
-    );
-    await animationManager.loadSystemAnimation(
-      'walk',
-      `${sysVrmaDir}/SYS_WALK.vrma`,
-    );
-
-    // 載入多個 sit 動畫（SYS_SIT_01 ~ SYS_SIT_07）
-    for (let i = 1; i <= 7; i++) {
-      const sitName = `sit_${String(i).padStart(2, '0')}`;
-      const sitFile = `SYS_SIT_${String(i).padStart(2, '0')}.vrma`;
-      await animationManager.loadSystemAnimation(sitName, `${sysVrmaDir}/${sitFile}`);
-    }
-    // 載入 peek 動畫（右探頭讀檔）+ runtime mirror 產生左探頭
-    await animationManager.loadSystemAnimation(
-      'hide_show_loop_right',
-      `${sysVrmaDir}/SYS_HIDE_SHOW_LOOP_RIGHT.vrma`,
-    );
-    const rightPeekClip = animationManager.getSystemAnimationClip('hide_show_loop_right');
-    const boneMapping = vrmController.getHumanoidBoneMapping();
-    if (rightPeekClip && boneMapping) {
-      const leftPeekClip = mirrorAnimationClip(rightPeekClip, boneMapping);
-      animationManager.registerSystemAnimationClip('hide_show_loop_left', leftPeekClip);
-      debugLog('System animations loaded (drag, walk, sit_01~07, hide_show_loop_right + mirrored left)');
-    } else {
-      // Fallback：mirror 失敗時載入預製檔案
-      await animationManager.loadSystemAnimation(
-        'hide_show_loop_left',
-        `${sysVrmaDir}/SYS_HIDE_SHOW_LOOP_LEFT.vrma`,
-      );
-      debugLog('System animations loaded (drag, walk, sit_01~07, hide_show_loop_left/right from files)');
-    }
-
-    // 載入系統內建 SYS_IDLE_*.vrma 池（idle 模式只播這些）
-    try {
-      const allVrma = await ipc.scanVrmaFiles(sysVrmaDir);
-      const sysIdleFiles = allVrma.filter(isSysIdleFile);
-      const sysIdleClips: { name: string; clip: THREE.AnimationClip }[] = [];
-      for (const filePath of sysIdleFiles) {
-        const url = ipc.convertToAssetUrl(filePath);
-        try {
-          const clip = await vrmController.loadVRMAnimation(url);
-          if (clip) {
-            const fileName = filePath.replace(/\\/g, '/').split('/').pop() ?? filePath;
-            sysIdleClips.push({ name: fileName, clip });
-          }
-        } catch (e) {
-          console.warn('[main] failed to load SYS_IDLE clip:', filePath, e);
-        }
-      }
-      if (sysIdleClips.length > 0) {
-        animationManager.setSysIdleClips(sysIdleClips);
-        debugLog(`SYS_IDLE pool loaded: ${sysIdleClips.length} clips`);
-      } else {
-        console.warn('[main] no SYS_IDLE_*.vrma loaded; idle will fall back to user animations');
-      }
-    } catch (e) {
-      console.warn('[main] SYS_IDLE scan/load failed:', e);
-    }
-
-    // 步伐分析：從行走動畫計算擬真移動速度
-    const walkClip = animationManager.getSystemAnimationClip('walk');
-    if (walkClip) {
-      const analysis = analyzeWalkAnimation(walkClip, vrmController);
-      if (analysis) {
-        // 傳 worldSpeed（世界單位/秒）給 SceneManager，
-        // 由它根據當前 baseScale 動態計算 px/sec 並推入 StateMachine
-        sceneManager.setStepAnalysis(analysis.stepLength, analysis.worldSpeed);
-        debugLog(`Walk step analysis: stepLen=${analysis.stepLength.toFixed(3)} cycle=${analysis.cycleDuration.toFixed(2)}s steps=${analysis.stepsPerCycle} worldSpeed=${analysis.worldSpeed.toFixed(3)}`);
-      }
-    }
+    await loadAllSystemAnimations(animationManager, vrmController, sysVrmaDir);
   }
 
   // 套用已儲存的動畫循環設定
@@ -425,8 +358,25 @@ async function initializeBehaviorSystem(
   sceneManager.setStateMachine(stateMachine);
 
   // BehaviorAnimationBridge
+  // 注入 walk clip picked callback：每次切換 walk/hide 動畫時重新分析步伐，
+  // 讓 StateMachine 的移動速度與該 clip 的實際步長同步。
   if (animationManager) {
-    const bridge = new BehaviorAnimationBridge(animationManager, stateMachine);
+    const onWalkClipPicked = (clip: THREE.AnimationClip): void => {
+      const analysis = analyzeWalkAnimation(clip, vrmController);
+      if (analysis) {
+        sceneManager.setStepAnalysis(analysis.stepLength, analysis.worldSpeed);
+        debugLog(
+          `[walk] reanalyzed: stepLen=${analysis.stepLength.toFixed(3)} ` +
+            `cycle=${analysis.cycleDuration.toFixed(2)}s ` +
+            `worldSpeed=${analysis.worldSpeed.toFixed(3)}`,
+        );
+      }
+    };
+    const bridge = new BehaviorAnimationBridge(
+      animationManager,
+      stateMachine,
+      onWalkClipPicked,
+    );
     sceneManager.setBehaviorAnimationBridge(bridge);
   }
 
@@ -720,6 +670,76 @@ function waitForClick(buttonId: string): Promise<void> {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * 統一掃描並載入 `assets/system/vrma/` 所有系統動畫
+ *
+ * 流程：
+ *   1. 一次性掃描資料夾取得所有 .vrma 檔案清單
+ *   2. 對每個 SystemAnimationState（idle/sit/walk/drag/peek/fall/hide）：
+ *      - 用 regex 過濾符合 `SYS_{PREFIX}_NN.vrma` 的檔案
+ *      - 逐一載入為 Three.js AnimationClip
+ *      - 透過 `animationManager.setStatePool(state, clips)` 注入
+ *   3. peek 池載入後做 runtime mirror 產生左側池（setPeekLeftClips）
+ *
+ * 檔名規範與加入新動畫的方法詳見 `/animation-guide.md`。
+ */
+async function loadAllSystemAnimations(
+  animationManager: AnimationManager,
+  vrmController: VRMController,
+  sysVrmaDir: string,
+): Promise<void> {
+  let allVrma: string[];
+  try {
+    allVrma = await ipc.scanVrmaFiles(sysVrmaDir);
+  } catch (e) {
+    console.warn('[main] scanVrmaFiles failed, system animations disabled:', e);
+    return;
+  }
+
+  // 每個狀態各自載入成池
+  for (const state of SYSTEM_ANIMATION_STATES) {
+    const files = filterFilesByState(allVrma, state);
+    if (files.length === 0) {
+      console.warn(`[main] no SYS_${state.toUpperCase()}_*.vrma found; '${state}' state has no animation`);
+      continue;
+    }
+
+    const clips: LoadedPoolClip[] = [];
+    for (const filePath of files) {
+      const url = ipc.convertToAssetUrl(filePath);
+      try {
+        const clip = await vrmController.loadVRMAnimation(url);
+        if (clip) {
+          clips.push({ fileName: extractBasename(filePath), clip });
+        }
+      } catch (e) {
+        console.warn(`[main] failed to load ${filePath}:`, e);
+      }
+    }
+
+    if (clips.length > 0) {
+      animationManager.setStatePool(state, clips);
+      debugLog(`[sys-anim] pool '${state}' loaded: ${clips.length} clips`);
+    }
+  }
+
+  // peek 池的 runtime mirror（special case）
+  const peekPool = animationManager.getStatePool('peek');
+  if (peekPool && peekPool.length > 0) {
+    const boneMapping = vrmController.getHumanoidBoneMapping();
+    if (boneMapping) {
+      const peekLeftClips: LoadedPoolClip[] = peekPool.map(({ fileName, clip }) => ({
+        fileName: fileName.replace(/\.vrma$/i, '_mirrored.vrma'),
+        clip: mirrorAnimationClip(clip, boneMapping),
+      }));
+      animationManager.setPeekLeftClips(peekLeftClips);
+      debugLog(`[sys-anim] peek-left mirrored: ${peekLeftClips.length} clips`);
+    } else {
+      console.warn('[main] peek mirror skipped: humanoid bone mapping unavailable');
+    }
+  }
 }
 
 // 啟動

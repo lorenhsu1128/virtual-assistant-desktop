@@ -565,8 +565,9 @@ export class SceneManager {
       headHeightRatio,
     });
 
-    // 播放 walk 動畫
-    this.animationManager?.playSystemAnimation('walk', true, 0.3);
+    // 播放 walk 動畫（cinematic 直接呼叫 AnimationManager，
+    // 不經 Bridge，因此不會觸發 walk 步伐重分析 — StateMachine 被暫停中）
+    this.animationManager?.playStateRandom('walk');
   }
 
   /** 結束演出，恢復原始狀態 */
@@ -580,8 +581,8 @@ export class SceneManager {
     // 恢復動畫速率
     this.animationManager?.setTimeScale(this.preCinematicState.timeScale);
 
-    // 停止 walk 系統動畫，恢復 idle
-    this.animationManager?.stopSystemAnimation();
+    // 停止 walk 狀態動畫，恢復 idle
+    this.animationManager?.stopStateAnimation();
 
     // 恢復模型朝向
     this.vrmController?.setFacingRotationY(0);
