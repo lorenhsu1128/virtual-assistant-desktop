@@ -140,12 +140,18 @@ body {
   color: #585b70;
 }
 
+/* VRM 預覽舞台 */
+#vc-preview-stage {
+  flex: 1 1 auto;
+  position: relative;
+  min-height: 0;
+}
+
 #vc-preview-canvas {
-  position: absolute;
-  inset: 0;
+  display: block;
   width: 100%;
   height: 100%;
-  display: none; /* Phase 9 才啟用 */
+  background: #11111b;
 }
 
 /* ── Footer ── */

@@ -15,6 +15,8 @@ import { MediaPipeRunner } from './tracking/MediaPipeRunner';
 import type { HolisticResult } from './tracking/landmarkTypes';
 import { VideoSource } from './video/VideoSource';
 import { SkeletonOverlay } from './video/SkeletonOverlay';
+import { PreviewCharacterScene } from './preview/PreviewCharacterScene';
+import { VrmSwitcher } from './preview/VrmSwitcher';
 
 const $ = <T extends HTMLElement>(id: string): T => {
   const el = document.getElementById(id);
@@ -26,6 +28,8 @@ interface AppState {
   runner: MediaPipeRunner | null;
   video: VideoSource | null;
   overlay: SkeletonOverlay | null;
+  preview: PreviewCharacterScene | null;
+  vrmSwitcher: VrmSwitcher;
   detecting: boolean;
   frameCount: number;
   latencySum: number;
@@ -36,6 +40,8 @@ const state: AppState = {
   runner: null,
   video: null,
   overlay: null,
+  preview: null,
+  vrmSwitcher: new VrmSwitcher(),
   detecting: false,
   frameCount: 0,
   latencySum: 0,
@@ -48,22 +54,62 @@ function setStatus(text: string): void {
 
 async function bootstrap(): Promise<void> {
   const loadVideoBtn = $<HTMLButtonElement>('vc-load-video-btn');
+  const loadVrmBtn = $<HTMLButtonElement>('vc-load-vrm-btn');
   const startBtn = $<HTMLButtonElement>('vc-start-btn');
   const stopBtn = $<HTMLButtonElement>('vc-stop-btn');
   const fileInput = $<HTMLInputElement>('vc-file-input');
   const videoEl = $<HTMLVideoElement>('vc-video');
   const overlayCanvas = $<HTMLCanvasElement>('vc-skeleton-overlay');
+  const previewCanvas = $<HTMLCanvasElement>('vc-preview-canvas');
   const videoStage = $<HTMLDivElement>('vc-video-stage');
   const videoPlaceholder = $<HTMLDivElement>('vc-video-placeholder');
   const previewPlaceholder = $<HTMLDivElement>('vc-preview-placeholder');
 
   state.video = new VideoSource(videoEl);
   state.overlay = new SkeletonOverlay(overlayCanvas, videoEl);
+  state.preview = new PreviewCharacterScene(previewCanvas);
 
-  // 預覽窗格 placeholder（Phase 9 才會接上 VRM 預覽）
-  previewPlaceholder.style.display = 'flex';
+  setStatus('Phase 9 — 載入 VRM 預覽中...');
 
-  setStatus('Phase 8 — 等待載入影片');
+  // ── 載入預設 VRM（從主視窗 config.vrmModelPath） ──
+  loadVrmBtn.disabled = true;
+  try {
+    const config = await ipc.readConfig();
+    if (config?.vrmModelPath) {
+      const url = window.electronAPI.convertToAssetUrl(config.vrmModelPath);
+      previewCanvas.style.display = 'block';
+      // 等下一幀讓 layout 完成再 resize
+      requestAnimationFrame(() => state.preview?.resize());
+      await state.preview.loadVrm(url);
+      state.preview.start();
+      previewPlaceholder.style.display = 'none';
+      console.log('[VC] 預設 VRM 載入成功:', config.vrmModelPath);
+    } else {
+      previewPlaceholder.style.display = 'flex';
+      console.log('[VC] config 中無 vrmModelPath，請點「切換 VRM」載入');
+    }
+  } catch (err) {
+    console.warn('[VC] 預設 VRM 載入失敗:', err);
+    previewPlaceholder.style.display = 'flex';
+  }
+  loadVrmBtn.disabled = false;
+
+  setStatus('Phase 9 — 等待載入影片');
+
+  // ── 切換 VRM ──
+  loadVrmBtn.addEventListener('click', async () => {
+    if (!state.preview) return;
+    await state.vrmSwitcher.pickAndApply(async (vrmPath) => {
+      const url = window.electronAPI.convertToAssetUrl(vrmPath);
+      previewCanvas.style.display = 'block';
+      requestAnimationFrame(() => state.preview?.resize());
+      await state.preview!.loadVrm(url);
+      if (!state.preview!.isModelLoaded) return;
+      state.preview!.start();
+      previewPlaceholder.style.display = 'none';
+      console.log('[VC] 切換 VRM:', vrmPath);
+    });
+  });
 
   // ── 載入影片：走 IPC pickVideoFile（cancel 不做任何事；
   //               IPC 真正失敗才 fallback 為 <input file>） ──
@@ -133,8 +179,11 @@ async function bootstrap(): Promise<void> {
     setStatus(`影片就緒：${name}（${info}）— 點擊「開始擷取」`);
   }
 
-  // 視窗 resize 時重抓 overlay 尺寸
-  window.addEventListener('resize', () => state.overlay?.resize());
+  // 視窗 resize 時重抓 overlay + preview scene 尺寸
+  window.addEventListener('resize', () => {
+    state.overlay?.resize();
+    state.preview?.resize();
+  });
 
   // ── 開始擷取（init runner + detect loop） ──
   startBtn.addEventListener('click', async () => {
