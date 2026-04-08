@@ -29,7 +29,8 @@ import {
   quatRotateVec,
 } from '../math/Quat';
 import type { Vec3 } from '../math/Vector';
-import { sub, normalize, cross, length } from '../math/Vector';
+import { sub, normalize, cross, length, angleBetween3DCoords } from '../math/Vector';
+import { eulerToQuat } from '../math/Euler';
 import type { Landmark } from '../tracking/landmarkTypes';
 import { POSE, POSE_LANDMARK_COUNT } from '../tracking/landmarkTypes';
 import {
@@ -283,10 +284,22 @@ export class BodySolver {
     const upperArmWorldQ = quatMul(shoulderWorldQ, upperArm);
     out.ancestorWorldQ[upperArmBone] = upperArmWorldQ;
 
-    // lowerArm
-    const laWorldDir = normalize(sub(wrist, elbow));
-    const laLocalDir = quatRotateVec(quatConj(upperArmWorldQ), laWorldDir);
-    const lowerArm = quatFromUnitVectors(this.refDirs[lowerArmBone], laLocalDir);
+    // lowerArm（1 DOF Z 軸，plan §5.2）
+    //
+    // 肘關節是 hinge joint，僅能繞前臂 X 軸（解剖學）或 Z 軸（VRM 本地）
+    // 做單一自由度的彎曲。用 shoulder-elbow-wrist 夾角反推：
+    //   bendAngle  = π 時手臂伸直 → Z = 0
+    //   bendAngle → 0 時手臂完全折疊 → Z → -π
+    // LEFT / RIGHT 鏡像 invert。
+    const bendAngle = angleBetween3DCoords(shoulder, elbow, wrist);
+    const invert = side === 'left' ? -1 : 1;
+    const lowerArmZRaw = -(Math.PI - bendAngle) * invert;
+    // clamp 到 [-2.14, 0]×invert 範圍（plan §5.2 數值）
+    const lowerArmZ =
+      invert > 0
+        ? Math.max(-2.14, Math.min(0, lowerArmZRaw))
+        : Math.min(2.14, Math.max(0, lowerArmZRaw));
+    const lowerArm = eulerToQuat(0, 0, lowerArmZ, 'XYZ');
     out.rotations[lowerArmBone] = lowerArm;
     const lowerArmWorldQ = quatMul(upperArmWorldQ, lowerArm);
     out.ancestorWorldQ[lowerArmBone] = lowerArmWorldQ;

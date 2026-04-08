@@ -14,6 +14,7 @@ import type { VRMHumanoidBoneName } from '../tracking/boneMapping';
 import { BodySolver, type RefDirMap } from './BodySolver';
 import { HandSolver } from './HandSolver';
 import { EyeGazeSolver } from './EyeGazeSolver';
+import { applyKalidokitArmAdjust } from './armPostProcess';
 
 export interface SolvedPose {
   hipsTranslation: Vec3 | null;
@@ -68,6 +69,24 @@ export class PoseSolver {
       const body = this.bodySolver.solve(result.poseWorldLandmarks);
       out.hipsTranslation = body.hipsTranslation;
       Object.assign(out.boneRotations, body.rotations);
+
+      // Kalidokit 風格手臂後處理（plan §5.2 / §14）：
+      // 套用 upperArm.z ×(-2.3×invert) 倍率、x/y clamp、解剖耦合。
+      // 只覆寫已解算的手臂四根，其他骨骼不受影響。
+      const lUa = body.rotations.leftUpperArm;
+      const lLa = body.rotations.leftLowerArm;
+      if (lUa && lLa) {
+        const { upperArm, lowerArm } = applyKalidokitArmAdjust('left', lUa, lLa);
+        out.boneRotations.leftUpperArm = upperArm;
+        out.boneRotations.leftLowerArm = lowerArm;
+      }
+      const rUa = body.rotations.rightUpperArm;
+      const rLa = body.rotations.rightLowerArm;
+      if (rUa && rLa) {
+        const { upperArm, lowerArm } = applyKalidokitArmAdjust('right', rUa, rLa);
+        out.boneRotations.rightUpperArm = upperArm;
+        out.boneRotations.rightLowerArm = lowerArm;
+      }
     }
 
     if (this.opts.enableHands) {
