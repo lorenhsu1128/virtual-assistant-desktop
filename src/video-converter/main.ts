@@ -23,6 +23,7 @@ import { CaptureBuffer } from './capture/CaptureBuffer';
 import { smoothCaptureBufferData } from './capture/smoothBuffer';
 import { GaussianQuatSmoother } from './filters/GaussianQuatSmoother';
 import { Timeline } from './ui/Timeline';
+import { SettingsPanel, type SettingsState } from './ui/SettingsPanel';
 import { serializeToVadJson } from './export/VadJsonWriter';
 import { VrmaExporter } from './export/VrmaExporter';
 import { bufferToClip } from '../animation/BufferToClip';
@@ -45,6 +46,9 @@ interface AppState {
   bufferDuration: number;
   smoother: GaussianQuatSmoother;
   timeline: Timeline | null;
+  settings: SettingsPanel | null;
+  /** Stage 2 重抽 fps（由 SettingsPanel 控制） */
+  stage2Fps: number;
   detecting: boolean;
   stage2Running: boolean;
   frameCount: number;
@@ -66,6 +70,8 @@ const state: AppState = {
   // Stage 2 離線平滑器（plan 第 2.6 / 5.5 節）
   smoother: new GaussianQuatSmoother({ halfWindow: 3, sigma: 1.5 }),
   timeline: null,
+  settings: null,
+  stage2Fps: 30,
   detecting: false,
   stage2Running: false,
   frameCount: 0,
@@ -97,6 +103,30 @@ async function bootstrap(): Promise<void> {
   state.overlay = new SkeletonOverlay(overlayCanvas, videoEl);
   state.preview = new PreviewCharacterScene(previewCanvas);
   state.timeline = new Timeline(timelineContainer);
+
+  // Settings panel（Phase 14）
+  const settingsContainer = $<HTMLDivElement>('vc-settings-panel');
+  const settingsBtn = $<HTMLButtonElement>('vc-settings-btn');
+  state.settings = new SettingsPanel(settingsContainer, {
+    enableHands: false,
+    enableEyes: true,
+    gaussianSigma: 1.5,
+    gaussianHalfWindow: 3,
+    stage2Fps: 30,
+  });
+  state.settings.onChange((s: SettingsState) => {
+    state.poseSolver.setOptions({
+      enableHands: s.enableHands,
+      enableEyes: s.enableEyes,
+    });
+    state.smoother.setOptions({
+      sigma: s.gaussianSigma,
+      halfWindow: s.gaussianHalfWindow,
+    });
+    state.stage2Fps = s.stage2Fps;
+    console.log('[VC] settings changed:', s);
+  });
+  settingsBtn.addEventListener('click', () => state.settings?.toggle());
 
   // Timeline scrub → sampleAt buffer → applyPose
   state.timeline.onScrub((t) => {
@@ -379,7 +409,7 @@ async function bootstrap(): Promise<void> {
  */
 async function runStage2(hqBtn: HTMLButtonElement): Promise<void> {
   if (!state.video || !state.runner) return;
-  const HQ_FPS = 30;
+  const HQ_FPS = state.stage2Fps;
   const frameInterval = 1 / HQ_FPS;
   const duration = state.video.duration;
   const numFrames = Math.max(1, Math.floor(duration * HQ_FPS));

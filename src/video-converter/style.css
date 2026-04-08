@@ -85,6 +85,103 @@ body {
   color: #6c7086;
 }
 
+/* ── Settings Panel ── */
+.vc-settings-panel {
+  position: absolute;
+  top: 56px;
+  right: 16px;
+  width: 320px;
+  background: #181825;
+  border: 1px solid #45475a;
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  flex-direction: column;
+  z-index: 100;
+  font-size: 12px;
+}
+
+.vc-settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid #313244;
+}
+
+.vc-settings-header h2 {
+  margin: 0;
+  font-size: 13px;
+  color: #cba6f7;
+  font-weight: 600;
+}
+
+.vc-settings-close {
+  background: transparent;
+  color: #6c7086;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0 6px;
+  line-height: 1;
+}
+
+.vc-settings-close:hover {
+  color: #f38ba8;
+}
+
+.vc-settings-section {
+  padding: 10px 16px;
+  border-bottom: 1px solid #313244;
+}
+
+.vc-settings-section:last-of-type {
+  border-bottom: none;
+}
+
+.vc-settings-section-title {
+  font-size: 11px;
+  color: #6c7086;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+}
+
+.vc-settings-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  cursor: pointer;
+}
+
+.vc-settings-row input[type='checkbox'] {
+  accent-color: #cba6f7;
+}
+
+.vc-settings-slider-row > span:first-child {
+  flex: 0 0 70px;
+  color: #a6adc8;
+}
+
+.vc-settings-slider-row input[type='range'] {
+  flex: 1 1 auto;
+  accent-color: #cba6f7;
+}
+
+.vc-settings-value {
+  flex: 0 0 36px;
+  text-align: right;
+  color: #cba6f7;
+  font-variant-numeric: tabular-nums;
+}
+
+.vc-settings-footer {
+  padding: 10px 16px;
+  color: #6c7086;
+  font-size: 11px;
+  text-align: center;
+}
+
 /* ── Body：左右兩窗格 ── */
 #vc-body {
   flex: 1 1 auto;
