@@ -37,6 +37,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   writeUserVrma: (payload: { name: string; vadJson: string; vrmaBuffer: ArrayBuffer | null }) =>
     ipcRenderer.invoke('write_user_vrma', payload),
   readUserVad: (vadPath: string) => ipcRenderer.invoke('read_user_vad', vadPath),
+  readUserVrma: (vrmaPath: string) => ipcRenderer.invoke('read_user_vrma', vrmaPath),
   deleteUserVrma: (vadPath: string) => ipcRenderer.invoke('delete_user_vrma', vadPath),
   getUserVrmaDir: () => ipcRenderer.invoke('get_user_vrma_dir'),
   onUserAnimationsChanged: (callback: (entries: unknown) => void) => {

@@ -32,6 +32,7 @@ interface ElectronAPI {
     vrmaBuffer: ArrayBuffer | null;
   }): Promise<{ name: string; vadPath: string; vrmaPath: string | null }>;
   readUserVad(vadPath: string): Promise<string>;
+  readUserVrma(vrmaPath: string): Promise<ArrayBuffer>;
   deleteUserVrma(vadPath: string): Promise<boolean>;
   getUserVrmaDir(): Promise<string>;
   onUserAnimationsChanged(callback: (entries: UserVrmaEntry[]) => void): () => void;
@@ -298,6 +299,15 @@ class ElectronIPC {
       return await window.electronAPI.readUserVad(vadPath);
     } catch (e) {
       console.warn('[ElectronIPC] readUserVad failed:', e);
+      return null;
+    }
+  }
+
+  async readUserVrma(vrmaPath: string): Promise<ArrayBuffer | null> {
+    try {
+      return await window.electronAPI.readUserVrma(vrmaPath);
+    } catch (e) {
+      console.warn('[ElectronIPC] readUserVrma failed:', e);
       return null;
     }
   }

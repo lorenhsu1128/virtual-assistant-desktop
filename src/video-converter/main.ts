@@ -24,6 +24,8 @@ import { smoothCaptureBufferData } from './capture/smoothBuffer';
 import { GaussianQuatSmoother } from './filters/GaussianQuatSmoother';
 import { Timeline } from './ui/Timeline';
 import { serializeToVadJson } from './export/VadJsonWriter';
+import { VrmaExporter } from './export/VrmaExporter';
+import { bufferToClip } from '../animation/BufferToClip';
 
 const $ = <T extends HTMLElement>(id: string): T => {
   const el = document.getElementById(id);
@@ -305,15 +307,33 @@ async function bootstrap(): Promise<void> {
       `capture-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}`;
 
     exportBtn.disabled = true;
+    setStatus('匯出中：序列化 .vad.json...');
     try {
       const finalized = state.captureBuffer.finalize(
         state.video?.nominalFps ?? 30
       );
       const vadJson = serializeToVadJson(finalized);
-      const result = await ipc.writeUserVrma(name, vadJson, null);
+
+      // 同步產出 .vrma（Phase 13）：用 BufferToClip 轉為 AnimationClip 後
+      // 經 VrmaExporter（GLTFExporter + VRMC_vrm_animation 注入）
+      let vrmaBuffer: ArrayBuffer | null = null;
+      try {
+        setStatus('匯出中：產出 .vrma...');
+        const clip = bufferToClip(finalized, name);
+        const vrmaExporter = new VrmaExporter();
+        vrmaBuffer = await vrmaExporter.export(clip);
+        console.log(`[VC] .vrma 產出成功：${vrmaBuffer.byteLength} bytes`);
+      } catch (vrmaErr) {
+        console.warn('[VC] .vrma 匯出失敗，僅輸出 .vad.json:', vrmaErr);
+      }
+
+      const result = await ipc.writeUserVrma(name, vadJson, vrmaBuffer);
       if (result) {
         console.log('[VC] 匯出成功:', result);
-        setStatus(`匯出成功：${result.name}.vad.json（${finalized.frames.length} 幀）`);
+        const vrmaSuffix = result.vrmaPath ? ' + .vrma' : '';
+        setStatus(
+          `匯出成功：${result.name}.vad.json${vrmaSuffix}（${finalized.frames.length} 幀）`
+        );
         exportNameInput.value = '';
       } else {
         setStatus('匯出失敗，請查看 console');

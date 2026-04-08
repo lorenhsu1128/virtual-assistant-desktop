@@ -145,6 +145,11 @@ export function registerIpcHandlers(
     return fileManager.readUserVad(vadPath);
   });
 
+  ipcMain.handle('read_user_vrma', async (_event, vrmaPath: string) => {
+    const buf = await fileManager.readUserVrma(vrmaPath);
+    return buf; // ArrayBuffer，自動跨 IPC 邊界序列化
+  });
+
   ipcMain.handle('delete_user_vrma', async (_event, vadPath: string) => {
     const ok = await fileManager.deleteUserVrma(vadPath);
     if (ok && !mainWindow.isDestroyed()) {

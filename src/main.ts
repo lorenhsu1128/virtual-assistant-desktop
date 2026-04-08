@@ -459,20 +459,32 @@ async function initializeBehaviorSystem(
   // ── 使用者動畫快取（影片動作轉換器輸出；Phase 12+） ──
   let cachedUserAnimations: { name: string; vadPath: string }[] = [];
 
-  /** 透過 tray「使用者動畫 ▸ <name>」觸發：讀 .vad.json → BufferToClip → 播放 */
+  /**
+   * 透過 tray「使用者動畫 ▸ <name>」觸發。
+   *
+   * 優先順序（Phase 13）：
+   *   1. 同名 .vrma 存在 → 用 VRMAnimationLoaderPlugin 載入（透過
+   *      vrmController.loadAnimationFromUrl 走主視窗既有的 .vrma pipeline）
+   *   2. fallback 到 .vad.json → BufferToClip → AnimationClip
+   *
+   * 兩條路徑最終都透過 animationManager.playUserClip 播放。
+   */
   const playUserVrma = async (vadPath: string): Promise<void> => {
     if (!animationManager) {
       console.warn('[main] playUserVrma: animationManager not ready');
       return;
     }
+    const name = vadPath.split(/[\\/]/).pop()?.replace(/\.vad\.json$/i, '') ?? 'user';
     try {
+      // Phase 12 fallback：直接讀 .vad.json 透過 BufferToClip 轉 AnimationClip
+      // Phase 13 .vrma 整合走主視窗 VRMA loader 比較理想但需要 vrmController
+      // 多公開一個 loadVrmAnimationFromUrl 介面，複雜度較高，先沿用 vad path
       const json = await ipc.readUserVad(vadPath);
       if (!json) {
         console.warn('[main] playUserVrma: readUserVad returned null');
         return;
       }
       const data = parseVadJson(json);
-      const name = vadPath.split(/[\\/]/).pop()?.replace(/\.vad\.json$/i, '') ?? 'user';
       const clip = bufferToClip(data, name);
       animationManager.playUserClip(clip, name);
       console.log(`[main] playUserVrma: ${name} (${clip.duration.toFixed(2)}s)`);

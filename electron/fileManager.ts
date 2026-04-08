@@ -318,6 +318,13 @@ export async function readUserVad(vadPath: string): Promise<string> {
   return fsp.readFile(vadPath, 'utf8');
 }
 
+/** 讀取 .vrma 檔案二進位內容 */
+export async function readUserVrma(vrmaPath: string): Promise<ArrayBuffer> {
+  const buf = await fsp.readFile(vrmaPath);
+  // Buffer 的 underlying ArrayBuffer 可能含其他資料；裁切出剛好的部分
+  return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
+}
+
 /** 刪除一組使用者動畫（.vad.json + 同名 .vrma 若存在） */
 export async function deleteUserVrma(vadPath: string): Promise<boolean> {
   try {
