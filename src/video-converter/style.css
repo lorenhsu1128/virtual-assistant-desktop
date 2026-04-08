@@ -66,6 +66,25 @@ body {
   cursor: not-allowed;
 }
 
+#vc-export-name-input {
+  padding: 6px 10px;
+  background: #11111b;
+  color: #cdd6f4;
+  border: 1px solid #45475a;
+  border-radius: 4px;
+  font-size: 12px;
+  width: 160px;
+}
+
+#vc-export-name-input:focus {
+  outline: none;
+  border-color: #cba6f7;
+}
+
+#vc-export-name-input::placeholder {
+  color: #6c7086;
+}
+
 /* ── Body：左右兩窗格 ── */
 #vc-body {
   flex: 1 1 auto;

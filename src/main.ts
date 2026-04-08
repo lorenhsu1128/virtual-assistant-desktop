@@ -17,6 +17,8 @@ import { analyzeWalkAnimation } from './animation/StepAnalyzer';
 import { mirrorAnimationClip } from './animation/AnimationMirror';
 import { CharacterContextMenu } from './interaction/CharacterContextMenu';
 import { SYSTEM_ANIMATION_STATES } from './types/animation';
+import { parseVadJson } from './video-converter/export/VadJsonReader';
+import { bufferToClip } from './animation/BufferToClip';
 import {
   filterFilesByState,
   extractBasename,
@@ -454,6 +456,31 @@ async function initializeBehaviorSystem(
     },
   });
 
+  // ── 使用者動畫快取（影片動作轉換器輸出；Phase 12+） ──
+  let cachedUserAnimations: { name: string; vadPath: string }[] = [];
+
+  /** 透過 tray「使用者動畫 ▸ <name>」觸發：讀 .vad.json → BufferToClip → 播放 */
+  const playUserVrma = async (vadPath: string): Promise<void> => {
+    if (!animationManager) {
+      console.warn('[main] playUserVrma: animationManager not ready');
+      return;
+    }
+    try {
+      const json = await ipc.readUserVad(vadPath);
+      if (!json) {
+        console.warn('[main] playUserVrma: readUserVad returned null');
+        return;
+      }
+      const data = parseVadJson(json);
+      const name = vadPath.split(/[\\/]/).pop()?.replace(/\.vad\.json$/i, '') ?? 'user';
+      const clip = bufferToClip(data, name);
+      animationManager.playUserClip(clip, name);
+      console.log(`[main] playUserVrma: ${name} (${clip.duration.toFixed(2)}s)`);
+    } catch (err) {
+      console.error('[main] playUserVrma failed:', err);
+    }
+  };
+
   // ── 系統托盤選單資料推送 ──
   /** 收集當前狀態並推送給 main process 更新托盤選單 */
   const pushTrayMenuData = (): void => {
@@ -475,12 +502,29 @@ async function initializeBehaviorSystem(
         index: i,
         label: `Display ${i + 1} (${d.width}x${d.height})`,
       })),
+      userAnimations: cachedUserAnimations,
     };
     ipc.sendMenuData(menuData);
   };
 
   // 初始推送（讓托盤有動態選單資料）
   pushTrayMenuData();
+
+  // ── 使用者動畫：啟動時掃一次 + 監聽 main process 推播變更 ──
+  const refreshUserAnimations = async (): Promise<void> => {
+    const entries = await ipc.listUserVrmas();
+    cachedUserAnimations = entries.map((e) => ({ name: e.name, vadPath: e.vadPath }));
+    pushTrayMenuData();
+  };
+  refreshUserAnimations().catch((e) =>
+    console.warn('[main] refreshUserAnimations failed:', e)
+  );
+  cleanupFns.push(
+    ipc.onUserAnimationsChanged((entries) => {
+      cachedUserAnimations = entries.map((e) => ({ name: e.name, vadPath: e.vadPath }));
+      pushTrayMenuData();
+    })
+  );
 
   // ── Debug 移動（Ctrl+方向鍵） ──
   cleanupFns.push(await ipc.onDebugMove((direction) => {
@@ -578,6 +622,11 @@ async function initializeBehaviorSystem(
         else if (actionId.startsWith('play_anim::')) {
           const fileName = actionId.slice('play_anim::'.length);
           animationManager?.playByName(fileName);
+        }
+        // Dynamic action: play user vrma (影片動作轉換器輸出；Phase 12+)
+        else if (actionId.startsWith('play_user_vrma::')) {
+          const vadPath = actionId.slice('play_user_vrma::'.length);
+          void playUserVrma(vadPath);
         }
         // Dynamic action: set expression
         // 注意：只透過 ExpressionManager 設定，由 render loop 套用過渡（0.5s 線性 fade）

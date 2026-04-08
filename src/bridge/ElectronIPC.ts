@@ -2,6 +2,7 @@ import type { AppConfig } from '../types/config';
 import type { AnimationMeta } from '../types/animation';
 import type { WindowRect, DisplayInfo } from '../types/window';
 import type { TrayMenuData } from '../types/tray';
+import type { UserVrmaEntry } from '../types/userVrma';
 
 /**
  * Electron API interface exposed via preload script (contextBridge).
@@ -24,6 +25,16 @@ interface ElectronAPI {
   applyVrmModel(vrmPath: string): Promise<boolean>;
   openVideoConverter(): Promise<void>;
   pickVideoFile(): Promise<string | null>;
+  listUserVrmas(): Promise<UserVrmaEntry[]>;
+  writeUserVrma(payload: {
+    name: string;
+    vadJson: string;
+    vrmaBuffer: ArrayBuffer | null;
+  }): Promise<{ name: string; vadPath: string; vrmaPath: string | null }>;
+  readUserVad(vadPath: string): Promise<string>;
+  deleteUserVrma(vadPath: string): Promise<boolean>;
+  getUserVrmaDir(): Promise<string>;
+  onUserAnimationsChanged(callback: (entries: UserVrmaEntry[]) => void): () => void;
   getWindowList(): Promise<WindowRect[]>;
   getDisplayInfo(): Promise<DisplayInfo[]>;
   setWindowPosition(x: number, y: number): Promise<void>;
@@ -256,6 +267,61 @@ class ElectronIPC {
       console.warn('[ElectronIPC] pickVideoFile failed:', e);
       return null;
     }
+  }
+
+  // ── User VRMA (Phase 12) ──
+
+  async listUserVrmas(): Promise<UserVrmaEntry[]> {
+    try {
+      return await window.electronAPI.listUserVrmas();
+    } catch (e) {
+      console.warn('[ElectronIPC] listUserVrmas failed:', e);
+      return [];
+    }
+  }
+
+  async writeUserVrma(
+    name: string,
+    vadJson: string,
+    vrmaBuffer: ArrayBuffer | null
+  ): Promise<{ name: string; vadPath: string; vrmaPath: string | null } | null> {
+    try {
+      return await window.electronAPI.writeUserVrma({ name, vadJson, vrmaBuffer });
+    } catch (e) {
+      console.warn('[ElectronIPC] writeUserVrma failed:', e);
+      return null;
+    }
+  }
+
+  async readUserVad(vadPath: string): Promise<string | null> {
+    try {
+      return await window.electronAPI.readUserVad(vadPath);
+    } catch (e) {
+      console.warn('[ElectronIPC] readUserVad failed:', e);
+      return null;
+    }
+  }
+
+  async deleteUserVrma(vadPath: string): Promise<boolean> {
+    try {
+      return await window.electronAPI.deleteUserVrma(vadPath);
+    } catch (e) {
+      console.warn('[ElectronIPC] deleteUserVrma failed:', e);
+      return false;
+    }
+  }
+
+  async getUserVrmaDir(): Promise<string | null> {
+    try {
+      return await window.electronAPI.getUserVrmaDir();
+    } catch (e) {
+      console.warn('[ElectronIPC] getUserVrmaDir failed:', e);
+      return null;
+    }
+  }
+
+  onUserAnimationsChanged(callback: (entries: UserVrmaEntry[]) => void): () => void {
+    return window.electronAPI.onUserAnimationsChanged(callback);
   }
 
   /**

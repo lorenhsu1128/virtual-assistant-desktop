@@ -221,6 +221,28 @@ export class AnimationManager {
   }
 
   // ═══════════════════════════════════════════════════════════════
+  // 使用者動畫（影片動作轉換器輸出；Phase 12+）
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * 播放使用者動畫 clip（影片動作轉換器輸出）。
+   *
+   * 行為與 action 類動畫一致：LoopOnce、播完後透過 onAnimationFinished
+   * 接力回系統 idle 池。crossfade 時長固定為 action 的標準長度。
+   *
+   * @param clip BufferToClip 產出的 AnimationClip（由 AnimationManager
+   *             呼叫端從 .vad.json 解析後建立）
+   * @param displayName 顯示名稱（tray log 用）
+   */
+  playUserClip(clip: THREE.AnimationClip, displayName: string): void {
+    // 視為 action 類（isAction=true），播完後回 idle
+    const fade = getCrossfadeDurationFor('action');
+    this.playClip(clip, false, true, fade);
+    this.currentDisplayName = displayName;
+    console.log(`[AnimationManager] playUserClip: ${displayName} (${clip.duration.toFixed(2)}s)`);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
   // 系統動畫池（SYS_*.vrma）
   // ═══════════════════════════════════════════════════════════════
 

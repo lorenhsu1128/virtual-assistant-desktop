@@ -23,6 +23,7 @@ import { CaptureBuffer } from './capture/CaptureBuffer';
 import { smoothCaptureBufferData } from './capture/smoothBuffer';
 import { GaussianQuatSmoother } from './filters/GaussianQuatSmoother';
 import { Timeline } from './ui/Timeline';
+import { serializeToVadJson } from './export/VadJsonWriter';
 
 const $ = <T extends HTMLElement>(id: string): T => {
   const el = document.getElementById(id);
@@ -80,6 +81,7 @@ async function bootstrap(): Promise<void> {
   const startBtn = $<HTMLButtonElement>('vc-start-btn');
   const stopBtn = $<HTMLButtonElement>('vc-stop-btn');
   const hqBtn = $<HTMLButtonElement>('vc-hq-btn');
+  const exportBtn = $<HTMLButtonElement>('vc-export-btn');
   const fileInput = $<HTMLInputElement>('vc-file-input');
   const videoEl = $<HTMLVideoElement>('vc-video');
   const overlayCanvas = $<HTMLCanvasElement>('vc-skeleton-overlay');
@@ -286,9 +288,42 @@ async function bootstrap(): Promise<void> {
     setStatus(
       `Stage 1 完成（${finalized.frames.length} 幀 / ${finalized.duration.toFixed(2)}s）— 可拖曳時間軸或點「高品質處理」`
     );
-    // 啟用 timeline 與 HQ 按鈕
+    // 啟用 timeline、HQ、匯出按鈕
     state.timeline?.setDuration(finalized.duration);
     hqBtn.disabled = finalized.frames.length === 0;
+    exportBtn.disabled = finalized.frames.length === 0;
+  });
+
+  // ── 匯出為 .vad.json（Phase 12；Phase 13 會再加 .vrma 同步產出） ──
+  // 名稱取自工具列的 input 欄位；留空則用 timestamp 預設名
+  const exportNameInput = $<HTMLInputElement>('vc-export-name-input');
+  exportBtn.addEventListener('click', async () => {
+    if (state.captureBuffer.length === 0) return;
+    const typed = exportNameInput.value.trim();
+    const name =
+      typed ||
+      `capture-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}`;
+
+    exportBtn.disabled = true;
+    try {
+      const finalized = state.captureBuffer.finalize(
+        state.video?.nominalFps ?? 30
+      );
+      const vadJson = serializeToVadJson(finalized);
+      const result = await ipc.writeUserVrma(name, vadJson, null);
+      if (result) {
+        console.log('[VC] 匯出成功:', result);
+        setStatus(`匯出成功：${result.name}.vad.json（${finalized.frames.length} 幀）`);
+        exportNameInput.value = '';
+      } else {
+        setStatus('匯出失敗，請查看 console');
+      }
+    } catch (err) {
+      console.error('[VC] 匯出失敗:', err);
+      setStatus(`匯出失敗：${(err as Error).message}`);
+    } finally {
+      exportBtn.disabled = state.captureBuffer.length === 0;
+    }
   });
 
   // ── 高品質處理（Stage 2 batch + Gaussian smoothing） ──

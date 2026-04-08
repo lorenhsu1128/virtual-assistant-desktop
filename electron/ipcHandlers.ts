@@ -115,6 +115,49 @@ export function registerIpcHandlers(
     openVideoConverterWindow(mainWindow);
   });
 
+  // ── User VRMA (影片動作轉換器 Phase 12) ──
+
+  ipcMain.handle('list_user_vrmas', async () => {
+    return fileManager.listUserVrmas();
+  });
+
+  ipcMain.handle(
+    'write_user_vrma',
+    async (
+      _event,
+      payload: { name: string; vadJson: string; vrmaBuffer: ArrayBuffer | null }
+    ) => {
+      const result = await fileManager.writeUserVrma(
+        payload.name,
+        payload.vadJson,
+        payload.vrmaBuffer
+      );
+      // 通知主視窗刷新 tray 子選單
+      if (!mainWindow.isDestroyed()) {
+        const entries = await fileManager.listUserVrmas();
+        mainWindow.webContents.send('user_animations_changed', entries);
+      }
+      return result;
+    }
+  );
+
+  ipcMain.handle('read_user_vad', async (_event, vadPath: string) => {
+    return fileManager.readUserVad(vadPath);
+  });
+
+  ipcMain.handle('delete_user_vrma', async (_event, vadPath: string) => {
+    const ok = await fileManager.deleteUserVrma(vadPath);
+    if (ok && !mainWindow.isDestroyed()) {
+      const entries = await fileManager.listUserVrmas();
+      mainWindow.webContents.send('user_animations_changed', entries);
+    }
+    return ok;
+  });
+
+  ipcMain.handle('get_user_vrma_dir', () => {
+    return fileManager.getUserVrmaDir();
+  });
+
   ipcMain.handle('pick_video_file', async (event) => {
     const senderWindow = BrowserWindow.fromWebContents(event.sender) ?? mainWindow;
     const result = await dialog.showOpenDialog(senderWindow, {

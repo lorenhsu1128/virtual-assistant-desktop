@@ -49,6 +49,8 @@ interface TrayMenuData {
   isDebugEnabled: boolean;
   currentExpression: string | null;
   displays: { index: number; label: string }[];
+  /** 使用者動畫（影片動作轉換器輸出；Phase 12+） */
+  userAnimations?: { name: string; vadPath: string }[];
 }
 
 /**
@@ -142,6 +144,17 @@ export class SystemTray {
           type: 'checkbox' as const,
           checked: name === data.currentExpression,
           click: () => this.emitAction(`set_expr::${name}`),
+        })),
+      });
+    }
+
+    // 使用者動畫子選單（影片動作轉換器輸出；Phase 12+）
+    if (data && data.userAnimations && data.userAnimations.length > 0) {
+      template.push({
+        label: '\u4f7f\u7528\u8005\u52d5\u756b',
+        submenu: data.userAnimations.map((a) => ({
+          label: a.name,
+          click: () => this.emitAction(`play_user_vrma::${a.vadPath}`),
         })),
       });
     }

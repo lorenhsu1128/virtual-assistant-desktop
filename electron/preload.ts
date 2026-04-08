@@ -32,6 +32,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openVideoConverter: () => ipcRenderer.invoke('open_video_converter'),
   pickVideoFile: () => ipcRenderer.invoke('pick_video_file'),
 
+  // ── User VRMA (Phase 12) ──
+  listUserVrmas: () => ipcRenderer.invoke('list_user_vrmas'),
+  writeUserVrma: (payload: { name: string; vadJson: string; vrmaBuffer: ArrayBuffer | null }) =>
+    ipcRenderer.invoke('write_user_vrma', payload),
+  readUserVad: (vadPath: string) => ipcRenderer.invoke('read_user_vad', vadPath),
+  deleteUserVrma: (vadPath: string) => ipcRenderer.invoke('delete_user_vrma', vadPath),
+  getUserVrmaDir: () => ipcRenderer.invoke('get_user_vrma_dir'),
+  onUserAnimationsChanged: (callback: (entries: unknown) => void) => {
+    const handler = (_event: unknown, entries: unknown) => callback(entries);
+    ipcRenderer.on('user_animations_changed', handler);
+    return () => ipcRenderer.removeListener('user_animations_changed', handler);
+  },
+
   // ── Window Monitor ──
   getWindowList: () => ipcRenderer.invoke('get_window_list'),
 

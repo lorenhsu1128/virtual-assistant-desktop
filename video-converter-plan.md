@@ -897,6 +897,15 @@ return concat(header, JSON chunk, BIN chunk)
 - **shoulder bone 固定 identity**：沒有對應 landmark，聳肩 / 肩胛動作無法追蹤
 - **A-pose vs T-pose 靜態 bind 假設**：校正只讀 bind pose 的 child 位置，
   對於動畫 bind 位置非標準姿勢的模型可能仍有偏差
+- **Phase 12 實測發現的三個明顯偏差**（2026-04-08）：
+  1. **手腕方向不對**：hand bone 解算用 `wrist → index` 方向，但 VRM bind
+     pose 的手腕 child（手指 metacarpal）位置並非指向 index 方向。
+     需改為從手掌平面法向量 + index/pinky 方向建 basis
+  2. **頭部 facing 不對**：head bone 整個 skip（見上方），所以頭永遠保持
+     bind pose 的朝前方向。需 Phase 14+ 補回（三點 rigid body 基底）
+  3. **腳踝方向不對**：foot bone 解算用 `ankle → foot_index` 方向，同樣
+     與 VRM bind pose 的 foot child 位置不一致。需用 heel + toe + ankle
+     三點建平面法向量
 
 ### 高品質處理（Stage 2）
 - **已修正**：performance.now() 取代 video.currentTime 作為 MediaPipe

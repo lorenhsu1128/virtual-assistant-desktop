@@ -27,4 +27,9 @@ export interface TrayMenuData {
   currentExpression: string | null;
   /** 螢幕清單（用於「螢幕 → 切換到」子選單） */
   displays: { index: number; label: string }[];
+  /** 使用者動畫清單（影片動作轉換器輸出；Phase 12+） */
+  userAnimations: { name: string; vadPath: string }[];
 }
+
+/** tray action prefix — play user vrma */
+export const TRAY_ACTION_PLAY_USER_VRMA = 'play_user_vrma::';
