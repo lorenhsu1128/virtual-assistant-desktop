@@ -879,6 +879,50 @@ return concat(header, JSON chunk, BIN chunk)
 
 ---
 
+## 14. 已知問題與待校正項（Phase 10+ 實作中累積）
+
+以下項目在對應 phase 先標記、延後處理，集中留給 Phase 14 / Phase 15
+或獨立的校正輪次。
+
+### 動作捕捉品質
+- **姿勢校正未臻完美**：Phase 10.5 已用 VRM bind pose 反推校正 REF_DIR
+  並修正 hips Y180 composition，軀幹 / 四肢大方向正確，但仍可能存在：
+  - Kalidokit 倍率（plan 第 5.2 節 `euler.z *= -2.3`）未套用
+  - 四肢 Euler clamp 範圍未套用
+  - 解剖合理性耦合（`upperArmEuler.y += lowerArmEuler.x * 0.5`）未套用
+- **head bone 暫時 skip**：ear-nose 追蹤在側面視角會退化，head 沒有 child
+  可供 calibrateRefDirs。PreviewCharacterScene.SKIP_BONES 先排除，
+  Phase 14+ 用 rigid body 三點基底重做（可直接從 earMid + nose 建 basis
+  並用 quatFromMat3）
+- **shoulder bone 固定 identity**：沒有對應 landmark，聳肩 / 肩胛動作無法追蹤
+- **A-pose vs T-pose 靜態 bind 假設**：校正只讀 bind pose 的 child 位置，
+  對於動畫 bind 位置非標準姿勢的模型可能仍有偏差
+
+### 高品質處理（Stage 2）
+- **已修正**：performance.now() 取代 video.currentTime 作為 MediaPipe
+  timestamp，避免 Stage 1→Stage 2 切換時的 INVALID_ARGUMENT timestamp
+  mismatch（MediaPipe calculator graph 內部單調性檢查）
+- **UI 仍可改善**：處理期間影片 seek 會閃爍；可考慮隱藏左窗格 video 或
+  加 overlay 遮罩
+- **速度**：每幀 seek + detect 約 50-100ms，5 秒影片約 8-15 秒處理。
+  未來可考慮 worker pool 或直接用離線 image pipeline（非 video mode）
+
+### VRMA 匯出
+- **尚未驗證整合**：Spike B 只驗證了 minimal scene round-trip，尚未確認
+  Stage 1/2 結果 → AnimationClip → VrmaExporter → 主視窗 AnimationManager
+  載入播放的完整鏈路。Phase 13 實作並驗證
+- **bone 命名映射**：Phase 3 的 VRM_BONE_PARENT_CHAIN 用 VRM 1.0 名稱，
+  若使用者模型為 VRM 0.x，fingers 命名可能不一致（拇指 Metacarpal vs
+  Proximal 順序差）。Phase 13 VRMA 匯出時需處理
+
+### Hand / Eye 追蹤
+- **Stage 1 預設關閉 hands**：`enableHands: false`。HandSolver 已實作但
+  finger REF_DIR 校正未做（BONE_CHILD_FOR_CALIBRATION 沒包含 fingers）
+- **Eye 追蹤**：EyeGazeSolver 已實作但多數 VRM 模型沒有 leftEye/rightEye
+  humanoid bone，套用時會被靜默跳過
+
+---
+
 ## 結語
 
 此計畫已涵蓋所有設計決策、實作細節、測試覆蓋、風險點。共 16 個 commit，可分階段交付。**建議執行順序：先跑 Phase 0 雙 spike**（一個 commit 內解決最高風險），視結果決定是否需要調整後續架構。

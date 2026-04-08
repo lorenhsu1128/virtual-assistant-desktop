@@ -20,6 +20,9 @@ import { VrmSwitcher } from './preview/VrmSwitcher';
 import { PoseSolver } from './solver/PoseSolver';
 import type { SolvedPose } from './solver/PoseSolver';
 import { CaptureBuffer } from './capture/CaptureBuffer';
+import { smoothCaptureBufferData } from './capture/smoothBuffer';
+import { GaussianQuatSmoother } from './filters/GaussianQuatSmoother';
+import { Timeline } from './ui/Timeline';
 
 const $ = <T extends HTMLElement>(id: string): T => {
   const el = document.getElementById(id);
@@ -35,7 +38,12 @@ interface AppState {
   vrmSwitcher: VrmSwitcher;
   poseSolver: PoseSolver;
   captureBuffer: CaptureBuffer;
+  /** Stage 1 / Stage 2 凍結後的時間軸長度（秒），0 表示未擷取 */
+  bufferDuration: number;
+  smoother: GaussianQuatSmoother;
+  timeline: Timeline | null;
   detecting: boolean;
+  stage2Running: boolean;
   frameCount: number;
   latencySum: number;
   rafId: number | null;
@@ -51,7 +59,12 @@ const state: AppState = {
   // 門檻由 spike 決定，spike A 結果為手指穩定，但保守起見預設 OFF）
   poseSolver: new PoseSolver({ enableHands: false, enableEyes: true }),
   captureBuffer: new CaptureBuffer(),
+  bufferDuration: 0,
+  // Stage 2 離線平滑器（plan 第 2.6 / 5.5 節）
+  smoother: new GaussianQuatSmoother({ halfWindow: 3, sigma: 1.5 }),
+  timeline: null,
   detecting: false,
+  stage2Running: false,
   frameCount: 0,
   latencySum: 0,
   rafId: null,
@@ -66,6 +79,7 @@ async function bootstrap(): Promise<void> {
   const loadVrmBtn = $<HTMLButtonElement>('vc-load-vrm-btn');
   const startBtn = $<HTMLButtonElement>('vc-start-btn');
   const stopBtn = $<HTMLButtonElement>('vc-stop-btn');
+  const hqBtn = $<HTMLButtonElement>('vc-hq-btn');
   const fileInput = $<HTMLInputElement>('vc-file-input');
   const videoEl = $<HTMLVideoElement>('vc-video');
   const overlayCanvas = $<HTMLCanvasElement>('vc-skeleton-overlay');
@@ -73,10 +87,24 @@ async function bootstrap(): Promise<void> {
   const videoStage = $<HTMLDivElement>('vc-video-stage');
   const videoPlaceholder = $<HTMLDivElement>('vc-video-placeholder');
   const previewPlaceholder = $<HTMLDivElement>('vc-preview-placeholder');
+  const timelineContainer = $<HTMLDivElement>('vc-timeline-container');
 
   state.video = new VideoSource(videoEl);
   state.overlay = new SkeletonOverlay(overlayCanvas, videoEl);
   state.preview = new PreviewCharacterScene(previewCanvas);
+  state.timeline = new Timeline(timelineContainer);
+
+  // Timeline scrub → sampleAt buffer → applyPose
+  state.timeline.onScrub((t) => {
+    if (!state.preview || state.captureBuffer.length === 0) return;
+    const frame = state.captureBuffer.sampleAt(t * 1000);
+    if (frame) {
+      state.preview.applyPose({
+        hipsTranslation: frame.hipsTranslation,
+        boneRotations: frame.boneRotations,
+      });
+    }
+  });
 
   setStatus('Phase 9 — 載入 VRM 預覽中...');
 
@@ -230,7 +258,6 @@ async function bootstrap(): Promise<void> {
     state.frameCount = 0;
     state.latencySum = 0;
     state.captureBuffer.clear();
-    state.runner.resetTimestamp();
     state.overlay.resize();
     stopBtn.disabled = false;
     await state.video.seekTo(0);
@@ -250,18 +277,117 @@ async function bootstrap(): Promise<void> {
     stopBtn.disabled = true;
     state.overlay?.clear();
     const finalized = state.captureBuffer.finalize(state.video?.nominalFps ?? 30);
+    state.bufferDuration = finalized.duration;
     const avgMs = state.frameCount > 0 ? state.latencySum / state.frameCount : 0;
     console.log(
       `[VC] 偵測停止：${state.frameCount} 幀，平均 ${avgMs.toFixed(1)}ms，` +
         `buffer.duration=${finalized.duration.toFixed(2)}s frames=${finalized.frames.length}`
     );
     setStatus(
-      `已停止（${state.frameCount} 幀，avg ${avgMs.toFixed(1)}ms，` +
-        `buffer ${finalized.frames.length} frames / ${finalized.duration.toFixed(2)}s）`
+      `Stage 1 完成（${finalized.frames.length} 幀 / ${finalized.duration.toFixed(2)}s）— 可拖曳時間軸或點「高品質處理」`
     );
+    // 啟用 timeline 與 HQ 按鈕
+    state.timeline?.setDuration(finalized.duration);
+    hqBtn.disabled = finalized.frames.length === 0;
+  });
+
+  // ── 高品質處理（Stage 2 batch + Gaussian smoothing） ──
+  hqBtn.addEventListener('click', async () => {
+    if (state.stage2Running) return;
+    if (!state.video || !state.runner || state.captureBuffer.length === 0) return;
+    state.stage2Running = true;
+    hqBtn.disabled = true;
+    startBtn.disabled = true;
+    state.timeline?.setEnabled(false);
+
+    try {
+      await runStage2(hqBtn);
+    } catch (err) {
+      console.error('[VC] Stage 2 失敗:', err);
+      setStatus(`Stage 2 失敗：${(err as Error).message}`);
+    } finally {
+      state.stage2Running = false;
+      startBtn.disabled = false;
+      hqBtn.disabled = state.captureBuffer.length === 0;
+      state.timeline?.setEnabled(true);
+    }
   });
 
   console.log('[VC] video-converter window bootstrapped (Phase 8)');
+}
+
+/**
+ * Stage 2 批次重抽：以固定 HQ_FPS seek 影片每一幀，重新跑 MediaPipe +
+ * PoseSolver，收集完整時序後套用 Gaussian 平滑，最後回寫 state.captureBuffer。
+ *
+ * 對應 plan 第 7 節 Phase 11 規格：「Stage 2 重抽 fps：先固定 30fps」。
+ */
+async function runStage2(hqBtn: HTMLButtonElement): Promise<void> {
+  if (!state.video || !state.runner) return;
+  const HQ_FPS = 30;
+  const frameInterval = 1 / HQ_FPS;
+  const duration = state.video.duration;
+  const numFrames = Math.max(1, Math.floor(duration * HQ_FPS));
+
+  console.log(`[VC] Stage 2 開始：${numFrames} 幀 @ ${HQ_FPS}fps`);
+  setStatus(`Stage 2 處理中：0/${numFrames} (0%)`);
+
+  const newBuffer = new CaptureBuffer();
+  state.video.pause();
+
+  // MediaPipe 內部的 calculator graph 記住 Stage 1 最後一個 timestamp（影片
+  // 時間），如果 Stage 2 又從 t=0 餵給 detectForVideo 會被 reject（非單調）。
+  // 解法：Stage 2 的 MediaPipe timestamp 用 performance.now()（全域單調），
+  // CaptureBuffer 仍然存 video time。兩者分離。
+  for (let i = 0; i < numFrames; i++) {
+    if (!state.stage2Running) {
+      console.log('[VC] Stage 2 被中斷');
+      break;
+    }
+    const t = i * frameInterval;
+    await state.video.seekTo(t);
+    const mpTimestamp = performance.now();
+    const result = state.runner.detect(state.video.element, mpTimestamp);
+    if (result) {
+      const solved = state.poseSolver.solve(result);
+      newBuffer.push({
+        timestampMs: t * 1000, // 注意：存 video time，不是 mpTimestamp
+        hipsTranslation: solved.hipsTranslation,
+        boneRotations: solved.boneRotations,
+      });
+    }
+
+    // 進度回報（每 10 幀或每 5% 更新）
+    if (i % 10 === 0 || i === numFrames - 1) {
+      const pct = ((i / numFrames) * 100).toFixed(0);
+      setStatus(`Stage 2 處理中：${i + 1}/${numFrames} (${pct}%)`);
+      state.timeline?.setCurrentTime(t);
+      hqBtn.textContent = `處理中 ${pct}%`;
+      // 讓事件迴圈跑一下，避免 UI 卡死
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    }
+  }
+
+  hqBtn.textContent = '高品質處理';
+
+  const rawFinalized = newBuffer.finalize(HQ_FPS);
+  console.log(`[VC] Stage 2 raw: ${rawFinalized.frames.length} 幀，開始 Gaussian 平滑`);
+
+  // 離線 Gaussian 平滑
+  const smoothed = smoothCaptureBufferData(rawFinalized, state.smoother);
+
+  // 回寫 state.captureBuffer
+  state.captureBuffer.clear();
+  for (const f of smoothed.frames) state.captureBuffer.push(f);
+  state.bufferDuration = smoothed.duration;
+
+  console.log(
+    `[VC] Stage 2 完成：${smoothed.frames.length} 幀平滑後，duration=${smoothed.duration.toFixed(2)}s`
+  );
+  setStatus(
+    `Stage 2 完成（${smoothed.frames.length} 幀平滑後 / ${smoothed.duration.toFixed(2)}s）— 拖曳時間軸預覽`
+  );
+  state.timeline?.setDuration(smoothed.duration);
 }
 
 function detectLoop(): void {
@@ -277,9 +403,13 @@ function detectLoop(): void {
     return;
   }
 
-  const ts = videoEl.currentTime * 1000;
+  const videoTimeMs = videoEl.currentTime * 1000;
+  // MediaPipe 內部 calculator graph 需要嚴格單調遞增的 timestamp。
+  // 用 performance.now() 避開「Stage 1 → Stage 2 → 再 Stage 1」重跑時
+  // video.currentTime 倒退觸發 MediaPipe INVALID_ARGUMENT 的坑。
+  // CaptureBuffer 仍然存 video time 作為可 scrub 的時間軸。
   const t0 = performance.now();
-  const result: HolisticResult | null = state.runner.detect(videoEl, ts);
+  const result: HolisticResult | null = state.runner.detect(videoEl, t0);
   const dt = performance.now() - t0;
 
   if (result) {
@@ -291,7 +421,7 @@ function detectLoop(): void {
     const solved: SolvedPose = state.poseSolver.solve(result);
     state.preview?.applyPose(solved);
     state.captureBuffer.push({
-      timestampMs: ts,
+      timestampMs: videoTimeMs,
       hipsTranslation: solved.hipsTranslation,
       boneRotations: solved.boneRotations,
     });
