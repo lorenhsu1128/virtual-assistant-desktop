@@ -63,9 +63,12 @@
 ## 關鍵目錄結構
 
 ```
+assets/system/vrma/ → 系統內建 .vrma 動畫（SYS_{STATE}_NN.vrma）
+                      啟動時掃描，按狀態分池（見 animation-guide.md）
 src/                → TypeScript 前端（主視窗 renderer process）
   core/             → 渲染核心（SceneManager, VRMController）
-  animation/        → 動畫系統（AnimationManager, FallbackAnimation）
+  animation/        → 動畫系統（AnimationManager, FallbackAnimation,
+                      systemAnimationMatcher, StepAnalyzer, AnimationMirror）
   behavior/         → 行為邏輯（StateMachine, CollisionSystem, BehaviorAnimationBridge）
   expression/       → 表情系統（ExpressionManager）
   occlusion/        → 3D 深度遮擋（WindowMeshManager）
@@ -161,6 +164,7 @@ tests/              → Vitest 測試（unit/）
 - @SPEC.md — 軟體規格書（功能定義、技術需求）
 - @ARCHITECTURE.md — 程式架構建議書（模組設計、依賴關係）
 - @LESSONS.md — ⚠️ 已知錯誤與教訓（必讀，避免重複犯錯）
+- @animation-guide.md — 系統動畫命名與載入規範（新增 .vrma 檔案前必讀）
 
 ## 開發紀律
 
