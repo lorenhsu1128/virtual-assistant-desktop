@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>影片動作轉換器</title>
+    <link rel="stylesheet" href="/src/video-converter/style.css" />
+  </head>
+  <body>
+    <div id="vc-root">
+      <header id="vc-toolbar">
+        <h1 id="vc-title">影片動作轉換器</h1>
+        <div id="vc-toolbar-actions">
+          <button id="vc-load-video-btn" type="button" disabled>載入影片</button>
+          <button id="vc-load-vrm-btn" type="button" disabled>切換 VRM</button>
+          <button id="vc-start-btn" type="button" disabled>開始擷取</button>
+          <button id="vc-stop-btn" type="button" disabled>停止</button>
+          <button id="vc-export-btn" type="button" disabled>匯出</button>
+        </div>
+      </header>
+
+      <main id="vc-body">
+        <section id="vc-left" class="vc-pane">
+          <div class="vc-pane-label">影片來源</div>
+          <div id="vc-video-stage">
+            <video id="vc-video" preload="auto" playsinline muted></video>
+            <canvas id="vc-skeleton-overlay"></canvas>
+          </div>
+          <div id="vc-video-placeholder">
+            尚未載入影片<br />
+            <small>Phase 1 骨架階段，按鈕暫不可用</small>
+          </div>
+        </section>
+
+        <section id="vc-right" class="vc-pane">
+          <div class="vc-pane-label">VRM 預覽</div>
+          <canvas id="vc-preview-canvas"></canvas>
+          <div id="vc-preview-placeholder">
+            尚未載入 VRM<br />
+            <small>Phase 9 才會接上預覽</small>
+          </div>
+        </section>
+      </main>
+
+      <footer id="vc-footer">
+        <div id="vc-timeline-container">
+          <div id="vc-timeline-placeholder">時間軸（Phase 11）</div>
+        </div>
+        <div id="vc-status">Phase 1 — 視窗骨架</div>
+      </footer>
+    </div>
+
+    <script type="module" src="/src/video-converter/main.ts"></script>
+  </body>
+</html>

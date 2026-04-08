@@ -28,6 +28,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openVrmPicker: () => ipcRenderer.invoke('open_vrm_picker'),
   applyVrmModel: (vrmPath: string) => ipcRenderer.invoke('apply_vrm_model', vrmPath),
 
+  // ── Video Converter Window ──
+  openVideoConverter: () => ipcRenderer.invoke('open_video_converter'),
+
   // ── Window Monitor ──
   getWindowList: () => ipcRenderer.invoke('get_window_list'),
 

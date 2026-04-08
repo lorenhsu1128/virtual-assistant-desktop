@@ -540,6 +540,9 @@ async function initializeBehaviorSystem(
       case 'browse_models':
         ipc.openVrmPicker();
         break;
+      case 'open_video_converter':
+        ipc.openVideoConverter();
+        break;
       case 'change_anim':
         ipc.pickAnimationFolder().then(async (p) => {
           if (!p) return;

@@ -84,6 +84,70 @@ export function getPickerWindowOptions(
   };
 }
 
+/**
+ * 回傳影片動作轉換器視窗的 BrowserWindow 建構參數
+ *
+ * 用於 v0.4 影片動作轉換器（Phase 1+）。
+ * 與主透明視窗相反：有邊框、可縮放、不透明、無滑鼠穿透。
+ * 1280×800：左右窗格分別放 video + skeleton overlay 與 VRM 預覽 canvas。
+ * Windows / macOS 共用同一份參數（無系統 API 差異）。
+ */
+export function getVideoConverterWindowOptions(
+  parent: BrowserWindow
+): Electron.BrowserWindowConstructorOptions {
+  return {
+    width: 1280,
+    height: 800,
+    minWidth: 1024,
+    minHeight: 720,
+    parent,
+    modal: false,
+    title: '影片動作轉換器',
+    transparent: false,
+    frame: true,
+    focusable: true,
+    alwaysOnTop: false,
+    skipTaskbar: false,
+    resizable: true,
+    hasShadow: true,
+    show: false,
+    autoHideMenuBar: true,
+    backgroundColor: '#1e1e2e',
+  };
+}
+
+/**
+ * 回傳 Spike 視窗的 BrowserWindow 建構參數（dev-only）
+ *
+ * 用於 Phase 0 的 spike-mediapipe / spike-vrma-export 頁面。
+ * 與主透明視窗相反：有邊框、可縮放、不透明、無滑鼠穿透。
+ * 比 picker 大（1280×800），因為 spike 頁面有 video + 預覽 + log 面板。
+ */
+export function getSpikeWindowOptions(
+  parent: BrowserWindow,
+  name: string
+): Electron.BrowserWindowConstructorOptions {
+  return {
+    width: 1280,
+    height: 800,
+    minWidth: 1024,
+    minHeight: 720,
+    parent,
+    modal: false,
+    title: `Spike: ${name}`,
+    transparent: false,
+    frame: true,
+    focusable: true,
+    alwaysOnTop: false,
+    skipTaskbar: false,
+    resizable: true,
+    hasShadow: true,
+    show: false,
+    autoHideMenuBar: true,
+    backgroundColor: '#1e1e2e',
+  };
+}
+
 /** 視窗建立後的平台專用設定 */
 export function applyPostCreateSetup(
   win: BrowserWindow,

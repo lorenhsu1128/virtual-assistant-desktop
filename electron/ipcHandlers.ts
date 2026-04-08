@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import * as fileManager from './fileManager.js';
 import { WindowMonitor, type WindowRect } from './windowMonitor.js';
 import { openPickerWindow, closePickerWindow } from './vrmPickerWindow.js';
+import { openVideoConverterWindow } from './videoConverterWindow.js';
 import { isMac } from './platform/index.js';
 
 /** Display info returned to renderer */
@@ -106,6 +107,12 @@ export function registerIpcHandlers(
 
   ipcMain.handle('open_vrm_picker', () => {
     openPickerWindow(mainWindow);
+  });
+
+  // ── Video Converter Window ──
+
+  ipcMain.handle('open_video_converter', () => {
+    openVideoConverterWindow(mainWindow);
   });
 
   ipcMain.handle('apply_vrm_model', async (_event, vrmPath: string) => {

@@ -1,4 +1,7 @@
 import { Tray, Menu, BrowserWindow, nativeImage, app, ipcMain } from 'electron';
+import { openSpikeWindow } from './spikeWindow.js';
+
+const isDev = process.env.NODE_ENV !== 'production' && !app.isPackaged;
 
 /** Scale options for the menu */
 const SCALE_OPTIONS = [
@@ -246,6 +249,14 @@ export class SystemTray {
 
     template.push({ type: 'separator' });
 
+    // 影片動作轉換器
+    template.push({
+      label: '\u5f71\u7247\u52d5\u4f5c\u8f49\u63db\u5668',
+      click: () => this.emitAction('open_video_converter'),
+    });
+
+    template.push({ type: 'separator' });
+
     // Debug 模式
     template.push({
       label: 'Debug \u6a21\u5f0f',
@@ -259,6 +270,23 @@ export class SystemTray {
       label: '\u8a2d\u5b9a',
       click: () => this.emitAction('settings'),
     });
+
+    // Spike 視窗（dev-only）
+    if (isDev) {
+      template.push({
+        label: 'Spike',
+        submenu: [
+          {
+            label: 'A: MediaPipe HolisticLandmarker',
+            click: () => openSpikeWindow(this.mainWindow, 'mediapipe'),
+          },
+          {
+            label: 'B: VRMA round-trip',
+            click: () => openSpikeWindow(this.mainWindow, 'vrma-export'),
+          },
+        ],
+      });
+    }
 
     template.push({ type: 'separator' });
 

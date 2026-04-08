@@ -22,6 +22,7 @@ interface ElectronAPI {
   pickVrmFolder(defaultPath?: string): Promise<string | null>;
   openVrmPicker(): Promise<void>;
   applyVrmModel(vrmPath: string): Promise<boolean>;
+  openVideoConverter(): Promise<void>;
   getWindowList(): Promise<WindowRect[]>;
   getDisplayInfo(): Promise<DisplayInfo[]>;
   setWindowPosition(x: number, y: number): Promise<void>;
@@ -229,6 +230,17 @@ class ElectronIPC {
       await window.electronAPI.openVrmPicker();
     } catch (e) {
       console.warn('[ElectronIPC] openVrmPicker failed:', e);
+    }
+  }
+
+  /**
+   * Open the video motion converter standalone window (Phase 1+)
+   */
+  async openVideoConverter(): Promise<void> {
+    try {
+      await window.electronAPI.openVideoConverter();
+    } catch (e) {
+      console.warn('[ElectronIPC] openVideoConverter failed:', e);
     }
   }
 
