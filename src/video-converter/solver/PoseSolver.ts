@@ -11,7 +11,7 @@ import type { Quat } from '../math/Quat';
 import type { Vec3 } from '../math/Vector';
 import type { HolisticResult } from '../tracking/landmarkTypes';
 import type { VRMHumanoidBoneName } from '../tracking/boneMapping';
-import { BodySolver } from './BodySolver';
+import { BodySolver, type RefDirMap } from './BodySolver';
 import { HandSolver } from './HandSolver';
 import { EyeGazeSolver } from './EyeGazeSolver';
 
@@ -46,6 +46,15 @@ export class PoseSolver {
 
   getOptions(): PoseSolverOptions {
     return { ...this.opts };
+  }
+
+  /**
+   * 用實際 VRM bind pose 校正後的 REF_DIR 覆蓋 BodySolver 的預設值。
+   * 對應 plan 第 8 節 Open Question 2，呼叫端通常為 PreviewCharacterScene
+   * 在 loadVrm 後計算的校正結果。
+   */
+  setRefDirs(map: RefDirMap): void {
+    this.bodySolver.setRefDirs(map);
   }
 
   /** 解算單幀 HolisticResult */

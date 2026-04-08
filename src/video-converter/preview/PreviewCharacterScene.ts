@@ -35,6 +35,29 @@ import type { Vec3 } from '../math/Vector';
 import type { VRMHumanoidBoneName } from '../tracking/boneMapping';
 
 /**
+ * 對每根骨骼，列出其「主要 child」骨骼名。校正 REF_DIR 時讀取
+ * child.position（在 bone 自身的 local frame）作為該 bone 的「rest 軸方向」。
+ *
+ * 對應 plan 第 8 節 Open Question 2 — 用實際 VRM rest pose 反推校正。
+ */
+const BONE_CHILD_FOR_CALIBRATION: ReadonlyArray<readonly [VRMHumanoidBoneName, VRMHumanoidBoneName]> = [
+  ['spine', 'chest'],
+  ['chest', 'upperChest'],
+  ['upperChest', 'neck'],
+  ['neck', 'head'],
+  ['leftShoulder', 'leftUpperArm'],
+  ['leftUpperArm', 'leftLowerArm'],
+  ['leftLowerArm', 'leftHand'],
+  ['rightShoulder', 'rightUpperArm'],
+  ['rightUpperArm', 'rightLowerArm'],
+  ['rightLowerArm', 'rightHand'],
+  ['leftUpperLeg', 'leftLowerLeg'],
+  ['leftLowerLeg', 'leftFoot'],
+  ['rightUpperLeg', 'rightLowerLeg'],
+  ['rightLowerLeg', 'rightFoot'],
+];
+
+/**
  * Phase 9 用佔位介面，Phase 10 會改為從 ../solver/PoseSolver 引入 SolvedPose。
  * 提早定義避免後續 phase 改動本檔的 public API。
  */
@@ -129,17 +152,61 @@ export class PreviewCharacterScene {
     this.frameModel();
   }
 
+  /**
+   * 從當前載入的 VRM bind pose 計算每根骨骼的 REF_DIR。
+   *
+   * 流程：對 BONE_CHILD_FOR_CALIBRATION 中的每對 (parent, child)，
+   * 讀取 child 骨骼節點的 position（已是 parent 的 local frame，
+   * 因為 Three.js 子節點 position 即為相對父節點偏移），正規化後即為
+   * 該 parent 骨骼的 rest 軸方向。
+   *
+   * 找不到的骨骼會略過（例如 VRM 模型沒有 upperChest / chest），呼叫端
+   * 取得的 map 會缺對應 entry，BodySolver.setRefDirs 會用 plan 第 3 節
+   * 的預設值補上。
+   */
+  calibrateRefDirs(): Partial<Record<VRMHumanoidBoneName, Vec3>> {
+    const result: Partial<Record<VRMHumanoidBoneName, Vec3>> = {};
+    if (!this.hasModel) return result;
+
+    for (const [parentBone, childBone] of BONE_CHILD_FOR_CALIBRATION) {
+      const childNode = this.vrmController.getBoneNode(childBone);
+      if (!childNode) continue;
+      const len = childNode.position.length();
+      if (len < 1e-6) continue;
+      result[parentBone] = {
+        x: childNode.position.x / len,
+        y: childNode.position.y / len,
+        z: childNode.position.z / len,
+      };
+    }
+    return result;
+  }
+
   /** 可重用 THREE.Quaternion，避免每幀 GC */
   private readonly _tmpQuat = new THREE.Quaternion();
+  /** Y 軸 180° 旋轉（VRMController.loadModel 在 vrm.scene 套的反轉） */
+  private static readonly Y180 = new THREE.Quaternion(0, 1, 0, 0);
+
+  /**
+   * 暫時略過套用的骨骼。head 的 ear-nose 追蹤在側面視角會退化，
+   * 目前也沒有穩定的 REF_DIR 校正來源（head 沒有 child bone 可計算），
+   * 先不套用避免視覺畸形。Phase 14+ 會重做頭部追蹤。
+   */
+  private static readonly SKIP_BONES = new Set<string>(['head']);
 
   /**
    * 套用一幀 SolvedPose 到 VRM。
    *
-   * Phase 10 行為：
-   *   - 對每根 bone，把 SolvedPose 中的 Quat 轉為 THREE.Quaternion 並
-   *     呼叫 VRMController.setBoneRotation
-   *   - 不套用 hipsTranslation（避免模型位置漂移到鏡頭外）；hip 朝向
-   *     由 hips bone 的 rotation 處理，模型整體位置維持原點
+   * Phase 10.5 行為：
+   *   - 對每根非 hips 的 bone，把 SolvedPose 中的 Quat 直接轉為
+   *     THREE.Quaternion 並呼叫 VRMController.setBoneRotation
+   *   - hips bone 特殊處理：VRMController.loadModel 在 vrm.scene 套了
+   *     180° Y 軸反轉讓模型面向相機。要讓 hips bone 的 LOCAL rotation
+   *     在世界座標下等於 solver 算出的 hipsWorldQ，需用
+   *         hips_local = Y180⁻¹ × hipsWorldQ = Y180 × hipsWorldQ
+   *     （Y180 自我反向 = 自身）
+   *   - head bone 暫時 skip（見上方 SKIP_BONES 註解）
+   *   - 不套用 hipsTranslation（避免模型位置漂移到鏡頭外）
    *   - 套用後 VRMController.update() 會在下一個 tick 走 SpringBone +
    *     hip 平滑
    *
@@ -150,7 +217,12 @@ export class PreviewCharacterScene {
     if (!this.hasModel) return;
     for (const [boneName, q] of Object.entries(pose.boneRotations)) {
       if (!q) continue;
+      if (PreviewCharacterScene.SKIP_BONES.has(boneName)) continue;
       this._tmpQuat.set(q.x, q.y, q.z, q.w);
+      if (boneName === 'hips') {
+        // 補償 vrm.scene.rotation.y = π：hips_local = Y180 × hipsWorldQ
+        this._tmpQuat.premultiply(PreviewCharacterScene.Y180);
+      }
       this.vrmController.setBoneRotation(boneName, this._tmpQuat);
     }
   }

@@ -37,6 +37,8 @@ import {
   type VRMHumanoidBoneName,
 } from '../tracking/boneMapping';
 
+export type RefDirMap = Partial<Record<VRMHumanoidBoneName, Vec3>>;
+
 export interface SolvedBody {
   /** 髖部世界座標位置（公尺，相對 MediaPipe 原點） */
   hipsTranslation: Vec3 | null;
@@ -58,6 +60,27 @@ const midpoint = (a: Vec3, b: Vec3): Vec3 => ({
 });
 
 export class BodySolver {
+  /**
+   * 當前使用的參考方向 map。預設為 A_POSE_REFERENCE_DIR（plan 第 3 節
+   * 寫死的初始值），可透過 setRefDirs() 用實際 VRM bind pose 校正後的
+   * 值覆蓋（plan 第 8 節 Open Question 2 的解法）。
+   */
+  private refDirs: Required<RefDirMap> = { ...A_POSE_REFERENCE_DIR };
+
+  /**
+   * 用實際 VRM bind pose 校正後的 REF_DIR 覆蓋預設值。未在 map 中的
+   * 骨骼維持預設值（A_POSE_REFERENCE_DIR）。
+   *
+   * 呼叫端通常為 PreviewCharacterScene.calibrateRefDirs() 的回傳值。
+   */
+  setRefDirs(map: RefDirMap): void {
+    this.refDirs = { ...A_POSE_REFERENCE_DIR, ...map };
+  }
+
+  getRefDirs(): Required<RefDirMap> {
+    return this.refDirs;
+  }
+
   /**
    * 從一幀 poseWorldLandmarks 解出整個身體的 local rotation。
    *
@@ -100,7 +123,7 @@ export class BodySolver {
     // ── 2. Spine 鏈：spine 承擔整段旋轉，chest / upperChest 維持 identity ──
     // 在 hips 局部空間下，spine 應指向 torsoUp 方向
     const spineLocalDir = quatRotateVec(quatConj(hipsWorldQ), torsoUp);
-    out.rotations.spine = quatFromUnitVectors(A_POSE_REFERENCE_DIR.spine, spineLocalDir);
+    out.rotations.spine = quatFromUnitVectors(this.refDirs.spine, spineLocalDir);
     out.rotations.chest = quatIdentity();
     out.rotations.upperChest = quatIdentity();
 
@@ -115,7 +138,7 @@ export class BodySolver {
     const NOSE = toVec(world[POSE.NOSE]);
     const neckWorldDir = normalize(sub(NOSE, shoulderMid));
     const neckLocalDir = quatRotateVec(quatConj(upperChestWorldQ), neckWorldDir);
-    out.rotations.neck = quatFromUnitVectors(A_POSE_REFERENCE_DIR.neck, neckLocalDir);
+    out.rotations.neck = quatFromUnitVectors(this.refDirs.neck, neckLocalDir);
     const neckWorldQ = quatMul(upperChestWorldQ, out.rotations.neck);
     out.ancestorWorldQ.neck = neckWorldQ;
 
@@ -125,7 +148,7 @@ export class BodySolver {
     const earMid = midpoint(LE, RE);
     const headWorldDir = normalize(sub(earMid, NOSE));
     const headLocalDir = quatRotateVec(quatConj(neckWorldQ), headWorldDir);
-    out.rotations.head = quatFromUnitVectors(A_POSE_REFERENCE_DIR.head, headLocalDir);
+    out.rotations.head = quatFromUnitVectors(this.refDirs.head, headLocalDir);
     out.ancestorWorldQ.head = quatMul(neckWorldQ, out.rotations.head);
 
     // ── 5. Shoulders（無對應 landmark，固定 identity） ──
@@ -170,7 +193,7 @@ export class BodySolver {
     // upperArm
     const uaWorldDir = normalize(sub(elbow, shoulder));
     const uaLocalDir = quatRotateVec(quatConj(shoulderWorldQ), uaWorldDir);
-    const upperArm = quatFromUnitVectors(A_POSE_REFERENCE_DIR[upperArmBone], uaLocalDir);
+    const upperArm = quatFromUnitVectors(this.refDirs[upperArmBone], uaLocalDir);
     out.rotations[upperArmBone] = upperArm;
     const upperArmWorldQ = quatMul(shoulderWorldQ, upperArm);
     out.ancestorWorldQ[upperArmBone] = upperArmWorldQ;
@@ -178,7 +201,7 @@ export class BodySolver {
     // lowerArm
     const laWorldDir = normalize(sub(wrist, elbow));
     const laLocalDir = quatRotateVec(quatConj(upperArmWorldQ), laWorldDir);
-    const lowerArm = quatFromUnitVectors(A_POSE_REFERENCE_DIR[lowerArmBone], laLocalDir);
+    const lowerArm = quatFromUnitVectors(this.refDirs[lowerArmBone], laLocalDir);
     out.rotations[lowerArmBone] = lowerArm;
     const lowerArmWorldQ = quatMul(upperArmWorldQ, lowerArm);
     out.ancestorWorldQ[lowerArmBone] = lowerArmWorldQ;
@@ -187,7 +210,7 @@ export class BodySolver {
     const indexLm = toVec(world[idxIndex]);
     const handWorldDir = normalize(sub(indexLm, wrist));
     const handLocalDir = quatRotateVec(quatConj(lowerArmWorldQ), handWorldDir);
-    const hand = quatFromUnitVectors(A_POSE_REFERENCE_DIR[handBone], handLocalDir);
+    const hand = quatFromUnitVectors(this.refDirs[handBone], handLocalDir);
     out.rotations[handBone] = hand;
     out.ancestorWorldQ[handBone] = quatMul(lowerArmWorldQ, hand);
   }
@@ -218,7 +241,7 @@ export class BodySolver {
     // upperLeg
     const ulWorldDir = normalize(sub(knee, hip));
     const ulLocalDir = quatRotateVec(quatConj(hipsWorldQ), ulWorldDir);
-    const upperLeg = quatFromUnitVectors(A_POSE_REFERENCE_DIR[upperLegBone], ulLocalDir);
+    const upperLeg = quatFromUnitVectors(this.refDirs[upperLegBone], ulLocalDir);
     out.rotations[upperLegBone] = upperLeg;
     const upperLegWorldQ = quatMul(hipsWorldQ, upperLeg);
     out.ancestorWorldQ[upperLegBone] = upperLegWorldQ;
@@ -226,7 +249,7 @@ export class BodySolver {
     // lowerLeg
     const llWorldDir = normalize(sub(ankle, knee));
     const llLocalDir = quatRotateVec(quatConj(upperLegWorldQ), llWorldDir);
-    const lowerLeg = quatFromUnitVectors(A_POSE_REFERENCE_DIR[lowerLegBone], llLocalDir);
+    const lowerLeg = quatFromUnitVectors(this.refDirs[lowerLegBone], llLocalDir);
     out.rotations[lowerLegBone] = lowerLeg;
     const lowerLegWorldQ = quatMul(upperLegWorldQ, lowerLeg);
     out.ancestorWorldQ[lowerLegBone] = lowerLegWorldQ;
@@ -234,7 +257,7 @@ export class BodySolver {
     // foot：ankle → foot_index 方向
     const footWorldDir = normalize(sub(foot, ankle));
     const footLocalDir = quatRotateVec(quatConj(lowerLegWorldQ), footWorldDir);
-    const footQ = quatFromUnitVectors(A_POSE_REFERENCE_DIR[footBone], footLocalDir);
+    const footQ = quatFromUnitVectors(this.refDirs[footBone], footLocalDir);
     out.rotations[footBone] = footQ;
     out.ancestorWorldQ[footBone] = quatMul(lowerLegWorldQ, footQ);
   }

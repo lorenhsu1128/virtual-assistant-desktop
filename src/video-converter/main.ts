@@ -90,6 +90,7 @@ async function bootstrap(): Promise<void> {
       // 等下一幀讓 layout 完成再 resize
       requestAnimationFrame(() => state.preview?.resize());
       await state.preview.loadVrm(url);
+      applyCalibration();
       state.preview.start();
       previewPlaceholder.style.display = 'none';
       console.log('[VC] 預設 VRM 載入成功:', config.vrmModelPath);
@@ -103,6 +104,16 @@ async function bootstrap(): Promise<void> {
   }
   loadVrmBtn.disabled = false;
 
+  /** 從當前載入的 VRM 校正 REF_DIR 並餵給 PoseSolver */
+  function applyCalibration(): void {
+    if (!state.preview) return;
+    const calibrated = state.preview.calibrateRefDirs();
+    state.poseSolver.setRefDirs(calibrated);
+    console.log(
+      `[VC] REF_DIR calibrated: ${Object.keys(calibrated).length} bones from VRM bind pose`
+    );
+  }
+
   setStatus('Phase 9 — 等待載入影片');
 
   // ── 切換 VRM ──
@@ -114,6 +125,7 @@ async function bootstrap(): Promise<void> {
       requestAnimationFrame(() => state.preview?.resize());
       await state.preview!.loadVrm(url);
       if (!state.preview!.isModelLoaded) return;
+      applyCalibration();
       state.preview!.start();
       previewPlaceholder.style.display = 'none';
       console.log('[VC] 切換 VRM:', vrmPath);
