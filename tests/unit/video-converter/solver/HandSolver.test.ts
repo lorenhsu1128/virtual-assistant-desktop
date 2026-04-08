@@ -50,7 +50,7 @@ function makeFlatHand(): Landmark[] {
 }
 
 /** 建立完全彎曲的食指（其他手指攤平） */
-function makeFistIndex(side: 'left' | 'right'): Landmark[] {
+function makeFistIndex(_side: 'left' | 'right'): Landmark[] {
   const arr = makeFlatHand();
   // 食指彎成 90°：MCP → PIP 沿 +X，PIP → DIP 沿 -Y，DIP → TIP 沿 -X
   arr[HAND.INDEX_PIP] = lm(0.08, 0.0, 0);

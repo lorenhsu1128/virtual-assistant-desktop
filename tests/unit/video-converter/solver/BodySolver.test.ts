@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { BodySolver } from '../../../../src/video-converter/solver/BodySolver';
 import { POSE } from '../../../../src/video-converter/tracking/landmarkTypes';
 import type { Landmark } from '../../../../src/video-converter/tracking/landmarkTypes';
-import { quatIdentity, quatDot, quatRotateVec } from '../../../../src/video-converter/math/Quat';
+import { quatRotateVec } from '../../../../src/video-converter/math/Quat';
 import type { Quat } from '../../../../src/video-converter/math/Quat';
 
 const lm = (x: number, y: number, z: number): Landmark => ({ x, y, z, visibility: 1 });
@@ -20,6 +20,24 @@ function makeEmptyPose(): Landmark[] {
  *
  * 座標系：
  *   x = 受試者右側（+x）／y = 上（+y）／z = 受試者前方鏡頭外（+z）
+ *
+ * Hand / Foot 新的 3 點 rigid basis 要求：
+ *   - Hand：wrist + index + pinky 必須不共線
+ *     rest 設定：雙手垂直下垂 → wrist 在 (±0.18, 0.85, 0)，
+ *     index 在 (±0.18, 0.78, +0.02)（略前方），
+ *     pinky 在 (±0.18, 0.78, -0.02)（略後方）
+ *     → fingerDir ≈ (0,-0.07,0)  → Y_DOWN 方向
+ *     → palmNormal：LEFT = cross(indexDir, pinkyDir) = cross((0,-0.07,+0.02),(0,-0.07,-0.02)) = (+0.0028,0,0) → +X
+ *                  RIGHT = cross(pinkyDir, indexDir) = -X
+ *     因左右手 palm normal 方向相反，basisToLocalQ 後左右 hand local 都 ≈ identity
+ *   - Foot：ankle + heel + foot_index 需三點不共線
+ *     rest 設定：腳掌平放 →
+ *       ankle (±0.12, 0.1, 0)
+ *       heel (±0.12, 0.05, -0.05)
+ *       foot_index (±0.12, 0.05, 0.15)
+ *     → heelToToe ≈ (0, 0, 0.20) → Z 方向
+ *     → ankleAboveHeel ≈ (0, 0.05, 0.05) → 主要向上
+ *     → X = cross(y, z) ≈ +X（右側）
  */
 function makeRestPose(): Landmark[] {
   const arr = makeEmptyPose();
@@ -32,18 +50,26 @@ function makeRestPose(): Landmark[] {
   arr[POSE.RIGHT_ELBOW] = lm(0.18, 1.15, 0);
   arr[POSE.LEFT_WRIST] = lm(-0.18, 0.85, 0);
   arr[POSE.RIGHT_WRIST] = lm(0.18, 0.85, 0);
-  // index 在 wrist 正下方一點點 → handLocalDir = (0,-1,0) → identity
-  arr[POSE.LEFT_INDEX] = lm(-0.18, 0.78, 0);
-  arr[POSE.RIGHT_INDEX] = lm(0.18, 0.78, 0);
+  // Hand rigid basis 需要 wrist + index + pinky 三點。
+  // rest pose 下要讓 basis 解出為 identity，LEFT / RIGHT 必須是「鏡像」
+  // 幾何（palmNormal 經 chirality 翻轉後都落在同一方向）：
+  //   LEFT:  index +Z, pinky −Z
+  //   RIGHT: index −Z, pinky +Z（mirror）
+  arr[POSE.LEFT_INDEX] = lm(-0.18, 0.78, 0.02);
+  arr[POSE.LEFT_PINKY] = lm(-0.18, 0.78, -0.02);
+  arr[POSE.RIGHT_INDEX] = lm(0.18, 0.78, -0.02);
+  arr[POSE.RIGHT_PINKY] = lm(0.18, 0.78, 0.02);
   arr[POSE.LEFT_HIP] = lm(-0.12, 1.0, 0);
   arr[POSE.RIGHT_HIP] = lm(0.12, 1.0, 0);
   arr[POSE.LEFT_KNEE] = lm(-0.12, 0.55, 0);
   arr[POSE.RIGHT_KNEE] = lm(0.12, 0.55, 0);
   arr[POSE.LEFT_ANKLE] = lm(-0.12, 0.1, 0);
   arr[POSE.RIGHT_ANKLE] = lm(0.12, 0.1, 0);
-  // foot_index 在 ankle 正前方 → footLocalDir = (0,0,1) → identity
-  arr[POSE.LEFT_FOOT_INDEX] = lm(-0.12, 0.1, 0.15);
-  arr[POSE.RIGHT_FOOT_INDEX] = lm(0.12, 0.1, 0.15);
+  // Foot rigid basis: heel 在 ankle 後下方，foot_index 在 ankle 前下方
+  arr[POSE.LEFT_HEEL] = lm(-0.12, 0.05, -0.05);
+  arr[POSE.RIGHT_HEEL] = lm(0.12, 0.05, -0.05);
+  arr[POSE.LEFT_FOOT_INDEX] = lm(-0.12, 0.05, 0.15);
+  arr[POSE.RIGHT_FOOT_INDEX] = lm(0.12, 0.05, 0.15);
   return arr;
 }
 
@@ -196,5 +222,119 @@ describe('BodySolver — 退化輸入', () => {
     const result = new BodySolver().solve([]);
     expect(result.hipsTranslation).toBeNull();
     expect(Object.keys(result.rotations).length).toBe(0);
+  });
+});
+
+describe('BodySolver — head rigid basis (三點基底)', () => {
+  const solver = new BodySolver();
+
+  it('rest pose 頭部仍為 identity', () => {
+    const result = solver.solve(makeRestPose());
+    expect(isNearIdentity(result.rotations.head!, 1e-5)).toBe(true);
+  });
+
+  it('歪頭（左耳上右耳下，roll 旋轉）→ head 非 identity 且含 Z 軸分量', () => {
+    const pose = makeRestPose();
+    // 左耳往上、右耳往下 → 頭往右側傾斜（從角色角度是向右 roll）
+    pose[POSE.LEFT_EAR] = lm(-0.08, 1.75, -0.05);
+    pose[POSE.RIGHT_EAR] = lm(0.08, 1.65, -0.05);
+    const result = solver.solve(pose);
+    const head = result.rotations.head!;
+    expect(isNearIdentity(head, 1e-4)).toBe(false);
+    // roll 主要表現在 Z 軸旋轉分量（quat 的 z 分量）
+    expect(Math.abs(head.z)).toBeGreaterThan(Math.abs(head.x));
+  });
+
+  it('點頭（鼻子下移）→ head 非 identity 且 X 軸分量主導', () => {
+    const pose = makeRestPose();
+    pose[POSE.NOSE] = lm(0, 1.65, 0.05); // 鼻子下方偏前
+    const result = solver.solve(pose);
+    const head = result.rotations.head!;
+    expect(isNearIdentity(head, 1e-4)).toBe(false);
+    expect(Number.isFinite(head.x)).toBe(true);
+    expect(Number.isFinite(head.y)).toBe(true);
+    expect(Number.isFinite(head.z)).toBe(true);
+    expect(Number.isFinite(head.w)).toBe(true);
+  });
+
+  it('搖頭（鼻子右移）→ head 非 identity 且 Y 軸分量主導', () => {
+    const pose = makeRestPose();
+    pose[POSE.NOSE] = lm(0.05, 1.7, 0.03);
+    const result = solver.solve(pose);
+    const head = result.rotations.head!;
+    expect(isNearIdentity(head, 1e-4)).toBe(false);
+    // yaw 主要表現在 Y 軸分量
+    expect(Math.abs(head.y)).toBeGreaterThan(Math.abs(head.z));
+  });
+
+  it('退化（NOSE 與 earMid 重合）→ fallback 為 identity（不 NaN）', () => {
+    const pose = makeRestPose();
+    pose[POSE.NOSE] = lm(0, 1.7, -0.05); // 與 earMid 同位
+    const result = solver.solve(pose);
+    const head = result.rotations.head!;
+    expect(Number.isFinite(head.x)).toBe(true);
+    expect(Number.isFinite(head.y)).toBe(true);
+    expect(Number.isFinite(head.z)).toBe(true);
+    expect(Number.isFinite(head.w)).toBe(true);
+  });
+});
+
+describe('BodySolver — hand rigid basis (wrist + index + pinky)', () => {
+  const solver = new BodySolver();
+
+  it('rest pose 雙手 hand 仍為 identity', () => {
+    const result = solver.solve(makeRestPose());
+    expect(isNearIdentity(result.rotations.leftHand!, 1e-4)).toBe(true);
+    expect(isNearIdentity(result.rotations.rightHand!, 1e-4)).toBe(true);
+  });
+
+  it('退化（index / pinky 與 wrist 同位）→ fallback identity', () => {
+    const pose = makeRestPose();
+    pose[POSE.LEFT_INDEX] = lm(-0.18, 0.85, 0);
+    pose[POSE.LEFT_PINKY] = lm(-0.18, 0.85, 0);
+    const result = solver.solve(pose);
+    expect(Number.isFinite(result.rotations.leftHand!.x)).toBe(true);
+    expect(Number.isFinite(result.rotations.leftHand!.y)).toBe(true);
+    expect(Number.isFinite(result.rotations.leftHand!.z)).toBe(true);
+    expect(Number.isFinite(result.rotations.leftHand!.w)).toBe(true);
+  });
+
+  it('手掌翻轉（index/pinky 左右對調）→ hand 非 identity', () => {
+    const pose = makeRestPose();
+    // LEFT hand palm 翻轉：index 後方、pinky 前方
+    pose[POSE.LEFT_INDEX] = lm(-0.18, 0.78, -0.02);
+    pose[POSE.LEFT_PINKY] = lm(-0.18, 0.78, 0.02);
+    const result = solver.solve(pose);
+    expect(isNearIdentity(result.rotations.leftHand!, 1e-4)).toBe(false);
+  });
+});
+
+describe('BodySolver — foot rigid basis (ankle + heel + foot_index)', () => {
+  const solver = new BodySolver();
+
+  it('rest pose 雙腳 foot 仍為 identity', () => {
+    const result = solver.solve(makeRestPose());
+    expect(isNearIdentity(result.rotations.leftFoot!, 1e-4)).toBe(true);
+    expect(isNearIdentity(result.rotations.rightFoot!, 1e-4)).toBe(true);
+  });
+
+  it('腳尖上抬（foot_index 往上）→ foot 非 identity', () => {
+    const pose = makeRestPose();
+    // 左腳腳尖往上抬（繞 ankle 旋轉）
+    pose[POSE.LEFT_FOOT_INDEX] = lm(-0.12, 0.12, 0.10);
+    const result = solver.solve(pose);
+    expect(isNearIdentity(result.rotations.leftFoot!, 1e-4)).toBe(false);
+  });
+
+  it('退化（heel / ankle / foot_index 共線）→ fallback identity，不 NaN', () => {
+    const pose = makeRestPose();
+    pose[POSE.LEFT_HEEL] = lm(-0.12, 0.1, 0);
+    pose[POSE.LEFT_FOOT_INDEX] = lm(-0.12, 0.1, 0.1);
+    // ankle / heel / foot_index 全部共線在 (−0.12, 0.1, *)
+    const result = solver.solve(pose);
+    expect(Number.isFinite(result.rotations.leftFoot!.x)).toBe(true);
+    expect(Number.isFinite(result.rotations.leftFoot!.y)).toBe(true);
+    expect(Number.isFinite(result.rotations.leftFoot!.z)).toBe(true);
+    expect(Number.isFinite(result.rotations.leftFoot!.w)).toBe(true);
   });
 });

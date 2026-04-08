@@ -29,7 +29,7 @@ import {
   quatRotateVec,
 } from '../math/Quat';
 import type { Vec3 } from '../math/Vector';
-import { sub, normalize, cross } from '../math/Vector';
+import { sub, normalize, cross, length } from '../math/Vector';
 import type { Landmark } from '../tracking/landmarkTypes';
 import { POSE, POSE_LANDMARK_COUNT } from '../tracking/landmarkTypes';
 import {
@@ -58,6 +58,78 @@ const midpoint = (a: Vec3, b: Vec3): Vec3 => ({
   y: (a.y + b.y) * 0.5,
   z: (a.z + b.z) * 0.5,
 });
+
+/**
+ * 退化輸入 (|cross| 過小) 時的安全閾值。小於此值視為三點共線或方向無效。
+ */
+const BASIS_EPSILON = 1e-6;
+
+type Basis = { x: Vec3; y: Vec3; z: Vec3 };
+
+/**
+ * 從兩個軸候選向量組成正交右手基底（Y 作為主軸）。
+ *
+ * 策略：以 yHint 為主（須非退化），z = cross(xHint, y)，x = cross(y, z)。
+ * 若中間任一步退化（cross 長度過小）則回傳 null。
+ *
+ * 結果滿足：|x| = |y| = |z| = 1 且彼此正交，cross(x, y) = z（右手系）。
+ */
+function orthoBasisYPrimary(xHint: Vec3, yHint: Vec3): Basis | null {
+  const yLen = length(yHint);
+  if (yLen < BASIS_EPSILON) return null;
+  const y: Vec3 = { x: yHint.x / yLen, y: yHint.y / yLen, z: yHint.z / yLen };
+  const zCross = cross(xHint, y);
+  const zLen = length(zCross);
+  if (zLen < BASIS_EPSILON) return null;
+  const z: Vec3 = { x: zCross.x / zLen, y: zCross.y / zLen, z: zCross.z / zLen };
+  const xCross = cross(y, z);
+  const xLen = length(xCross);
+  if (xLen < BASIS_EPSILON) return null;
+  const x: Vec3 = { x: xCross.x / xLen, y: xCross.y / xLen, z: xCross.z / xLen };
+  return { x, y, z };
+}
+
+/**
+ * 從兩個軸候選向量組成正交右手基底（Z 作為主軸）。
+ *
+ * 策略：以 zHint 為主，y = cross(z, xHint)，x = cross(y, z)。
+ */
+function orthoBasisZPrimary(xHint: Vec3, zHint: Vec3): Basis | null {
+  const zLen = length(zHint);
+  if (zLen < BASIS_EPSILON) return null;
+  const z: Vec3 = { x: zHint.x / zLen, y: zHint.y / zLen, z: zHint.z / zLen };
+  const yCross = cross(z, xHint);
+  const yLen = length(yCross);
+  if (yLen < BASIS_EPSILON) return null;
+  const y: Vec3 = { x: yCross.x / yLen, y: yCross.y / yLen, z: yCross.z / yLen };
+  const xCross = cross(y, z);
+  const xLen = length(xCross);
+  if (xLen < BASIS_EPSILON) return null;
+  const x: Vec3 = { x: xCross.x / xLen, y: xCross.y / xLen, z: xCross.z / xLen };
+  return { x, y, z };
+}
+
+/**
+ * 將世界空間的正交右手基底轉為「相對於 parentWorldQ 的 local quaternion」。
+ *
+ * 流程：
+ *   1. 先組成世界矩陣（columns = x, y, z）並 quatFromMat3 得 worldQ
+ *   2. localQ = conj(parentWorldQ) × worldQ
+ *
+ * 輸入的三軸必須已經是正交單位向量（通常來自 orthoBasis）。
+ */
+function basisToLocalQ(
+  basis: Basis,
+  parentWorldQ: Quat,
+): Quat {
+  // row-major 3×3：row i = (x.i, y.i, z.i)
+  const worldQ = quatFromMat3([
+    basis.x.x, basis.y.x, basis.z.x,
+    basis.x.y, basis.y.y, basis.z.y,
+    basis.x.z, basis.y.z, basis.z.z,
+  ]);
+  return quatMul(quatConj(parentWorldQ), worldQ);
+}
 
 export class BodySolver {
   /**
@@ -142,13 +214,25 @@ export class BodySolver {
     const neckWorldQ = quatMul(upperChestWorldQ, out.rotations.neck);
     out.ancestorWorldQ.neck = neckWorldQ;
 
-    // ── 4. Head（從耳-鼻方向推） ──
+    // ── 4. Head（三點 rigid body 基底：耳線 + 鼻方向） ──
+    //
+    // 用 LEFT_EAR / RIGHT_EAR / NOSE 三點建立完整的頭部 world 基底，
+    // 取代原本只約束 1 軸的 earMid→NOSE 方法。好處：旋轉 twist（roll）
+    // 也被正確約束，頭部側向歪頭、點頭、搖頭皆可還原。
+    //
+    // 世界軸約定（VRM head 本地基底 bind = 與 neck 對齊）：
+    //   X = 角色右方（LEFT_EAR → RIGHT_EAR）
+    //   Z = 角色前方（earMid → NOSE）
+    //   Y = 向上（cross(Z, X) 再 re-ortho）
     const LE = toVec(world[POSE.LEFT_EAR]);
     const RE = toVec(world[POSE.RIGHT_EAR]);
     const earMid = midpoint(LE, RE);
-    const headWorldDir = normalize(sub(earMid, NOSE));
-    const headLocalDir = quatRotateVec(quatConj(neckWorldQ), headWorldDir);
-    out.rotations.head = quatFromUnitVectors(this.refDirs.head, headLocalDir);
+    const headRightAxis = sub(RE, LE);
+    const headForwardAxis = sub(NOSE, earMid);
+    const headBasis = orthoBasisZPrimary(headRightAxis, headForwardAxis);
+    out.rotations.head = headBasis
+      ? basisToLocalQ(headBasis, neckWorldQ)
+      : quatIdentity();
     out.ancestorWorldQ.head = quatMul(neckWorldQ, out.rotations.head);
 
     // ── 5. Shoulders（無對應 landmark，固定 identity） ──
@@ -179,6 +263,7 @@ export class BodySolver {
     const idxElbow = side === 'left' ? POSE.LEFT_ELBOW : POSE.RIGHT_ELBOW;
     const idxWrist = side === 'left' ? POSE.LEFT_WRIST : POSE.RIGHT_WRIST;
     const idxIndex = side === 'left' ? POSE.LEFT_INDEX : POSE.RIGHT_INDEX;
+    const idxPinky = side === 'left' ? POSE.LEFT_PINKY : POSE.RIGHT_PINKY;
 
     const upperArmBone: VRMHumanoidBoneName =
       side === 'left' ? 'leftUpperArm' : 'rightUpperArm';
@@ -206,13 +291,33 @@ export class BodySolver {
     const lowerArmWorldQ = quatMul(upperArmWorldQ, lowerArm);
     out.ancestorWorldQ[lowerArmBone] = lowerArmWorldQ;
 
-    // hand：以 wrist→index 方向推
+    // ── Hand（三點 rigid body 基底：wrist + index + pinky） ──
+    //
+    // 改善點（plan §14 Phase 12 偏差 #1）：舊版用 wrist→INDEX 單軸，忽略
+    // 手掌平面 twist。改用三點建立完整基底。
+    //
+    // 語意約定（讓 A-pose rest 時 basis ≈ identity）：
+    //   Y = wrist − midpoint(index, pinky)（從指尖往 wrist 方向 = 世界 +Y）
+    //   palmNormal hint：兩手鏡像
+    //       LEFT:  cross(wristToIndex, wristToPinky)
+    //       RIGHT: cross(wristToPinky, wristToIndex)
+    //   basis 由 orthoBasisYPrimary(palmNormal, Y) 建立
+    //
+    // 退化（三點共線 / 手離畫面）時 fallback 為 identity，避免 NaN。
     const indexLm = toVec(world[idxIndex]);
-    const handWorldDir = normalize(sub(indexLm, wrist));
-    const handLocalDir = quatRotateVec(quatConj(lowerArmWorldQ), handWorldDir);
-    const hand = quatFromUnitVectors(this.refDirs[handBone], handLocalDir);
-    out.rotations[handBone] = hand;
-    out.ancestorWorldQ[handBone] = quatMul(lowerArmWorldQ, hand);
+    const pinkyLm = toVec(world[idxPinky]);
+    const fingerToWrist = sub(wrist, midpoint(indexLm, pinkyLm));
+    const wristToIndex = sub(indexLm, wrist);
+    const wristToPinky = sub(pinkyLm, wrist);
+    const palmNormal =
+      side === 'left'
+        ? cross(wristToIndex, wristToPinky)
+        : cross(wristToPinky, wristToIndex);
+    const handBasis = orthoBasisYPrimary(palmNormal, fingerToWrist);
+    out.rotations[handBone] = handBasis
+      ? basisToLocalQ(handBasis, lowerArmWorldQ)
+      : quatIdentity();
+    out.ancestorWorldQ[handBone] = quatMul(lowerArmWorldQ, out.rotations[handBone]);
   }
 
   /** 解單側腿（upperLeg → lowerLeg → foot），父鏈為 hips */
@@ -225,6 +330,7 @@ export class BodySolver {
     const idxHip = side === 'left' ? POSE.LEFT_HIP : POSE.RIGHT_HIP;
     const idxKnee = side === 'left' ? POSE.LEFT_KNEE : POSE.RIGHT_KNEE;
     const idxAnkle = side === 'left' ? POSE.LEFT_ANKLE : POSE.RIGHT_ANKLE;
+    const idxHeel = side === 'left' ? POSE.LEFT_HEEL : POSE.RIGHT_HEEL;
     const idxFoot = side === 'left' ? POSE.LEFT_FOOT_INDEX : POSE.RIGHT_FOOT_INDEX;
 
     const upperLegBone: VRMHumanoidBoneName =
@@ -236,7 +342,8 @@ export class BodySolver {
     const hip = toVec(world[idxHip]);
     const knee = toVec(world[idxKnee]);
     const ankle = toVec(world[idxAnkle]);
-    const foot = toVec(world[idxFoot]);
+    const heel = toVec(world[idxHeel]);
+    const footIdx = toVec(world[idxFoot]);
 
     // upperLeg
     const ulWorldDir = normalize(sub(knee, hip));
@@ -254,11 +361,27 @@ export class BodySolver {
     const lowerLegWorldQ = quatMul(upperLegWorldQ, lowerLeg);
     out.ancestorWorldQ[lowerLegBone] = lowerLegWorldQ;
 
-    // foot：ankle → foot_index 方向
-    const footWorldDir = normalize(sub(foot, ankle));
-    const footLocalDir = quatRotateVec(quatConj(lowerLegWorldQ), footWorldDir);
-    const footQ = quatFromUnitVectors(this.refDirs[footBone], footLocalDir);
-    out.rotations[footBone] = footQ;
-    out.ancestorWorldQ[footBone] = quatMul(lowerLegWorldQ, footQ);
+    // ── Foot（三點 rigid body 基底：ankle + heel + foot_index） ──
+    //
+    // 改善點（plan §14 Phase 12 偏差 #3）：舊版只用 ankle→foot_index 單軸，
+    // 腳掌旋轉（腳尖指向）被 under-constrained。
+    //
+    // 構造方式（讓 rest 時 basis ≈ identity）：
+    //   Z（腳掌前方）= foot_index − heel
+    //   X hint（角色右側）= cross(ankle→toe, ankle→heel)
+    //     此 cross 結果在兩腳同樣的 ankle 比 heel/toe 高的幾何下，兩腳皆
+    //     得到 +X 世界方向，無需 L/R 鏡像翻轉。
+    //   basis = orthoBasisZPrimary(xHint, heelToToe)
+    //
+    // 退化時 fallback identity。
+    const heelToToe = sub(footIdx, heel);
+    const ankleToHeel = sub(heel, ankle);
+    const ankleToToe = sub(footIdx, ankle);
+    const footRightHint = cross(ankleToToe, ankleToHeel);
+    const footBasis = orthoBasisZPrimary(footRightHint, heelToToe);
+    out.rotations[footBone] = footBasis
+      ? basisToLocalQ(footBasis, lowerLegWorldQ)
+      : quatIdentity();
+    out.ancestorWorldQ[footBone] = quatMul(lowerLegWorldQ, out.rotations[footBone]);
   }
 }

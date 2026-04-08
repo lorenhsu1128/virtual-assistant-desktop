@@ -188,11 +188,14 @@ export class PreviewCharacterScene {
   private static readonly Y180 = new THREE.Quaternion(0, 1, 0, 0);
 
   /**
-   * 暫時略過套用的骨骼。head 的 ear-nose 追蹤在側面視角會退化，
-   * 目前也沒有穩定的 REF_DIR 校正來源（head 沒有 child bone 可計算），
-   * 先不套用避免視覺畸形。Phase 14+ 會重做頭部追蹤。
+   * 暫時略過套用的骨骼清單（目前為空）。
+   *
+   * 歷史：head 曾經在此，因為舊版 BodySolver 用 ear-nose 單軸映射無法
+   * 正確約束 twist。現行 BodySolver 已改用 LEFT_EAR / RIGHT_EAR / NOSE
+   * 三點 rigid body 基底（見 BodySolver.solve() ── 4. Head 段），head
+   * 可以正常套用。
    */
-  private static readonly SKIP_BONES = new Set<string>(['head']);
+  private static readonly SKIP_BONES = new Set<string>();
 
   /**
    * 套用一幀 SolvedPose 到 VRM。
