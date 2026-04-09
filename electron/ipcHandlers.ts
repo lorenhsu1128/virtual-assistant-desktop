@@ -1,5 +1,6 @@
 import { ipcMain, dialog, BrowserWindow, screen, app } from 'electron';
 import * as path from 'node:path';
+import * as fs from 'node:fs/promises';
 import * as fileManager from './fileManager.js';
 import { WindowMonitor, type WindowRect } from './windowMonitor.js';
 import { openPickerWindow, closePickerWindow } from './vrmPickerWindow.js';
@@ -133,6 +134,36 @@ export function registerIpcHandlers(
     const config = await fileManager.readConfig();
     return config.vrmModelPath ?? null;
   });
+
+  /**
+   * 儲存 VRMA 檔案（mocap studio 匯出用）
+   *
+   * 開啟存檔對話框並將 bytes 寫入選定路徑。
+   * 使用者取消或失敗時回傳 null；成功回傳完整檔案路徑。
+   */
+  ipcMain.handle(
+    'mocap_save_vrma',
+    async (
+      event,
+      bytes: Uint8Array,
+      suggestedName: string,
+    ): Promise<string | null> => {
+      const senderWindow = BrowserWindow.fromWebContents(event.sender) ?? mainWindow;
+      const result = await dialog.showSaveDialog(senderWindow, {
+        title: '\u532f\u51fa VRMA \u52d5\u756b',
+        defaultPath: suggestedName,
+        filters: [{ name: 'VRM Animation', extensions: ['vrma'] }],
+      });
+      if (result.canceled || !result.filePath) return null;
+      try {
+        await fs.writeFile(result.filePath, Buffer.from(bytes));
+        return result.filePath;
+      } catch (e) {
+        console.warn('[ipcHandlers] mocap_save_vrma writeFile failed:', e);
+        return null;
+      }
+    },
+  );
 
   /** 影片檔案選擇器（mocap studio 使用） */
   ipcMain.handle('mocap_pick_video', async (event): Promise<string | null> => {

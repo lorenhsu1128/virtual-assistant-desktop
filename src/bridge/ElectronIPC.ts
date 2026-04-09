@@ -25,6 +25,7 @@ interface ElectronAPI {
   openMocapStudio(): Promise<void>;
   mocapGetCurrentVrmPath(): Promise<string | null>;
   mocapPickVideo(): Promise<string | null>;
+  mocapSaveVrma(bytes: Uint8Array, suggestedName: string): Promise<string | null>;
   getWindowList(): Promise<WindowRect[]>;
   getDisplayInfo(): Promise<DisplayInfo[]>;
   setWindowPosition(x: number, y: number): Promise<void>;
@@ -284,6 +285,22 @@ class ElectronIPC {
       return await window.electronAPI.mocapPickVideo();
     } catch (e) {
       console.warn('[ElectronIPC] pickVideo failed:', e);
+      return null;
+    }
+  }
+
+  /**
+   * 將 VRMA bytes 寫入使用者選擇的檔案路徑
+   *
+   * @param bytes          .vrma 檔案內容（VrmaExporter 的輸出）
+   * @param suggestedName  存檔對話框的預設檔名
+   * @returns              成功時回傳完整路徑；取消 / 失敗時回傳 null
+   */
+  async saveVrma(bytes: Uint8Array, suggestedName: string): Promise<string | null> {
+    try {
+      return await window.electronAPI.mocapSaveVrma(bytes, suggestedName);
+    } catch (e) {
+      console.warn('[ElectronIPC] saveVrma failed:', e);
       return null;
     }
   }

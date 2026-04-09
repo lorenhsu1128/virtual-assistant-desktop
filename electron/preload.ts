@@ -32,6 +32,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openMocapStudio: () => ipcRenderer.invoke('open_mocap_studio'),
   mocapGetCurrentVrmPath: () => ipcRenderer.invoke('mocap_get_current_vrm_path'),
   mocapPickVideo: () => ipcRenderer.invoke('mocap_pick_video'),
+  mocapSaveVrma: (bytes: Uint8Array, suggestedName: string) =>
+    ipcRenderer.invoke('mocap_save_vrma', bytes, suggestedName),
 
   // ── Window Monitor ──
   getWindowList: () => ipcRenderer.invoke('get_window_list'),

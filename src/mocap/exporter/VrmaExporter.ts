@@ -1,0 +1,213 @@
+/**
+ * VRMA 匯出器
+ *
+ * 將 MocapFrame[] 轉換為 .vrma 檔案的 Uint8Array。
+ * .vrma = glTF 2.0 GLB + VRMC_vrm_animation 擴充。
+ *
+ * 實作策略（Phase 3 MVP）：
+ *   - 扁平 node tree（不建骨骼階層）
+ *     VRMA 透過 `humanoid.humanBones` 映射 bone → node，不依賴 node 階層，
+ *     因此每個 bone 只需一個獨立的 node 物件，大幅簡化輸出結構。
+ *   - 支援：rotation channels（每 bone 一組）+ 選擇性的 hips translation channel
+ *   - 不支援：blendShape weights（Phase 2c MocapFrame.blendShapes 尚為空；
+ *     Phase 4/5 引擎產生表情資料後再補 expressions 擴充欄位）
+ *   - 插值：LINEAR（不用 CUBICSPLINE 以減半資料量）
+ *
+ * VRMA 規格參考：
+ *   https://github.com/vrm-c/vrm-specification/tree/master/specification/VRMC_vrm_animation-1.0
+ */
+
+import { BufferBuilder, writeGlb } from './gltfWriter';
+import type { MocapFrame, VrmHumanBoneName } from '../types';
+
+export interface VrmaExportOptions {
+  /** 寫入 asset.generator 的字串（預設為本專案識別字） */
+  generator?: string;
+  /** 動畫名稱（預設 'mocap'） */
+  animationName?: string;
+}
+
+interface AnimationChannel {
+  sampler: number;
+  target: { node: number; path: 'rotation' | 'translation' | 'scale' | 'weights' };
+}
+
+interface AnimationSampler {
+  input: number;
+  output: number;
+  interpolation: 'LINEAR' | 'STEP' | 'CUBICSPLINE';
+}
+
+/**
+ * 將 MocapFrame[] 匯出為 .vrma GLB Uint8Array
+ *
+ * @param frames  要匯出的幀陣列（至少一幀）
+ * @param options 可選的 generator / animationName
+ * @returns       完整的 .vrma 檔案內容
+ */
+export function exportMocapToVrma(
+  frames: MocapFrame[],
+  options: VrmaExportOptions = {},
+): Uint8Array {
+  if (frames.length === 0) {
+    throw new Error('[VrmaExporter] cannot export empty MocapFrame array');
+  }
+
+  const t0 = frames[0].timestampMs;
+
+  // 1. 蒐集所有出現過的 bone
+  const usedBoneSet = new Set<VrmHumanBoneName>();
+  for (const frame of frames) {
+    for (const name of Object.keys(frame.boneRotations)) {
+      usedBoneSet.add(name as VrmHumanBoneName);
+    }
+  }
+
+  // 2. 若有任何幀帶 hips 位移，確保 hips bone 被包含
+  const hasHipsTranslation = frames.some((f) => f.hipsWorldPosition !== null);
+  if (hasHipsTranslation) {
+    usedBoneSet.add('hips');
+  }
+
+  if (usedBoneSet.size === 0) {
+    throw new Error('[VrmaExporter] no bones found in any frame');
+  }
+
+  const usedBones: VrmHumanBoneName[] = Array.from(usedBoneSet);
+
+  // 3. 扁平 node list（每 bone 一個 node）
+  const nodes: { name: string }[] = [];
+  const boneNameToNodeIdx: Partial<Record<VrmHumanBoneName, number>> = {};
+  for (const bone of usedBones) {
+    boneNameToNodeIdx[bone] = nodes.length;
+    nodes.push({ name: bone });
+  }
+
+  // 4. 時間軸（以秒為單位，相對於第一幀）
+  const timeArray = new Float32Array(frames.length);
+  for (let i = 0; i < frames.length; i++) {
+    timeArray[i] = (frames[i].timestampMs - t0) / 1000;
+  }
+
+  // 5. 每 bone 的 rotation 陣列（缺幀補 identity）
+  const rotationArrays = new Map<VrmHumanBoneName, Float32Array>();
+  for (const bone of usedBones) {
+    const arr = new Float32Array(frames.length * 4);
+    for (let i = 0; i < frames.length; i++) {
+      const q = frames[i].boneRotations[bone];
+      if (q) {
+        arr[i * 4 + 0] = q.x;
+        arr[i * 4 + 1] = q.y;
+        arr[i * 4 + 2] = q.z;
+        arr[i * 4 + 3] = q.w;
+      } else {
+        // identity quaternion
+        arr[i * 4 + 3] = 1;
+      }
+    }
+    rotationArrays.set(bone, arr);
+  }
+
+  // 6. Hips translation 陣列（若有）
+  let translationArray: Float32Array | null = null;
+  if (hasHipsTranslation) {
+    translationArray = new Float32Array(frames.length * 3);
+    for (let i = 0; i < frames.length; i++) {
+      const pos = frames[i].hipsWorldPosition;
+      if (pos) {
+        translationArray[i * 3 + 0] = pos.x;
+        translationArray[i * 3 + 1] = pos.y;
+        translationArray[i * 3 + 2] = pos.z;
+      }
+    }
+  }
+
+  // 7. 組 binary buffer + accessors
+  const builder = new BufferBuilder();
+  const timeAccessor = builder.addFloat32Array(timeArray, 'SCALAR');
+
+  const rotationAccessors = new Map<VrmHumanBoneName, number>();
+  for (const [bone, arr] of rotationArrays) {
+    rotationAccessors.set(bone, builder.addFloat32Array(arr, 'VEC4'));
+  }
+
+  let translationAccessor: number | null = null;
+  if (translationArray) {
+    translationAccessor = builder.addFloat32Array(translationArray, 'VEC3');
+  }
+
+  // 8. 組 channels + samplers
+  const samplers: AnimationSampler[] = [];
+  const channels: AnimationChannel[] = [];
+
+  for (const [bone, outAccessor] of rotationAccessors) {
+    const samplerIdx = samplers.length;
+    samplers.push({
+      input: timeAccessor,
+      output: outAccessor,
+      interpolation: 'LINEAR',
+    });
+    channels.push({
+      sampler: samplerIdx,
+      target: {
+        node: boneNameToNodeIdx[bone]!,
+        path: 'rotation',
+      },
+    });
+  }
+
+  if (translationAccessor !== null) {
+    const samplerIdx = samplers.length;
+    samplers.push({
+      input: timeAccessor,
+      output: translationAccessor,
+      interpolation: 'LINEAR',
+    });
+    channels.push({
+      sampler: samplerIdx,
+      target: {
+        node: boneNameToNodeIdx['hips']!,
+        path: 'translation',
+      },
+    });
+  }
+
+  // 9. humanBones 映射（VRMA 擴充要求）
+  const humanBones: Record<string, { node: number }> = {};
+  for (const bone of usedBones) {
+    humanBones[bone] = { node: boneNameToNodeIdx[bone]! };
+  }
+
+  // 10. 組最終 glTF JSON
+  const binary = builder.build();
+  const gltfJson = {
+    asset: {
+      version: '2.0',
+      generator: options.generator ?? 'virtual-assistant-desktop mocap exporter',
+    },
+    extensionsUsed: ['VRMC_vrm_animation'],
+    extensions: {
+      VRMC_vrm_animation: {
+        specVersion: '1.0',
+        humanoid: {
+          humanBones,
+        },
+      },
+    },
+    scene: 0,
+    scenes: [{ nodes: usedBones.map((_, i) => i) }],
+    nodes,
+    animations: [
+      {
+        name: options.animationName ?? 'mocap',
+        channels,
+        samplers,
+      },
+    ],
+    accessors: builder.getAccessors(),
+    bufferViews: builder.getBufferViews(),
+    buffers: [{ byteLength: binary.byteLength }],
+  };
+
+  return writeGlb(gltfJson, binary);
+}

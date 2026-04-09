@@ -78,9 +78,17 @@ src/                → TypeScript 前端（主視窗 renderer process）
   types/            → 共用型別（config, animation, window, behavior, collision, tray, vrmPicker）
   vrm-picker/       → VRM 模型瀏覽對話框（獨立 BrowserWindow renderer）
                       main.ts / PreviewScene.ts / pickerLogic.ts / style.css
-  mocap-studio/     → 影片動捕工作站（獨立 BrowserWindow renderer，Phase 0 scaffold）
-                      main.ts / MocapStudioApp.ts / PreviewPanel.ts / style.css
-                      （後續 phase 將新增 TopBar / VideoPanel / Timeline / src/mocap/*）
+  mocap-studio/     → 影片動捕工作站（獨立 BrowserWindow renderer）
+                      main.ts / MocapStudioApp.ts / PreviewPanel.ts /
+                      VideoPanel.ts / Timeline.ts / TopBar.ts /
+                      timelineLogic.ts / style.css
+  mocap/            → 影片動捕純邏輯模組（不依賴 DOM / VRM runtime）
+                      types.ts（MocapFrame / SmplTrack / VrmHumanBoneName）
+                      pipeline.ts（buildMocapFrames 下游組裝）
+                      smpl/（SmplSkeleton / smplToVrm / jointLimits / applyClamp）
+                      filters/（OneEuroFilter）
+                      exporter/（gltfWriter / VrmaExporter）
+                      fixtures/（testFixtures dev-only 產生器）
 electron/           → Electron 主程序（main process）
   main.ts           → 應用程式入口、BrowserWindow 建立
   preload.ts        → contextBridge 暴露 IPC API（主視窗與 picker 共用）

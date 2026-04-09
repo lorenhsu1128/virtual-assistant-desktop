@@ -66,6 +66,58 @@ export function generateLeftArmRaiseFixture(
   };
 }
 
+/**
+ * Rest pose fixture
+ *
+ * 所有 joint 都是 identity rotation，所有 translation 都是 0。
+ * 用於驗證 VrmaExporter 對「全 identity」輸入的正確處理。
+ */
+export function generateRestFixture(fps = 30, durationSec = 1.0): SmplTrack {
+  const frameCount = Math.floor(fps * durationSec);
+  const frames: number[][][] = [];
+  const trans: number[][] = [];
+  for (let f = 0; f < frameCount; f++) {
+    frames.push(Array.from({ length: SMPL_JOINT_COUNT }, () => [0, 0, 0]));
+    trans.push([0, 0, 0]);
+  }
+  return {
+    version: 1,
+    fps,
+    frameCount,
+    frames,
+    trans,
+  };
+}
+
+/**
+ * Hips walk fixture
+ *
+ * - 所有 bone 保持 identity（無旋轉）
+ * - hips 位置隨時間變化：Y 軸正弦波起伏（模擬走路晃動）+ X 軸緩步前進
+ *
+ * 用於驗證 VrmaExporter 的 hips translation 軌道。
+ */
+export function generateHipsWalkFixture(fps = 30, durationSec = 2.0): SmplTrack {
+  const frameCount = Math.floor(fps * durationSec);
+  const frames: number[][][] = [];
+  const trans: number[][] = [];
+  for (let f = 0; f < frameCount; f++) {
+    const t = f / fps;
+    frames.push(Array.from({ length: SMPL_JOINT_COUNT }, () => [0, 0, 0]));
+    // Y 軸正弦波（幅度 0.05m，週期 0.8s），X 軸緩速前進
+    const y = 0.05 * Math.sin((2 * Math.PI * t) / 0.8);
+    const x = t * 0.3;
+    trans.push([x, y, 0]);
+  }
+  return {
+    version: 1,
+    fps,
+    frameCount,
+    frames,
+    trans,
+  };
+}
+
 /** Smoothstep 過渡函式（3x² - 2x³），比線性插值平滑 */
 function smoothstep(x: number): number {
   if (x <= 0) return 0;

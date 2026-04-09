@@ -27,6 +27,7 @@ import { TopBar } from './TopBar';
 import { formatTime } from './timelineLogic';
 import { buildMocapFrames } from '../mocap/pipeline';
 import { generateLeftArmRaiseFixture } from '../mocap/fixtures/testFixtures';
+import { exportMocapToVrma } from '../mocap/exporter/VrmaExporter';
 import type { MocapFrame } from '../mocap/types';
 
 const $ = <T extends HTMLElement>(id: string): T => {
@@ -48,6 +49,7 @@ export class MocapStudioApp {
   private statusEl: HTMLSpanElement | null = null;
   private playBtn: HTMLButtonElement | null = null;
   private timeDisplayEl: HTMLSpanElement | null = null;
+  private exportBtn: HTMLButtonElement | null = null;
 
   // Phase 2c 狀態
   private mocapFrames: MocapFrame[] = [];
@@ -67,6 +69,7 @@ export class MocapStudioApp {
     this.statusEl = $<HTMLSpanElement>('mocap-status');
     this.playBtn = $<HTMLButtonElement>('mocap-play-btn');
     this.timeDisplayEl = $<HTMLSpanElement>('mocap-time-display');
+    this.exportBtn = $<HTMLButtonElement>('mocap-export-btn');
 
     // ── PreviewPanel ──
     const canvas = $<HTMLCanvasElement>('mocap-preview-canvas');
@@ -124,6 +127,7 @@ export class MocapStudioApp {
     this.topBar.onLoadFixture = this.onLoadFixtureClick;
 
     this.playBtn.addEventListener('click', this.onPlayToggle);
+    this.exportBtn.addEventListener('click', this.onExportClick);
     window.addEventListener('resize', this.onResize);
   }
 
@@ -200,9 +204,41 @@ export class MocapStudioApp {
     // 5. 立即套用首幀
     this.applyFixtureFrameAtTime(0);
 
+    // 6. 啟用匯出按鈕（Phase 3）
+    if (this.exportBtn) this.exportBtn.disabled = false;
+
     this.setStatus(
       `Fixture 已載入：${track.frameCount} 幀 @ ${track.fps}fps（${formatTime(durationSec)}）`,
     );
+  };
+
+  // ── TopBar 事件：匯出 .vrma（Phase 3） ──
+
+  private readonly onExportClick = async (): Promise<void> => {
+    if (this.disposed || this.mocapFrames.length === 0) {
+      this.setStatus('無動捕資料可匯出');
+      return;
+    }
+    this.setStatus('匯出 .vrma...');
+    let bytes: Uint8Array;
+    try {
+      bytes = exportMocapToVrma(this.mocapFrames, {
+        generator: 'virtual-assistant-desktop mocap studio',
+        animationName: 'mocap',
+      });
+    } catch (e) {
+      console.warn('[MocapStudioApp] exportMocapToVrma failed:', e);
+      this.setStatus(`匯出失敗：${(e as Error).message}`);
+      return;
+    }
+    const suggestedName = `mocap_${timestampForFilename()}.vrma`;
+    const savedPath = await ipc.saveVrma(bytes, suggestedName);
+    if (this.disposed) return;
+    if (!savedPath) {
+      this.setStatus('匯出已取消');
+      return;
+    }
+    this.setStatus(`已匯出：${savedPath}（${bytes.byteLength} bytes）`);
   };
 
   // ── Timeline 事件 ──
@@ -387,6 +423,7 @@ export class MocapStudioApp {
     }
     window.removeEventListener('resize', this.onResize);
     if (this.playBtn) this.playBtn.removeEventListener('click', this.onPlayToggle);
+    if (this.exportBtn) this.exportBtn.removeEventListener('click', this.onExportClick);
     if (this.topBar) {
       this.topBar.dispose();
       this.topBar = null;
@@ -409,4 +446,14 @@ export class MocapStudioApp {
 function basename(p: string): string {
   const idx = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
   return idx >= 0 ? p.slice(idx + 1) : p;
+}
+
+/** 產生檔名用的時間戳記（YYYYMMDD_HHmmss） */
+function timestampForFilename(): string {
+  const d = new Date();
+  const pad = (n: number): string => n.toString().padStart(2, '0');
+  return (
+    `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}` +
+    `_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`
+  );
 }
