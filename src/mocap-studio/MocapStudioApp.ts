@@ -28,6 +28,9 @@ import { formatTime } from './timelineLogic';
 import { buildMocapFrames } from '../mocap/pipeline';
 import { generateLeftArmRaiseFixture } from '../mocap/fixtures/testFixtures';
 import { exportMocapToVrma } from '../mocap/exporter/VrmaExporter';
+import { PoseRunner } from '../mocap/mediapipe/PoseRunner';
+import { drawSkeleton } from '../mocap/mediapipe/SkeletonDrawer';
+import type { PoseLandmarks } from '../mocap/mediapipe/types';
 import type { MocapFrame } from '../mocap/types';
 
 const $ = <T extends HTMLElement>(id: string): T => {
@@ -58,6 +61,10 @@ export class MocapStudioApp {
   private fixturePlaybackStartMs = 0;
   private fixturePlaybackFromSec = 0;
   private currentFixtureTimeSec = 0;
+
+  // Phase 5a 狀態（MediaPipe）
+  private poseRunner: PoseRunner | null = null;
+  private lastLandmarks: PoseLandmarks | null = null;
 
   // 通用
   private playbackMode: PlaybackMode = 'none';
@@ -97,9 +104,10 @@ export class MocapStudioApp {
       this.setStatus('就緒（無 VRM）');
     }
 
-    // ── VideoPanel ──
+    // ── VideoPanel（Phase 5a 加入 overlay canvas） ──
     const videoEl = $<HTMLVideoElement>('mocap-video-element');
-    this.videoPanel = new VideoPanel(videoEl);
+    const overlayCanvas = $<HTMLCanvasElement>('mocap-video-overlay');
+    this.videoPanel = new VideoPanel(videoEl, overlayCanvas);
     this.videoPanel.addTimeUpdateListener(this.onVideoTimeUpdate);
 
     // ── Timeline ──
@@ -122,9 +130,11 @@ export class MocapStudioApp {
     this.topBar = new TopBar({
       loadVideoBtn: $<HTMLButtonElement>('mocap-load-video-btn'),
       loadFixtureBtn: $<HTMLButtonElement>('mocap-load-fixture-btn'),
+      detectPoseBtn: $<HTMLButtonElement>('mocap-detect-pose-btn'),
     });
     this.topBar.onLoadVideo = this.onLoadVideoClick;
     this.topBar.onLoadFixture = this.onLoadFixtureClick;
+    this.topBar.onDetectPose = this.onDetectPoseClick;
 
     this.playBtn.addEventListener('click', this.onPlayToggle);
     this.exportBtn.addEventListener('click', this.onExportClick);
@@ -164,8 +174,65 @@ export class MocapStudioApp {
     this.timeline.setEnabled(true);
     if (this.playBtn) this.playBtn.disabled = false;
     this.updateTimeDisplay(0, duration);
+    // Phase 5a：啟用偵測姿態按鈕、同步 overlay canvas 尺寸、清空舊 overlay
+    this.topBar?.setDetectPoseEnabled(true);
+    this.videoPanel.syncOverlaySize();
+    this.videoPanel.clearOverlay();
+    this.lastLandmarks = null;
     this.setStatus(`影片已載入：${basename(videoPath)}（${formatTime(duration)}）`);
   };
+
+  // ── TopBar 事件：偵測姿態（Phase 5a） ──
+
+  private readonly onDetectPoseClick = async (): Promise<void> => {
+    if (this.disposed || !this.videoPanel) return;
+
+    // 1. Lazy init PoseRunner
+    if (!this.poseRunner) {
+      this.setStatus('載入 MediaPipe 模型...（首次可能較慢）');
+      this.poseRunner = new PoseRunner();
+      try {
+        await this.poseRunner.init();
+      } catch (e) {
+        console.warn('[MocapStudioApp] PoseRunner init failed:', e);
+        this.setStatus(`MediaPipe 初始化失敗：${(e as Error).message}`);
+        this.poseRunner.dispose();
+        this.poseRunner = null;
+        return;
+      }
+      if (this.disposed) return;
+      this.setStatus(`MediaPipe 就緒（${this.poseRunner.getUsedDelegate()}）`);
+    }
+
+    // 2. 對當前影片的當前時間偵測
+    const video = this.videoPanel.getVideoElement();
+    const timestampMs = Math.round(video.currentTime * 1000);
+    this.setStatus(`偵測姿態 @ ${formatTime(video.currentTime)}...`);
+    const landmarks = await this.poseRunner.detect(video, timestampMs);
+    if (this.disposed) return;
+
+    if (!landmarks) {
+      this.setStatus('偵測失敗：未找到人物');
+      this.videoPanel.clearOverlay();
+      this.lastLandmarks = null;
+      return;
+    }
+
+    this.lastLandmarks = landmarks;
+    this.drawPoseOverlay();
+    this.setStatus(`偵測完成 @ ${formatTime(video.currentTime)}`);
+  };
+
+  /** 把 lastLandmarks 畫到 overlay canvas（若有） */
+  private drawPoseOverlay(): void {
+    if (!this.videoPanel || !this.lastLandmarks) return;
+    this.videoPanel.syncOverlaySize();
+    const ctx = this.videoPanel.getOverlayContext();
+    if (!ctx) return;
+    const { width, height } = this.videoPanel.getOverlaySize();
+    ctx.clearRect(0, 0, width, height);
+    drawSkeleton(ctx, this.lastLandmarks, width, height);
+  }
 
   // ── TopBar 事件：載入 fixture（Phase 2c） ──
 
@@ -414,6 +481,11 @@ export class MocapStudioApp {
 
   private readonly onResize = (): void => {
     if (this.timeline) this.timeline.handleResize();
+    // Overlay canvas 尺寸要跟著視窗大小變化
+    if (this.videoPanel) {
+      this.videoPanel.syncOverlaySize();
+      if (this.lastLandmarks) this.drawPoseOverlay();
+    }
   };
 
   dispose(): void {
@@ -422,6 +494,10 @@ export class MocapStudioApp {
     if (this.fixturePlaybackRaf !== null) {
       cancelAnimationFrame(this.fixturePlaybackRaf);
       this.fixturePlaybackRaf = null;
+    }
+    if (this.poseRunner) {
+      this.poseRunner.dispose();
+      this.poseRunner = null;
     }
     window.removeEventListener('resize', this.onResize);
     if (this.playBtn) this.playBtn.removeEventListener('click', this.onPlayToggle);

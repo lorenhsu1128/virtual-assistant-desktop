@@ -13,12 +13,60 @@ export type TimeUpdateCallback = (currentTimeSec: number) => void;
 
 export class VideoPanel {
   private readonly video: HTMLVideoElement;
+  private readonly overlayCanvas: HTMLCanvasElement | null;
   private timeUpdateCallbacks: TimeUpdateCallback[] = [];
   private disposed = false;
 
-  constructor(video: HTMLVideoElement) {
+  constructor(video: HTMLVideoElement, overlayCanvas: HTMLCanvasElement | null = null) {
     this.video = video;
+    this.overlayCanvas = overlayCanvas;
     this.video.addEventListener('timeupdate', this.onTimeUpdate);
+  }
+
+  /**
+   * 取得 overlay canvas 2D context（若未提供 overlay canvas 則回傳 null）
+   *
+   * 供 SkeletonDrawer 等 overlay 繪製使用。
+   */
+  getOverlayContext(): CanvasRenderingContext2D | null {
+    if (!this.overlayCanvas) return null;
+    return this.overlayCanvas.getContext('2d');
+  }
+
+  /** 取得 overlay canvas 尺寸（與 video 播放區實際尺寸同步） */
+  getOverlaySize(): { width: number; height: number } {
+    if (!this.overlayCanvas) return { width: 0, height: 0 };
+    return {
+      width: this.overlayCanvas.width,
+      height: this.overlayCanvas.height,
+    };
+  }
+
+  /**
+   * 同步 overlay canvas 的像素尺寸到 video 的顯示尺寸
+   *
+   * 應在載入影片後、視窗 resize 時呼叫。
+   */
+  syncOverlaySize(): void {
+    if (!this.overlayCanvas) return;
+    const rect = this.video.getBoundingClientRect();
+    const width = Math.floor(rect.width);
+    const height = Math.floor(rect.height);
+    if (this.overlayCanvas.width !== width) this.overlayCanvas.width = width;
+    if (this.overlayCanvas.height !== height) this.overlayCanvas.height = height;
+  }
+
+  /** 清空 overlay canvas */
+  clearOverlay(): void {
+    if (!this.overlayCanvas) return;
+    const ctx = this.overlayCanvas.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, this.overlayCanvas.width, this.overlayCanvas.height);
+  }
+
+  /** 取得包裝的 <video> 元素（供 MediaPipe detect 直接讀取） */
+  getVideoElement(): HTMLVideoElement {
+    return this.video;
   }
 
   /**

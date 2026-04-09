@@ -11,6 +11,7 @@ export type TopBarCallback = () => void;
 export interface TopBarElements {
   loadVideoBtn: HTMLButtonElement;
   loadFixtureBtn: HTMLButtonElement;
+  detectPoseBtn: HTMLButtonElement;
 }
 
 export class TopBar {
@@ -22,12 +23,22 @@ export class TopBar {
   /** 使用者點擊「[dev] 載入測試 fixture」時觸發（Phase 2c） */
   onLoadFixture: TopBarCallback | null = null;
 
+  /** 使用者點擊「[dev] 偵測姿態」時觸發（Phase 5a） */
+  onDetectPose: TopBarCallback | null = null;
+
   constructor(el: TopBarElements) {
     this.el = el;
     this.el.loadVideoBtn.disabled = false;
     this.el.loadVideoBtn.addEventListener('click', this.onVideoClick);
     this.el.loadFixtureBtn.disabled = false;
     this.el.loadFixtureBtn.addEventListener('click', this.onFixtureClick);
+    // detect pose 按鈕預設 disabled，載入影片後由 MocapStudioApp 啟用
+    this.el.detectPoseBtn.addEventListener('click', this.onDetectClick);
+  }
+
+  /** 啟用 / 停用「偵測姿態」按鈕 */
+  setDetectPoseEnabled(enabled: boolean): void {
+    this.el.detectPoseBtn.disabled = !enabled;
   }
 
   private readonly onVideoClick = (): void => {
@@ -38,8 +49,13 @@ export class TopBar {
     this.onLoadFixture?.();
   };
 
+  private readonly onDetectClick = (): void => {
+    this.onDetectPose?.();
+  };
+
   dispose(): void {
     this.el.loadVideoBtn.removeEventListener('click', this.onVideoClick);
     this.el.loadFixtureBtn.removeEventListener('click', this.onFixtureClick);
+    this.el.detectPoseBtn.removeEventListener('click', this.onDetectClick);
   }
 }

@@ -19,6 +19,7 @@
             </select>
           </label>
           <button id="mocap-load-fixture-btn" type="button" class="mocap-dev-btn">[dev] 載入測試 fixture</button>
+          <button id="mocap-detect-pose-btn" type="button" class="mocap-dev-btn" disabled>[dev] 偵測姿態</button>
         </div>
         <div id="mocap-topbar-right">
           <button id="mocap-convert-btn" type="button" disabled>轉換</button>
@@ -29,7 +30,10 @@
       <!-- 中間主區：左影片 / 右預覽 -->
       <div id="mocap-body">
         <div id="mocap-video-pane">
-          <video id="mocap-video-element" class="mocap-video"></video>
+          <div id="mocap-video-wrapper">
+            <video id="mocap-video-element" class="mocap-video"></video>
+            <canvas id="mocap-video-overlay" class="mocap-video-overlay"></canvas>
+          </div>
           <div id="mocap-video-controls">
             <button id="mocap-play-btn" type="button" disabled>▶ 播放</button>
             <span id="mocap-time-display">00:00.000 / 00:00.000</span>
