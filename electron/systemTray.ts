@@ -46,6 +46,7 @@ interface TrayMenuData {
   isDebugEnabled: boolean;
   currentExpression: string | null;
   displays: { index: number; label: string }[];
+  isMToonOutlineEnabled: boolean;
 }
 
 /**
@@ -245,6 +246,14 @@ export class SystemTray {
     });
 
     template.push({ type: 'separator' });
+
+    // MToon 描邊開關（正交相機下預設關閉，避免粗黑邊）
+    template.push({
+      label: 'MToon \u63cf\u908a',
+      type: 'checkbox',
+      checked: data?.isMToonOutlineEnabled ?? false,
+      click: () => this.emitAction('toggle_mtoon_outline'),
+    });
 
     // Debug 模式
     template.push({

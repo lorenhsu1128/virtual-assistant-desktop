@@ -151,7 +151,13 @@
 
 > 標記說明：`[Windows]` = 僅 Windows 適用；`[macOS]` = 僅 macOS 適用；`[跨平台]` = 兩平台都需注意。
 
-（暫無教訓 — 未來累積跨平台開發經驗時記錄於此）
+### [2026-04-09] `[跨平台]` — 正交相機下 MToon outline screenCoordinates 模式會暴粗
+
+- **錯誤**：某些 VRM 載入到主視窗後出現粗黑邊緣（例如 Wolf_ver1.00），但同一隻模型在 VRM Picker 預覽卻正常。初次誤判為透明 framebuffer 的暗邊 halo，改了 `premultipliedAlpha: true` 無效
+- **根因**：主視窗用 `OrthographicCamera`、Picker 用 `PerspectiveCamera`。MToon 的 `outlineWidthMode: screenCoordinates` shader 在計算 clip-space → screen-space 時假設透視投影，正交投影下 projection matrix 的 `[5]` 分量行為不同，outline 寬度計算失真 → 輪廓變粗黑邊
+- **正確做法**：在 VRMController 新增 `setMToonOutlineEnabled(enabled)`，對所有 MToon material 的 `outlineWidthFactor` 設 0（用 WeakMap cache 原值以便還原）；預設關閉，透過系統托盤 checkbox 允許切換。偵測 MToon 用 duck-typing 檢查 `outlineWidthFactor` 屬性，避免 import `@pixiv/three-vrm` 的 `MToonMaterial` 型別造成強相依
+- **受影響檔案**：`src/core/VRMController.ts`, `src/types/config.ts`, `src/types/tray.ts`, `src/main.ts`, `electron/systemTray.ts`
+- **根因記憶**：MToon outline 是「依賴 camera projection 數學」的 shader feature，跟 camera 類型強耦合。新增類似「shader-level 視覺差異」功能前，先檢查是否依賴透視投影。此外，「兩個 scene 同一隻模型不同表現」排除模型作者設計，線索應該優先查 camera / projection / framebuffer 差異
 
 ---
 

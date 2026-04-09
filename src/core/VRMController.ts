@@ -16,6 +16,15 @@ export class VRMController {
   private scene: THREE.Scene;
   private loader: GLTFLoader;
 
+  // ── MToon outline 開關狀態 ──
+  /** 是否啟用 MToon outline（由 setMToonOutlineEnabled 控制，跨模型保留） */
+  private mtoonOutlineEnabled = true;
+  /**
+   * 快取每個 MToon material 的原始 outlineWidthFactor
+   * WeakMap 鍵為 material，material 被 dispose 後自動 GC
+   */
+  private originalOutlineFactors = new WeakMap<THREE.Material, number>();
+
   // ── Hip 跨幀平滑（階段 B）+ SpringBone 過渡保護（Layer 6）──
   /** 平滑後的 hip 世界座標（用於吸收動畫切換造成的瞬間跳變） */
   private smoothedHipsWorld = new THREE.Vector3();
@@ -106,6 +115,70 @@ export class VRMController {
     this.scene.add(vrm.scene);
     // 重置 hip 平滑狀態（新模型的 hip 位置可能完全不同）
     this.smoothedHipsValid = false;
+    // 套用當前 MToon outline 狀態到新模型
+    this.applyMToonOutline();
+  }
+
+  /**
+   * 設定是否啟用 MToon 描邊
+   *
+   * 主視窗使用 OrthographicCamera，MToon 的 screenCoordinates outline
+   * 在正交投影下數學失真會產生粗黑邊。此方法遍歷當前模型所有 MToon
+   * material，將 outlineWidthFactor 設為 0（關閉）或還原（開啟）。
+   *
+   * 狀態會保留到下次載入模型時自動套用。
+   */
+  setMToonOutlineEnabled(enabled: boolean): void {
+    this.mtoonOutlineEnabled = enabled;
+    this.applyMToonOutline();
+  }
+
+  /** 當前 MToon outline 是否啟用 */
+  isMToonOutlineEnabled(): boolean {
+    return this.mtoonOutlineEnabled;
+  }
+
+  /**
+   * 遍歷當前模型所有 mesh material，套用 MToon outline 狀態
+   *
+   * 用 duck-typing 偵測 MToon material（檢查 outlineWidthFactor 屬性），
+   * 避免 import @pixiv/three-vrm 的 MToonMaterial 型別造成強相依。
+   */
+  private applyMToonOutline(): void {
+    if (!this.vrm) return;
+
+    const applyToMaterial = (mat: THREE.Material): void => {
+      // duck-typing 偵測：MToon material 才有 outlineWidthFactor
+      const mtoon = mat as THREE.Material & { outlineWidthFactor?: number };
+      if (typeof mtoon.outlineWidthFactor !== 'number') return;
+
+      // 首次遇到此 material：cache 原始值
+      if (!this.originalOutlineFactors.has(mat)) {
+        this.originalOutlineFactors.set(mat, mtoon.outlineWidthFactor);
+      }
+
+      if (this.mtoonOutlineEnabled) {
+        // 還原原值
+        const original = this.originalOutlineFactors.get(mat);
+        if (original !== undefined) {
+          mtoon.outlineWidthFactor = original;
+        }
+      } else {
+        // 關閉
+        mtoon.outlineWidthFactor = 0;
+      }
+      mat.needsUpdate = true;
+    };
+
+    this.vrm.scene.traverse((obj) => {
+      const mesh = obj as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      if (Array.isArray(mesh.material)) {
+        mesh.material.forEach(applyToMaterial);
+      } else if (mesh.material) {
+        applyToMaterial(mesh.material);
+      }
+    });
   }
 
   /**

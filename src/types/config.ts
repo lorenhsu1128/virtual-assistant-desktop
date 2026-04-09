@@ -36,6 +36,14 @@ export interface AppConfig {
   currentDisplayIndex?: number;
   /** VRM 模型瀏覽對話框上次使用的資料夾（為空時從 vrmModelPath 推導） */
   vrmPickerFolder?: string;
+  /**
+   * 是否啟用 MToon 描邊（outline）
+   *
+   * 主視窗使用 OrthographicCamera，在正交投影下 MToon 的
+   * `outlineWidthMode: screenCoordinates` shader 數學會失真，
+   * 造成角色輪廓出現粗黑邊。預設關閉。
+   */
+  mtoonOutlineEnabled: boolean;
 }
 
 /** 2D 位置 */
@@ -68,4 +76,5 @@ export const DEFAULT_CONFIG: AppConfig = {
   animationSpeed: 1.0,
   moveSpeedMultiplier: 1.0,
   systemAssetsDir: 'assets/system',
+  mtoonOutlineEnabled: false,
 };

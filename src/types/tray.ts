@@ -27,4 +27,6 @@ export interface TrayMenuData {
   currentExpression: string | null;
   /** 螢幕清單（用於「螢幕 → 切換到」子選單） */
   displays: { index: number; label: string }[];
+  /** MToon 描邊是否啟用 */
+  isMToonOutlineEnabled: boolean;
 }

@@ -213,6 +213,9 @@ async function initializeApp(config: AppConfig, appPath: string): Promise<void> 
     }
   }
 
+  // 套用 MToon outline 開關（預設關閉，因正交相機下 MToon outline 會暴粗）
+  vrmController.setMToonOutlineEnabled(config.mtoonOutlineEnabled);
+
   // 計算角色在 viewport 中的比例
   sceneManager.computeCharacterViewportRatio();
 
@@ -475,6 +478,7 @@ async function initializeBehaviorSystem(
         index: i,
         label: `Display ${i + 1} (${d.width}x${d.height})`,
       })),
+      isMToonOutlineEnabled: config.mtoonOutlineEnabled,
     };
     ipc.sendMenuData(menuData);
   };
@@ -514,6 +518,14 @@ async function initializeBehaviorSystem(
           ipc.writeConfig(config);
         }
         break;
+      case 'toggle_mtoon_outline': {
+        const v = !config.mtoonOutlineEnabled;
+        vrmController.setMToonOutlineEnabled(v);
+        config.mtoonOutlineEnabled = v;
+        ipc.writeConfig(config);
+        pushTrayMenuData();
+        break;
+      }
       case 'reset_camera':
         sceneManager.resetCamera();
         break;
