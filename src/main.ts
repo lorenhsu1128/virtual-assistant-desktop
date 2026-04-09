@@ -552,6 +552,9 @@ async function initializeBehaviorSystem(
       case 'browse_models':
         ipc.openVrmPicker();
         break;
+      case 'open_mocap_studio':
+        void ipc.openMocapStudio();
+        break;
       case 'change_anim':
         ipc.pickAnimationFolder().then(async (p) => {
           if (!p) return;

@@ -22,6 +22,8 @@ interface ElectronAPI {
   pickVrmFolder(defaultPath?: string): Promise<string | null>;
   openVrmPicker(): Promise<void>;
   applyVrmModel(vrmPath: string): Promise<boolean>;
+  openMocapStudio(): Promise<void>;
+  mocapGetCurrentVrmPath(): Promise<string | null>;
   getWindowList(): Promise<WindowRect[]>;
   getDisplayInfo(): Promise<DisplayInfo[]>;
   setWindowPosition(x: number, y: number): Promise<void>;
@@ -241,6 +243,33 @@ class ElectronIPC {
     } catch (e) {
       console.warn('[ElectronIPC] applyVrmModel failed:', e);
       return false;
+    }
+  }
+
+  // ── Mocap Studio Window ──
+
+  /**
+   * 開啟（或聚焦）影片動捕工作站子視窗
+   */
+  async openMocapStudio(): Promise<void> {
+    try {
+      await window.electronAPI.openMocapStudio();
+    } catch (e) {
+      console.warn('[ElectronIPC] openMocapStudio failed:', e);
+    }
+  }
+
+  /**
+   * 取得主視窗當前的 VRM 模型路徑（mocap studio 預覽面板使用）
+   *
+   * 失敗時回傳 null（無 VRM 可用）。
+   */
+  async getCurrentVrmPath(): Promise<string | null> {
+    try {
+      return await window.electronAPI.mocapGetCurrentVrmPath();
+    } catch (e) {
+      console.warn('[ElectronIPC] getCurrentVrmPath failed:', e);
+      return null;
     }
   }
 

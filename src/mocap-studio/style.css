@@ -1,0 +1,156 @@
+/**
+ * 影片動捕工作站 — 樣式
+ *
+ * Layout：CSS Grid 四區塊（top bar / body / timeline / status bar）。
+ * Body 內部再用 grid 分為左影片 / 右預覽兩欄。
+ */
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background-color: #1e1e2e;
+  color: #e6e6e6;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft JhengHei',
+    'PingFang TC', 'Noto Sans TC', sans-serif;
+  font-size: 13px;
+  user-select: none;
+  overflow: hidden;
+}
+
+#mocap-root {
+  display: grid;
+  grid-template-rows: 48px 1fr 96px 24px;
+  height: 100vh;
+  width: 100vw;
+}
+
+/* ── Top bar ── */
+#mocap-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  background-color: #2a2a3a;
+  border-bottom: 1px solid #3a3a4a;
+}
+
+#mocap-topbar-left,
+#mocap-topbar-right {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.mocap-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mocap-field-label {
+  color: #9a9aae;
+}
+
+button {
+  background-color: #3a3a4e;
+  color: #e6e6e6;
+  border: 1px solid #4a4a5e;
+  border-radius: 4px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background-color 0.15s;
+}
+
+button:hover:not(:disabled) {
+  background-color: #4a4a5e;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+select {
+  background-color: #3a3a4e;
+  color: #e6e6e6;
+  border: 1px solid #4a4a5e;
+  border-radius: 4px;
+  padding: 5px 8px;
+  font-size: 13px;
+}
+
+select:disabled {
+  opacity: 0.5;
+}
+
+/* ── Body：左影片 / 右預覽 ── */
+#mocap-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background-color: #3a3a4a;
+  overflow: hidden;
+}
+
+#mocap-video-pane,
+#mocap-preview-pane {
+  position: relative;
+  background-color: #14141c;
+  overflow: hidden;
+}
+
+#mocap-video-placeholder,
+#mocap-timeline-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #6a6a7e;
+  font-style: italic;
+}
+
+#mocap-preview-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+#mocap-preview-hint {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: #9a9aae;
+  background-color: rgba(0, 0, 0, 0.6);
+  padding: 12px 20px;
+  border-radius: 6px;
+  pointer-events: none;
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* ── Timeline ── */
+#mocap-timeline {
+  background-color: #2a2a3a;
+  border-top: 1px solid #3a3a4a;
+  overflow: hidden;
+}
+
+/* ── Status bar ── */
+#mocap-statusbar {
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  background-color: #14141c;
+  border-top: 1px solid #3a3a4a;
+  color: #9a9aae;
+  font-size: 11px;
+}

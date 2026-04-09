@@ -28,6 +28,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openVrmPicker: () => ipcRenderer.invoke('open_vrm_picker'),
   applyVrmModel: (vrmPath: string) => ipcRenderer.invoke('apply_vrm_model', vrmPath),
 
+  // ── Mocap Studio Window ──
+  openMocapStudio: () => ipcRenderer.invoke('open_mocap_studio'),
+  mocapGetCurrentVrmPath: () => ipcRenderer.invoke('mocap_get_current_vrm_path'),
+
   // ── Window Monitor ──
   getWindowList: () => ipcRenderer.invoke('get_window_list'),
 

@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>影片動捕工作站</title>
+    <link rel="stylesheet" href="/src/mocap-studio/style.css" />
+  </head>
+  <body>
+    <div id="mocap-root">
+      <!-- 上方工具列：Phase 0 僅佔位，Phase 1 之後填入實際按鈕 -->
+      <div id="mocap-topbar">
+        <div id="mocap-topbar-left">
+          <button id="mocap-load-video-btn" type="button" disabled>載入影片</button>
+          <label class="mocap-field">
+            <span class="mocap-field-label">引擎</span>
+            <select id="mocap-engine-select" disabled>
+              <option value="">（尚未實作）</option>
+            </select>
+          </label>
+        </div>
+        <div id="mocap-topbar-right">
+          <button id="mocap-convert-btn" type="button" disabled>轉換</button>
+          <button id="mocap-export-btn" type="button" disabled>匯出 .vrma</button>
+        </div>
+      </div>
+
+      <!-- 中間主區：左影片 / 右預覽 -->
+      <div id="mocap-body">
+        <div id="mocap-video-pane">
+          <div id="mocap-video-placeholder">影片載入區（Phase 1）</div>
+        </div>
+        <div id="mocap-preview-pane">
+          <canvas id="mocap-preview-canvas"></canvas>
+          <div id="mocap-preview-hint" class="hidden">尚未載入 VRM 模型</div>
+        </div>
+      </div>
+
+      <!-- 下方時間軸：Phase 0 佔位 -->
+      <div id="mocap-timeline">
+        <div id="mocap-timeline-placeholder">時間軸（Phase 1）</div>
+      </div>
+
+      <!-- 狀態列 -->
+      <div id="mocap-statusbar">
+        <span id="mocap-status">就緒</span>
+      </div>
+    </div>
+    <script type="module" src="/src/mocap-studio/main.ts"></script>
+  </body>
+</html>

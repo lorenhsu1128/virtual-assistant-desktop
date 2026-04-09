@@ -78,6 +78,9 @@ src/                → TypeScript 前端（主視窗 renderer process）
   types/            → 共用型別（config, animation, window, behavior, collision, tray, vrmPicker）
   vrm-picker/       → VRM 模型瀏覽對話框（獨立 BrowserWindow renderer）
                       main.ts / PreviewScene.ts / pickerLogic.ts / style.css
+  mocap-studio/     → 影片動捕工作站（獨立 BrowserWindow renderer，Phase 0 scaffold）
+                      main.ts / MocapStudioApp.ts / PreviewPanel.ts / style.css
+                      （後續 phase 將新增 TopBar / VideoPanel / Timeline / src/mocap/*）
 electron/           → Electron 主程序（main process）
   main.ts           → 應用程式入口、BrowserWindow 建立
   preload.ts        → contextBridge 暴露 IPC API（主視窗與 picker 共用）
@@ -87,14 +90,16 @@ electron/           → Electron 主程序（main process）
   windowRegion.ts   → [已棄用] koffi FFI 視窗裁切（改用 3D depth occlusion）
   systemTray.ts     → 系統托盤選單
   vrmPickerWindow.ts → VRM 模型瀏覽對話框 BrowserWindow 管理
+  mocapStudioWindow.ts → 影片動捕工作站 BrowserWindow 管理
   platform/         → 跨平台抽象層（Windows / macOS 差異集中於此）
     index.ts        → isWindows / isMac 旗標 + 統一匯出
-    windowConfig.ts → 各平台 BrowserWindow 參數（含 picker 視窗）
+    windowConfig.ts → 各平台 BrowserWindow 參數（含 picker / mocap studio 視窗）
     protocolHelper.ts → local-file 協定路徑解析
 src-tauri/          → [已棄用] 舊 Rust 後端（保留作參考）
 src-settings/       → Svelte 設定視窗（尚未實作）
 index.html          → 主視窗 HTML 入口
 vrm-picker.html     → VRM 模型瀏覽對話框 HTML 入口
+mocap-studio.html   → 影片動捕工作站 HTML 入口
 tests/              → Vitest 測試（unit/）
 ```
 

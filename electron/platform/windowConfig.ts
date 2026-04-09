@@ -84,6 +84,37 @@ export function getPickerWindowOptions(
   };
 }
 
+/**
+ * 回傳影片動捕工作站子視窗的 BrowserWindow 建構參數
+ *
+ * 與主透明視窗相反：有邊框、可縮放、不透明。
+ * 與 VRM picker 相比尺寸更大（左影片 + 右預覽 + 時間軸需要空間）。
+ * Windows / macOS 共用同一份參數（無系統 API 差異）。
+ */
+export function getMocapStudioWindowOptions(
+  parent: BrowserWindow
+): Electron.BrowserWindowConstructorOptions {
+  return {
+    width: 1280,
+    height: 800,
+    minWidth: 960,
+    minHeight: 600,
+    parent,
+    modal: false,
+    title: '影片動捕工作站',
+    transparent: false,
+    frame: true,
+    focusable: true,
+    alwaysOnTop: false,
+    skipTaskbar: false,
+    resizable: true,
+    hasShadow: true,
+    show: false,
+    autoHideMenuBar: true,
+    backgroundColor: '#1e1e2e',
+  };
+}
+
 /** 視窗建立後的平台專用設定 */
 export function applyPostCreateSetup(
   win: BrowserWindow,

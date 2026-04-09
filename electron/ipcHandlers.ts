@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import * as fileManager from './fileManager.js';
 import { WindowMonitor, type WindowRect } from './windowMonitor.js';
 import { openPickerWindow, closePickerWindow } from './vrmPickerWindow.js';
+import { openMocapStudioWindow } from './mocapStudioWindow.js';
 import { isMac } from './platform/index.js';
 
 /** Display info returned to renderer */
@@ -118,6 +119,19 @@ export function registerIpcHandlers(
     }
     closePickerWindow();
     return true;
+  });
+
+  // ── Mocap Studio Window ──
+
+  /** 開啟（或聚焦）影片動捕工作站子視窗 */
+  ipcMain.handle('open_mocap_studio', () => {
+    openMocapStudioWindow(mainWindow);
+  });
+
+  /** 取得主視窗當前的 VRM 模型路徑（mocap studio 預覽面板使用） */
+  ipcMain.handle('mocap_get_current_vrm_path', async (): Promise<string | null> => {
+    const config = await fileManager.readConfig();
+    return config.vrmModelPath ?? null;
   });
 
   // ── Window Monitor ──

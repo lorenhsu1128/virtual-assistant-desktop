@@ -245,6 +245,12 @@ export class SystemTray {
       click: () => this.emitAction('change_anim'),
     });
 
+    // 影片動捕工作站...（獨立子視窗）
+    template.push({
+      label: '\u5f71\u7247\u52d5\u6355\u5de5\u4f5c\u7ad9...',
+      click: () => this.emitAction('open_mocap_studio'),
+    });
+
     template.push({ type: 'separator' });
 
     // MToon 描邊開關（正交相機下預設關閉，避免粗黑邊）
