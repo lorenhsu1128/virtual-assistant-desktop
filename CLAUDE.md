@@ -93,6 +93,8 @@ src/                → TypeScript 前端（主視窗 renderer process）
                       hybrik/（SmplRestPose / TwistSwing / LandmarkToSmplJoint /
                               SolverCore / buildSmplTrackFromLandmarks —
                               Phase 5b HybrIK-TS IK 求解器，zero-twist 近似）
+                      engines/（HybrikTsEngine / videoFrameSeeker —
+                              Phase 5d 動捕引擎封裝，DOM-coupled renderer 模組）
 electron/           → Electron 主程序（main process）
   main.ts           → 應用程式入口、BrowserWindow 建立
   preload.ts        → contextBridge 暴露 IPC API（主視窗與 picker 共用）

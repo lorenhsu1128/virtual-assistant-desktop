@@ -32,7 +32,7 @@ import { PoseRunner } from '../mocap/mediapipe/PoseRunner';
 import { drawSkeleton } from '../mocap/mediapipe/SkeletonDrawer';
 import type { PoseLandmarks } from '../mocap/mediapipe/types';
 import type { MocapFrame } from '../mocap/types';
-import { buildSmplTrackFromLandmarks } from '../mocap/hybrik/buildSmplTrackFromLandmarks';
+import { HybrikTsEngine } from '../mocap/engines/HybrikTsEngine';
 
 const $ = <T extends HTMLElement>(id: string): T => {
   const el = document.getElementById(id);
@@ -73,6 +73,11 @@ export class MocapStudioApp {
   private poseDetectionActive = false;
   /** 正在跑 detect 的 guard，避免播放時 timeupdate 堆疊多個 detect call */
   private detectionInflight = false;
+
+  // Phase 5d 狀態（HybrIK-TS engine + 轉換按鈕）
+  private hybrikEngine: HybrikTsEngine | null = null;
+  private convertController: AbortController | null = null;
+  private converting = false;
 
   // 通用
   private playbackMode: PlaybackMode = 'none';
@@ -141,58 +146,126 @@ export class MocapStudioApp {
       loadVideoBtn: $<HTMLButtonElement>('mocap-load-video-btn'),
       loadFixtureBtn: $<HTMLButtonElement>('mocap-load-fixture-btn'),
       detectPoseBtn: $<HTMLButtonElement>('mocap-detect-pose-btn'),
+      engineSelect: $<HTMLSelectElement>('mocap-engine-select'),
+      convertBtn: $<HTMLButtonElement>('mocap-convert-btn'),
     });
     this.topBar.onLoadVideo = this.onLoadVideoClick;
     this.topBar.onLoadFixture = this.onLoadFixtureClick;
     this.topBar.onDetectPose = this.onDetectPoseClick;
+    this.topBar.onConvert = this.onConvertClick;
+    // Phase 5d：填入唯一引擎（HybrIK-TS）。Phase 4 EasyMocap 完成後加入 EasyMocap 選項
+    this.topBar.populateEngines(
+      [{ id: 'hybrik-ts', name: 'HybrIK-TS (browser)' }],
+      'hybrik-ts',
+    );
 
     this.playBtn.addEventListener('click', this.onPlayToggle);
     this.exportBtn.addEventListener('click', this.onExportClick);
     window.addEventListener('resize', this.onResize);
-
-    // Phase 5b dev hook：在 console 執行 `__mocapHybrikDev.runOnce()` 可
-    // 把當前偵測到的 lastLandmarks 丟進 HybrIK-TS solver + 下游 pipeline，
-    // 把解出的單幀 pose 套到 VRM 預覽。尚未接上 UI，等 Phase 5d 再做下拉切換。
-    (window as unknown as { __mocapHybrikDev?: unknown }).__mocapHybrikDev = {
-      runOnce: (): boolean => this.runHybrikOnCurrentLandmarks(),
-    };
   }
 
-  /**
-   * Phase 5b dev-only：用當前 lastLandmarks 跑 HybrIK-TS solver + pipeline，
-   * 結果以單幀 fixture 形式套用到預覽。
-   *
-   * @returns 成功套用回傳 true；缺 landmarks / VRM / 骨架時回傳 false
-   */
-  private runHybrikOnCurrentLandmarks(): boolean {
-    if (!this.previewPanel || !this.timeline) return false;
-    if (!this.lastLandmarks) {
-      this.setStatus('[HybrIK dev] 尚未偵測到 landmarks，先啟用姿態偵測');
-      return false;
+  // ── Phase 5d：HybrIK-TS engine 轉換流程 ──
+
+  private readonly onConvertClick = async (): Promise<void> => {
+    if (this.disposed) return;
+    // 若正在轉換 → 視為取消
+    if (this.converting) {
+      if (this.convertController) {
+        this.convertController.abort();
+        this.setStatus('取消中...');
+      }
+      return;
+    }
+    if (!this.videoPanel || this.playbackMode !== 'video' || !this.timeline || !this.previewPanel) {
+      this.setStatus('請先載入影片');
+      return;
     }
     const availableBones = this.previewPanel.getAvailableHumanoidBones();
     if (availableBones.size === 0) {
-      this.setStatus('[HybrIK dev] 無 VRM 骨架');
-      return false;
+      this.setStatus('無 VRM 骨架，無法轉換');
+      return;
     }
-    const track = buildSmplTrackFromLandmarks([this.lastLandmarks], 30);
-    this.mocapFrames = buildMocapFrames(track, availableBones, {
-      filter: { minCutoff: 2.0, beta: 0.5 },
-    });
+
+    const inSec = this.timeline.getIn();
+    const outSec = this.timeline.getOut();
+    if (outSec <= inSec) {
+      this.setStatus('時間區間無效');
+      return;
+    }
+
+    const videoEl = this.videoPanel.getVideoElement();
+    if (videoEl.readyState < 2) {
+      this.setStatus('影片尚未就緒');
+      return;
+    }
+
+    // 暫停任何播放（避免 seek 與轉換競爭）
     this.stopPlayback();
-    this.playbackMode = 'fixture';
-    this.fixtureFps = track.fps;
-    this.currentFixtureTimeSec = 0;
-    const durationSec = Math.max(track.frameCount / track.fps, 1 / 30);
-    this.timeline.setDuration(durationSec);
-    this.timeline.setEnabled(true);
-    if (this.playBtn) this.playBtn.disabled = false;
-    this.updateTimeDisplay(0, durationSec);
-    this.applyFixtureFrameAtTime(0);
-    if (this.exportBtn) this.exportBtn.disabled = false;
-    this.setStatus(`[HybrIK dev] 已套用 1 幀（${track.frameCount} frames）`);
-    return true;
-  }
+    // 關閉持續偵測（避免兩條 MediaPipe call 競爭）
+    this.poseDetectionActive = false;
+    this.videoPanel.clearOverlay();
+
+    if (!this.hybrikEngine) {
+      this.hybrikEngine = new HybrikTsEngine();
+    }
+    this.converting = true;
+    this.topBar?.setConvertLabel('取消');
+    if (this.exportBtn) this.exportBtn.disabled = true;
+
+    try {
+      this.setStatus('載入 MediaPipe 模型...（首次可能較慢）');
+      await this.hybrikEngine.init();
+      if (this.disposed) return;
+
+      const sampleFps = 30;
+      this.convertController = new AbortController();
+      this.setStatus(`轉換中 0%（${this.hybrikEngine.getUsedDelegate()}）`);
+      const track = await this.hybrikEngine.solveFromVideo(videoEl, {
+        startMs: inSec * 1000,
+        endMs: outSec * 1000,
+        sampleFps,
+        signal: this.convertController.signal,
+        onProgress: (r) => {
+          if (this.disposed) return;
+          this.setStatus(`轉換中 ${Math.round(r * 100)}%`);
+        },
+      });
+      if (this.disposed) return;
+
+      // 跑下游 pipeline
+      this.mocapFrames = buildMocapFrames(track, availableBones, {
+        filter: { minCutoff: 2.0, beta: 0.5 },
+      });
+
+      // 切到 fixture 模式進行 scrub / 播放 / 匯出
+      this.playbackMode = 'fixture';
+      this.fixtureFps = track.fps;
+      this.currentFixtureTimeSec = 0;
+      const durationSec = track.frameCount / track.fps;
+      this.timeline.setDuration(durationSec);
+      this.timeline.setEnabled(true);
+      if (this.playBtn) this.playBtn.disabled = false;
+      this.updateTimeDisplay(0, durationSec);
+      this.applyFixtureFrameAtTime(0);
+      if (this.exportBtn) this.exportBtn.disabled = false;
+      this.setStatus(`HybrIK 解算完成：${track.frameCount} 幀 @ ${track.fps}fps`);
+    } catch (e) {
+      const err = e as Error;
+      if (err.name === 'AbortError') {
+        this.setStatus('轉換已取消');
+      } else {
+        console.warn('[MocapStudioApp] HybrIK convert failed:', err);
+        this.setStatus(`轉換失敗：${err.message}`);
+      }
+    } finally {
+      this.converting = false;
+      this.convertController = null;
+      this.topBar?.setConvertLabel('轉換');
+      if (this.videoPanel && videoEl.readyState >= 2) {
+        this.topBar?.setConvertEnabled(true);
+      }
+    }
+  };
 
   // ── TopBar 事件：載入影片（Phase 1） ──
 
@@ -252,6 +325,8 @@ export class MocapStudioApp {
     this.updateTimeDisplay(0, duration);
     // Phase 5a：啟用偵測姿態按鈕、同步 overlay canvas 尺寸、清空舊 overlay
     this.topBar?.setDetectPoseEnabled(true);
+    // Phase 5d：影片載入後啟用轉換按鈕
+    this.topBar?.setConvertEnabled(true);
     this.videoPanel.syncOverlaySize();
     this.videoPanel.clearOverlay();
     this.lastLandmarks = null;
@@ -612,6 +687,14 @@ export class MocapStudioApp {
       this.poseRunner.dispose();
       this.poseRunner = null;
     }
+    if (this.hybrikEngine) {
+      this.hybrikEngine.dispose();
+      this.hybrikEngine = null;
+    }
+    if (this.convertController) {
+      this.convertController.abort();
+      this.convertController = null;
+    }
     // Remove 'seeked' listener from video element
     if (this.videoPanel) {
       this.videoPanel.getVideoElement().removeEventListener('seeked', this.onVideoSeeked);
@@ -640,7 +723,6 @@ export class MocapStudioApp {
       URL.revokeObjectURL(this.currentVideoObjectUrl);
       this.currentVideoObjectUrl = null;
     }
-    delete (window as unknown as { __mocapHybrikDev?: unknown }).__mocapHybrikDev;
   }
 }
 
