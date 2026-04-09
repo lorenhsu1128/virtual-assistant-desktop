@@ -48,7 +48,7 @@ export class Timeline {
   private outSec = 0;
   private playheadSec = 0;
   private enabled = false;
-  private dragMode: 'none' | 'in' | 'out' = 'none';
+  private dragMode: 'none' | 'in' | 'out' | 'scrub' = 'none';
 
   /** 使用者拖曳 in 把手時觸發 */
   onInChange: TimelineSeekCallback | null = null;
@@ -61,7 +61,8 @@ export class Timeline {
     this.el = el;
     this.el.inHandle.addEventListener('pointerdown', this.onInPointerDown);
     this.el.outHandle.addEventListener('pointerdown', this.onOutPointerDown);
-    this.el.track.addEventListener('pointerdown', this.onTrackPointerDown);
+    // 監聽 root 而非 track，讓可點擊區域涵蓋整個時間軸高度（~52px 而非 8px）
+    this.el.root.addEventListener('pointerdown', this.onRootPointerDown);
     this.render();
   }
 
@@ -163,19 +164,48 @@ export class Timeline {
     this.el.outHandle.removeEventListener('pointercancel', this.onOutPointerUp);
   };
 
-  // ── 點擊 track seek ──
+  // ── Track scrub（root 元件級別，支援 click-to-seek 與 drag-to-scrub） ──
 
-  private readonly onTrackPointerDown = (e: PointerEvent): void => {
+  private readonly onRootPointerDown = (e: PointerEvent): void => {
     if (!this.enabled) return;
     if (this.dragMode !== 'none') return;
-    // 若點擊在把手上，e.stopPropagation 會阻止本 handler 執行
+    // 若點擊在把手上，handle 的 pointerdown 已 stopPropagation，不會到這裡
+    // 但為保險起見也檢查 target 是否為 handle 子元素
+    const target = e.target as HTMLElement;
+    if (target.closest('.tl-handle')) return;
+
+    this.dragMode = 'scrub';
+    this.el.root.setPointerCapture(e.pointerId);
+    this.el.root.addEventListener('pointermove', this.onRootPointerMove);
+    this.el.root.addEventListener('pointerup', this.onRootPointerUp);
+    this.el.root.addEventListener('pointercancel', this.onRootPointerUp);
+    e.preventDefault();
+    this.scrubToPointer(e);
+  };
+
+  private readonly onRootPointerMove = (e: PointerEvent): void => {
+    if (this.dragMode !== 'scrub') return;
+    this.scrubToPointer(e);
+  };
+
+  private readonly onRootPointerUp = (e: PointerEvent): void => {
+    if (this.dragMode !== 'scrub') return;
+    this.dragMode = 'none';
+    this.el.root.releasePointerCapture(e.pointerId);
+    this.el.root.removeEventListener('pointermove', this.onRootPointerMove);
+    this.el.root.removeEventListener('pointerup', this.onRootPointerUp);
+    this.el.root.removeEventListener('pointercancel', this.onRootPointerUp);
+  };
+
+  /** 依 pointer 位置計算對應時間，更新 playhead 視覺並觸發 onSeek */
+  private scrubToPointer(e: PointerEvent): void {
     const rect = this.el.track.getBoundingClientRect();
     const rawTime = pixelToTime(e.clientX - rect.left, this.durationSec, rect.width);
     const clamped = Math.max(this.inSec, Math.min(this.outSec, rawTime));
     this.playheadSec = clamped;
     this.renderPlayhead();
     this.onSeek?.(clamped);
-  };
+  }
 
   // ── 視覺更新 ──
 
@@ -216,12 +246,15 @@ export class Timeline {
   dispose(): void {
     this.el.inHandle.removeEventListener('pointerdown', this.onInPointerDown);
     this.el.outHandle.removeEventListener('pointerdown', this.onOutPointerDown);
-    this.el.track.removeEventListener('pointerdown', this.onTrackPointerDown);
+    this.el.root.removeEventListener('pointerdown', this.onRootPointerDown);
     this.el.inHandle.removeEventListener('pointermove', this.onInPointerMove);
     this.el.inHandle.removeEventListener('pointerup', this.onInPointerUp);
     this.el.inHandle.removeEventListener('pointercancel', this.onInPointerUp);
     this.el.outHandle.removeEventListener('pointermove', this.onOutPointerMove);
     this.el.outHandle.removeEventListener('pointerup', this.onOutPointerUp);
     this.el.outHandle.removeEventListener('pointercancel', this.onOutPointerUp);
+    this.el.root.removeEventListener('pointermove', this.onRootPointerMove);
+    this.el.root.removeEventListener('pointerup', this.onRootPointerUp);
+    this.el.root.removeEventListener('pointercancel', this.onRootPointerUp);
   }
 }

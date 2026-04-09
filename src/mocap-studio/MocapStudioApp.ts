@@ -65,6 +65,10 @@ export class MocapStudioApp {
   // Phase 5a 狀態（MediaPipe）
   private poseRunner: PoseRunner | null = null;
   private lastLandmarks: PoseLandmarks | null = null;
+  /** 持續偵測模式旗標：true 時每次 timeupdate / seeked 自動跑偵測 */
+  private poseDetectionActive = false;
+  /** 正在跑 detect 的 guard，避免播放時 timeupdate 堆疊多個 detect call */
+  private detectionInflight = false;
 
   // 通用
   private playbackMode: PlaybackMode = 'none';
@@ -109,6 +113,8 @@ export class MocapStudioApp {
     const overlayCanvas = $<HTMLCanvasElement>('mocap-video-overlay');
     this.videoPanel = new VideoPanel(videoEl, overlayCanvas);
     this.videoPanel.addTimeUpdateListener(this.onVideoTimeUpdate);
+    // Phase 5a: 'seeked' 事件在任何 seek 完成後觸發（含 scrub / 把手拖曳 / 點擊）
+    videoEl.addEventListener('seeked', this.onVideoSeeked);
 
     // ── Timeline ──
     const tlElements: TimelineElements = {
@@ -182,12 +188,21 @@ export class MocapStudioApp {
     this.setStatus(`影片已載入：${basename(videoPath)}（${formatTime(duration)}）`);
   };
 
-  // ── TopBar 事件：偵測姿態（Phase 5a） ──
+  // ── TopBar 事件：持續姿態偵測（Phase 5a） ──
 
   private readonly onDetectPoseClick = async (): Promise<void> => {
     if (this.disposed || !this.videoPanel) return;
 
-    // 1. Lazy init PoseRunner
+    // 已開啟 → 關閉並清除 overlay
+    if (this.poseDetectionActive) {
+      this.poseDetectionActive = false;
+      this.videoPanel.clearOverlay();
+      this.lastLandmarks = null;
+      this.setStatus('姿態偵測已停用');
+      return;
+    }
+
+    // Lazy init PoseRunner
     if (!this.poseRunner) {
       this.setStatus('載入 MediaPipe 模型...（首次可能較慢）');
       this.poseRunner = new PoseRunner();
@@ -201,27 +216,48 @@ export class MocapStudioApp {
         return;
       }
       if (this.disposed) return;
-      this.setStatus(`MediaPipe 就緒（${this.poseRunner.getUsedDelegate()}）`);
     }
 
-    // 2. 對當前影片的當前時間偵測
-    const video = this.videoPanel.getVideoElement();
-    const timestampMs = Math.round(video.currentTime * 1000);
-    this.setStatus(`偵測姿態 @ ${formatTime(video.currentTime)}...`);
-    const landmarks = await this.poseRunner.detect(video, timestampMs);
-    if (this.disposed) return;
-
-    if (!landmarks) {
-      this.setStatus('偵測失敗：未找到人物');
-      this.videoPanel.clearOverlay();
-      this.lastLandmarks = null;
-      return;
-    }
-
-    this.lastLandmarks = landmarks;
-    this.drawPoseOverlay();
-    this.setStatus(`偵測完成 @ ${formatTime(video.currentTime)}`);
+    // 啟用持續偵測模式，立即對當前幀偵測一次
+    this.poseDetectionActive = true;
+    this.setStatus(`持續姿態偵測中（${this.poseRunner.getUsedDelegate()}）`);
+    await this.maybeDetectAndDraw();
   };
+
+  /**
+   * 對當前影片 frame 跑 MediaPipe 偵測並畫到 overlay
+   *
+   * 只在 poseDetectionActive=true 時運作。
+   * 用 detectionInflight 旗標避免 timeupdate（50-60Hz）堆疊多個 detect call。
+   * 使用 performance.now() 當 MediaPipe 時間戳（單調遞增、支援 scrub 回跳）。
+   */
+  private async maybeDetectAndDraw(): Promise<void> {
+    if (this.disposed) return;
+    if (!this.poseDetectionActive) return;
+    if (this.detectionInflight) return;
+    if (!this.poseRunner || !this.videoPanel) return;
+
+    const video = this.videoPanel.getVideoElement();
+    if (video.readyState < 2) return;
+
+    this.detectionInflight = true;
+    try {
+      // MediaPipe VIDEO 模式要求單調遞增時間戳；
+      // 用 performance.now() 避免 scrub 回跳導致 detectForVideo 失敗
+      const monotonicTs = Math.round(performance.now());
+      const landmarks = await this.poseRunner.detect(video, monotonicTs);
+      if (this.disposed || !this.poseDetectionActive) return;
+      if (landmarks) {
+        this.lastLandmarks = landmarks;
+        this.drawPoseOverlay();
+      } else {
+        this.lastLandmarks = null;
+        this.videoPanel.clearOverlay();
+      }
+    } finally {
+      this.detectionInflight = false;
+    }
+  }
 
   /** 把 lastLandmarks 畫到 overlay canvas（若有） */
   private drawPoseOverlay(): void {
@@ -233,6 +269,11 @@ export class MocapStudioApp {
     ctx.clearRect(0, 0, width, height);
     drawSkeleton(ctx, this.lastLandmarks, width, height);
   }
+
+  /** 影片 seek 完成（含播放中 timeupdate 的 seeked、手動 scrub 的 seeked） */
+  private readonly onVideoSeeked = (): void => {
+    void this.maybeDetectAndDraw();
+  };
 
   // ── TopBar 事件：載入 fixture（Phase 2c） ──
 
@@ -417,6 +458,8 @@ export class MocapStudioApp {
         this.videoPanel.seek(outSec);
       }
     }
+    // Phase 5a：若處於持續偵測模式，播放中每幀跑 MediaPipe（inflight 防堆疊）
+    void this.maybeDetectAndDraw();
   };
 
   // ── Fixture 模式 ──
@@ -498,6 +541,10 @@ export class MocapStudioApp {
     if (this.poseRunner) {
       this.poseRunner.dispose();
       this.poseRunner = null;
+    }
+    // Remove 'seeked' listener from video element
+    if (this.videoPanel) {
+      this.videoPanel.getVideoElement().removeEventListener('seeked', this.onVideoSeeked);
     }
     window.removeEventListener('resize', this.onResize);
     if (this.playBtn) this.playBtn.removeEventListener('click', this.onPlayToggle);
