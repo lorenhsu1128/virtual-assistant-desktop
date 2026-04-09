@@ -251,7 +251,6 @@ export class AnimationManager {
    */
   setPeekLeftClips(clips: LoadedPoolClip[]): void {
     this.peekLeftClips = clips.slice();
-    console.log(`[AnimationManager] peek-left mirrored pool set: ${clips.length} clips`);
   }
 
   /** 取得指定狀態的池（不存在時回傳 null） */
@@ -411,9 +410,19 @@ export class AnimationManager {
     duration: number,
   ): void {
     // 終止任何進行中的舊 transition（清除被覆蓋的舊動作）
-    if (this.transitionState && this.transitionState.oldAction !== oldAction) {
-      this.transitionState.oldAction.setEffectiveWeight(0);
-      this.transitionState.oldAction.stop();
+    //
+    // 關鍵：不可 stop 等同於本次 newAction 的 lingering。
+    // three.js 的 `mixer.clipAction(clip)` 對同一個 clip 永遠回傳
+    // 同一個 instance。若 A→B→A→B 交替切換，第二次 B 啟動時
+    // 上一個 transition 的 oldAction 正好 === 新 newAction，
+    // 若不排除會把剛 play() 過的 newAction 又 stop 掉，導致
+    // isRunning=false 但 setEffectiveWeight 持續爬升 → T-pose。
+    if (this.transitionState) {
+      const lingering = this.transitionState.oldAction;
+      if (lingering !== oldAction && lingering !== newAction) {
+        lingering.setEffectiveWeight(0);
+        lingering.stop();
+      }
     }
     this.transitionState = null;
 

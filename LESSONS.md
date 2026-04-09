@@ -151,6 +151,18 @@
 
 > 標記說明：`[Windows]` = 僅 Windows 適用；`[macOS]` = 僅 macOS 適用；`[跨平台]` = 兩平台都需注意。
 
+### [2026-04-09] `[跨平台]` — three.js AnimationAction instance reuse 陷阱導致 A→B→A→B 切換後 T-pose
+
+- **錯誤**：角色 state=hide（debug panel 確認）、AnimationManager.currentDisplayName 顯示 `SYS:hide:SYS_HIDE_01.vrma`、transition 的 `setEffectiveWeight` 持續爬到 ~1，但角色視覺呈 T-pose。診斷 log 顯示 `isRunning=false, time=0.000`，代表 action 不在 mixer active list 中卻被設 weight
+- **根因**：`mixer.clipAction(clip)` 對同一個 clip 永遠回傳同一個 AnimationAction instance。AnimationManager.startTransition 清理「上一個 transition 的 lingering oldAction」時只檢查 `lingering !== oldAction`，沒檢查 `lingering !== newAction`。在 A→B→A→B 場景下第二次 B 進入時：
+  - 上一個 transition 的 oldAction = B_action（A→B 的 old 是 A，B→A 的 old 是 B）
+  - 本次 newAction = B_action（同一 instance）
+  - 清理邏輯 `lingering.stop()` 把剛剛 `play()` 過的 newAction 又 stop 掉
+  - 之後 updateTransition 每幀 `setEffectiveWeight` 爬升，但 action 已從 mixer 移除，time 不推進 → 骨骼停在 bind pose
+- **正確做法**：`startTransition` 的 lingering cleanup 必須同時排除 `lingering === newAction` 的情況。最小修正是在 if 條件加一個 `&& lingering !== newAction`
+- **受影響檔案**：`src/animation/AnimationManager.ts` (`startTransition`)
+- **根因記憶**：只要模組用 `mixer.clipAction(clip)` 並且會在 A/B 之間頻繁切換，就要假設「previous action」和「new action」可能是同一個 JS instance。任何「stop previous」、「fade out previous」類型的邏輯都要先檢查是否會誤傷 new action。特別是三連（或多連）轉換時，前一個 transition 的 oldAction 可能就是本次的 newAction
+
 ### [2026-04-09] `[跨平台]` — 正交相機下 MToon outline screenCoordinates 模式會暴粗
 
 - **錯誤**：某些 VRM 載入到主視窗後出現粗黑邊緣（例如 Wolf_ver1.00），但同一隻模型在 VRM Picker 預覽卻正常。初次誤判為透明 framebuffer 的暗邊 halo，改了 `premultipliedAlpha: true` 無效

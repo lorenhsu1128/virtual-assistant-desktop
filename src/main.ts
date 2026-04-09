@@ -368,11 +368,6 @@ async function initializeBehaviorSystem(
       const analysis = analyzeWalkAnimation(clip, vrmController);
       if (analysis) {
         sceneManager.setStepAnalysis(analysis.stepLength, analysis.worldSpeed);
-        debugLog(
-          `[walk] reanalyzed: stepLen=${analysis.stepLength.toFixed(3)} ` +
-            `cycle=${analysis.cycleDuration.toFixed(2)}s ` +
-            `worldSpeed=${analysis.worldSpeed.toFixed(3)}`,
-        );
       }
     };
     const bridge = new BehaviorAnimationBridge(
@@ -730,7 +725,6 @@ async function loadAllSystemAnimations(
 
     if (clips.length > 0) {
       animationManager.setStatePool(state, clips);
-      debugLog(`[sys-anim] pool '${state}' loaded: ${clips.length} clips`);
     }
   }
 
@@ -744,7 +738,6 @@ async function loadAllSystemAnimations(
         clip: mirrorAnimationClip(clip, boneMapping),
       }));
       animationManager.setPeekLeftClips(peekLeftClips);
-      debugLog(`[sys-anim] peek-left mirrored: ${peekLeftClips.length} clips`);
     } else {
       console.warn('[main] peek mirror skipped: humanoid bone mapping unavailable');
     }
