@@ -90,6 +90,17 @@ select:disabled {
   opacity: 0.5;
 }
 
+/* dev 按鈕視覺區別（橘色） */
+.mocap-dev-btn {
+  background-color: #4a3a2e;
+  border-color: #7a5a3e;
+  color: #e6c66a;
+}
+
+.mocap-dev-btn:hover:not(:disabled) {
+  background-color: #5a4a3e;
+}
+
 /* ── Body：左影片 / 右預覽 ── */
 #mocap-body {
   display: grid;

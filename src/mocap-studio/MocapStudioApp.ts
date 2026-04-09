@@ -3,17 +3,20 @@
  *
  * 組裝所有 UI 元件（TopBar / VideoPanel / Timeline / PreviewPanel）並處理事件流。
  *
- * Phase 0：
- *   - 建立 PreviewPanel 並載入主視窗當前的 VRM
- * Phase 1：
- *   - 載入影片 → 設定時間軸區間 → scrub / 播放控制
- *   - 播放僅在 [in, out] 區間內，播到 out 自動暫停
- *   - 拖曳 in/out 把手時會暫停並 seek 預覽該位置
+ * Phase 0：建立 PreviewPanel 並載入主視窗當前的 VRM
+ * Phase 1：載入影片 → 設定時間軸區間 → scrub / 播放控制
+ * Phase 2c：載入靜態 SMPL fixture → 跑下游 pipeline → scrub / 播放套到 VRM 預覽
+ *
+ * 播放模式（playbackMode）：
+ *   - 'none'   ：尚未載入任何內容
+ *   - 'video'  ：Phase 1 影片模式（timeupdate 驅動）
+ *   - 'fixture'：Phase 2c 動捕 fixture 模式（rAF 驅動）
+ *   兩模式互斥：載入 fixture 會切到 fixture 模式（不清除 video）；
+ *   再次載入影片會切回 video 模式。
  *
  * 後續 phase 將擴充：
- *   - Phase 2c：static SMPL fixture → smplToVrm → scrub 套到 VRM 預覽
- *   - Phase 3：VRMA exporter
- *   - Phase 4+：engines（EasyMocap sidecar / HybrIK-TS）
+ *   - Phase 3：VRMA exporter（吃 MocapFrame[]）
+ *   - Phase 4+：engines（EasyMocap / HybrIK-TS），取代「dev fixture」來源
  */
 
 import { ipc } from '../bridge/ElectronIPC';
@@ -22,12 +25,17 @@ import { VideoPanel } from './VideoPanel';
 import { Timeline, type TimelineElements } from './Timeline';
 import { TopBar } from './TopBar';
 import { formatTime } from './timelineLogic';
+import { buildMocapFrames } from '../mocap/pipeline';
+import { generateLeftArmRaiseFixture } from '../mocap/fixtures/testFixtures';
+import type { MocapFrame } from '../mocap/types';
 
 const $ = <T extends HTMLElement>(id: string): T => {
   const el = document.getElementById(id);
   if (!el) throw new Error(`[MocapStudioApp] Missing element: #${id}`);
   return el as T;
 };
+
+type PlaybackMode = 'none' | 'video' | 'fixture';
 
 export class MocapStudioApp {
   private previewPanel: PreviewPanel | null = null;
@@ -41,7 +49,16 @@ export class MocapStudioApp {
   private playBtn: HTMLButtonElement | null = null;
   private timeDisplayEl: HTMLSpanElement | null = null;
 
-  private videoLoaded = false;
+  // Phase 2c 狀態
+  private mocapFrames: MocapFrame[] = [];
+  private fixtureFps = 30;
+  private fixturePlaybackRaf: number | null = null;
+  private fixturePlaybackStartMs = 0;
+  private fixturePlaybackFromSec = 0;
+  private currentFixtureTimeSec = 0;
+
+  // 通用
+  private playbackMode: PlaybackMode = 'none';
   private playing = false;
   private disposed = false;
 
@@ -51,7 +68,7 @@ export class MocapStudioApp {
     this.playBtn = $<HTMLButtonElement>('mocap-play-btn');
     this.timeDisplayEl = $<HTMLSpanElement>('mocap-time-display');
 
-    // ── PreviewPanel（Phase 0） ──
+    // ── PreviewPanel ──
     const canvas = $<HTMLCanvasElement>('mocap-preview-canvas');
     this.previewPanel = new PreviewPanel(canvas);
 
@@ -77,12 +94,12 @@ export class MocapStudioApp {
       this.setStatus('就緒（無 VRM）');
     }
 
-    // ── VideoPanel（Phase 1） ──
+    // ── VideoPanel ──
     const videoEl = $<HTMLVideoElement>('mocap-video-element');
     this.videoPanel = new VideoPanel(videoEl);
     this.videoPanel.addTimeUpdateListener(this.onVideoTimeUpdate);
 
-    // ── Timeline（Phase 1） ──
+    // ── Timeline ──
     const tlElements: TimelineElements = {
       root: $<HTMLElement>('mocap-timeline'),
       track: $<HTMLElement>('mocap-tl-track'),
@@ -98,20 +115,19 @@ export class MocapStudioApp {
     this.timeline.onOutChange = this.onTimelineOutChange;
     this.timeline.onSeek = this.onTimelineSeek;
 
-    // ── TopBar（Phase 1） ──
+    // ── TopBar ──
     this.topBar = new TopBar({
       loadVideoBtn: $<HTMLButtonElement>('mocap-load-video-btn'),
+      loadFixtureBtn: $<HTMLButtonElement>('mocap-load-fixture-btn'),
     });
     this.topBar.onLoadVideo = this.onLoadVideoClick;
+    this.topBar.onLoadFixture = this.onLoadFixtureClick;
 
-    // 播放按鈕
     this.playBtn.addEventListener('click', this.onPlayToggle);
-
-    // Resize：重新計算 Timeline 位置
     window.addEventListener('resize', this.onResize);
   }
 
-  // ── TopBar 事件 ──
+  // ── TopBar 事件：載入影片（Phase 1） ──
 
   private readonly onLoadVideoClick = async (): Promise<void> => {
     if (this.disposed || !this.videoPanel || !this.timeline) return;
@@ -134,7 +150,12 @@ export class MocapStudioApp {
       return;
     }
 
-    this.videoLoaded = true;
+    // 停止任何現行播放、切回 video 模式
+    this.stopPlayback();
+    this.playbackMode = 'video';
+    this.mocapFrames = [];
+    this.previewPanel?.resetMocapPose();
+
     this.timeline.setDuration(duration);
     this.timeline.setEnabled(true);
     if (this.playBtn) this.playBtn.disabled = false;
@@ -142,29 +163,86 @@ export class MocapStudioApp {
     this.setStatus(`影片已載入：${basename(videoPath)}（${formatTime(duration)}）`);
   };
 
+  // ── TopBar 事件：載入 fixture（Phase 2c） ──
+
+  private readonly onLoadFixtureClick = (): void => {
+    if (this.disposed || !this.previewPanel || !this.timeline) return;
+
+    const availableBones = this.previewPanel.getAvailableHumanoidBones();
+    if (availableBones.size === 0) {
+      this.setStatus('尚未載入 VRM，無法產生 fixture');
+      return;
+    }
+
+    this.setStatus('生成測試 fixture...');
+
+    // 1. 生成 SMPL track
+    const track = generateLeftArmRaiseFixture(30, 2.0);
+
+    // 2. 跑下游 pipeline
+    this.mocapFrames = buildMocapFrames(track, availableBones, {
+      filter: { minCutoff: 2.0, beta: 0.5 },
+    });
+
+    // 3. 切到 fixture 模式
+    this.stopPlayback();
+    this.playbackMode = 'fixture';
+    this.fixtureFps = track.fps;
+    this.currentFixtureTimeSec = 0;
+
+    // 4. Timeline 以 fixture 的時間範圍為準
+    const durationSec = track.frameCount / track.fps;
+    this.timeline.setDuration(durationSec);
+    this.timeline.setEnabled(true);
+    if (this.playBtn) this.playBtn.disabled = false;
+    this.updateTimeDisplay(0, durationSec);
+
+    // 5. 立即套用首幀
+    this.applyFixtureFrameAtTime(0);
+
+    this.setStatus(
+      `Fixture 已載入：${track.frameCount} 幀 @ ${track.fps}fps（${formatTime(durationSec)}）`,
+    );
+  };
+
   // ── Timeline 事件 ──
 
   private readonly onTimelineInChange = (inSec: number): void => {
-    if (!this.videoPanel) return;
-    if (this.playing) this.pausePlayback();
-    this.videoPanel.seek(inSec);
+    this.pausePlayback();
+    if (this.playbackMode === 'video') {
+      this.videoPanel?.seek(inSec);
+    } else if (this.playbackMode === 'fixture') {
+      this.currentFixtureTimeSec = inSec;
+      this.applyFixtureFrameAtTime(inSec);
+      this.updateTimeDisplay(inSec, this.getFixtureDurationSec());
+    }
   };
 
   private readonly onTimelineOutChange = (outSec: number): void => {
-    if (!this.videoPanel) return;
-    if (this.playing) this.pausePlayback();
-    this.videoPanel.seek(outSec);
+    this.pausePlayback();
+    if (this.playbackMode === 'video') {
+      this.videoPanel?.seek(outSec);
+    } else if (this.playbackMode === 'fixture') {
+      this.currentFixtureTimeSec = outSec;
+      this.applyFixtureFrameAtTime(outSec);
+      this.updateTimeDisplay(outSec, this.getFixtureDurationSec());
+    }
   };
 
   private readonly onTimelineSeek = (timeSec: number): void => {
-    if (!this.videoPanel) return;
-    this.videoPanel.seek(timeSec);
+    if (this.playbackMode === 'video') {
+      this.videoPanel?.seek(timeSec);
+    } else if (this.playbackMode === 'fixture') {
+      this.currentFixtureTimeSec = timeSec;
+      this.applyFixtureFrameAtTime(timeSec);
+      this.updateTimeDisplay(timeSec, this.getFixtureDurationSec());
+    }
   };
 
   // ── 播放控制 ──
 
   private readonly onPlayToggle = (): void => {
-    if (!this.videoLoaded || !this.videoPanel || !this.timeline) return;
+    if (this.playbackMode === 'none' || !this.timeline) return;
     if (this.playing) {
       this.pausePlayback();
     } else {
@@ -173,33 +251,60 @@ export class MocapStudioApp {
   };
 
   private startPlayback(): void {
-    if (!this.videoPanel || !this.timeline || !this.playBtn) return;
+    if (!this.timeline || !this.playBtn) return;
     const inSec = this.timeline.getIn();
     const outSec = this.timeline.getOut();
-    const currentTime = this.videoPanel.getCurrentTime();
-    // 若目前時間不在 [in, out] 區間內，先 reset 到 in
-    if (currentTime < inSec || currentTime >= outSec) {
-      this.videoPanel.seek(inSec);
+
+    if (this.playbackMode === 'video') {
+      if (!this.videoPanel) return;
+      const currentTime = this.videoPanel.getCurrentTime();
+      if (currentTime < inSec || currentTime >= outSec) {
+        this.videoPanel.seek(inSec);
+      }
+      void this.videoPanel.play();
+    } else if (this.playbackMode === 'fixture') {
+      if (this.mocapFrames.length === 0) return;
+      let startFrom = this.currentFixtureTimeSec;
+      if (startFrom < inSec || startFrom >= outSec) {
+        startFrom = inSec;
+      }
+      this.currentFixtureTimeSec = startFrom;
+      this.fixturePlaybackFromSec = startFrom;
+      this.fixturePlaybackStartMs = performance.now();
+      this.fixturePlaybackRaf = requestAnimationFrame(this.fixtureTick);
+    } else {
+      return;
     }
-    void this.videoPanel.play();
+
     this.playing = true;
     this.playBtn.textContent = '⏸ 暫停';
   }
 
   private pausePlayback(): void {
-    if (!this.videoPanel || !this.playBtn) return;
-    this.videoPanel.pause();
+    if (!this.playBtn) return;
+    if (this.playbackMode === 'video') {
+      this.videoPanel?.pause();
+    } else if (this.playbackMode === 'fixture') {
+      if (this.fixturePlaybackRaf !== null) {
+        cancelAnimationFrame(this.fixturePlaybackRaf);
+        this.fixturePlaybackRaf = null;
+      }
+    }
     this.playing = false;
     this.playBtn.textContent = '▶ 播放';
   }
 
-  // ── VideoPanel 事件 ──
+  /** 完全停止播放（切換模式前呼叫，重置內部狀態） */
+  private stopPlayback(): void {
+    this.pausePlayback();
+  }
+
+  // ── Video 模式 ──
 
   private readonly onVideoTimeUpdate = (currentTimeSec: number): void => {
-    if (!this.timeline || !this.videoPanel) return;
+    if (this.playbackMode !== 'video' || !this.timeline || !this.videoPanel) return;
     this.timeline.setPlayhead(currentTimeSec);
     this.updateTimeDisplay(currentTimeSec, this.videoPanel.getDuration());
-    // 播放到 out 把手 → 自動暫停並停在 out 位置
     if (this.playing) {
       const outSec = this.timeline.getOut();
       if (currentTimeSec >= outSec) {
@@ -208,6 +313,55 @@ export class MocapStudioApp {
       }
     }
   };
+
+  // ── Fixture 模式 ──
+
+  /** fixture 總長度（秒） */
+  private getFixtureDurationSec(): number {
+    if (this.mocapFrames.length === 0) return 0;
+    return this.mocapFrames.length / this.fixtureFps;
+  }
+
+  /**
+   * fixture 播放 rAF tick：推進時間、套用該時間對應的 MocapFrame
+   * 到達 out 把手自動暫停
+   */
+  private readonly fixtureTick = (nowMs: number): void => {
+    if (!this.playing || this.playbackMode !== 'fixture' || !this.timeline) {
+      this.fixturePlaybackRaf = null;
+      return;
+    }
+    const elapsedSec = (nowMs - this.fixturePlaybackStartMs) / 1000;
+    const currentSec = this.fixturePlaybackFromSec + elapsedSec;
+    const outSec = this.timeline.getOut();
+
+    if (currentSec >= outSec) {
+      this.currentFixtureTimeSec = outSec;
+      this.applyFixtureFrameAtTime(outSec);
+      this.timeline.setPlayhead(outSec);
+      this.updateTimeDisplay(outSec, this.getFixtureDurationSec());
+      this.pausePlayback();
+      return;
+    }
+
+    this.currentFixtureTimeSec = currentSec;
+    this.applyFixtureFrameAtTime(currentSec);
+    this.timeline.setPlayhead(currentSec);
+    this.updateTimeDisplay(currentSec, this.getFixtureDurationSec());
+    this.fixturePlaybackRaf = requestAnimationFrame(this.fixtureTick);
+  };
+
+  /**
+   * 將時間（秒）對應到最近的 MocapFrame 並套用到 VRM 預覽
+   *
+   * 簡單採用「nearest frame」查表（不做插值），Phase 3+ 視需要升級。
+   */
+  private applyFixtureFrameAtTime(sec: number): void {
+    if (!this.previewPanel || this.mocapFrames.length === 0) return;
+    const rawIdx = Math.round(sec * this.fixtureFps);
+    const idx = Math.max(0, Math.min(this.mocapFrames.length - 1, rawIdx));
+    this.previewPanel.applyMocapFrame(this.mocapFrames[idx]);
+  }
 
   // ── Helpers ──
 
@@ -227,6 +381,10 @@ export class MocapStudioApp {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    if (this.fixturePlaybackRaf !== null) {
+      cancelAnimationFrame(this.fixturePlaybackRaf);
+      this.fixturePlaybackRaf = null;
+    }
     window.removeEventListener('resize', this.onResize);
     if (this.playBtn) this.playBtn.removeEventListener('click', this.onPlayToggle);
     if (this.topBar) {

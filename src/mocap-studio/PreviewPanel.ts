@@ -23,6 +23,7 @@
 
 import * as THREE from 'three';
 import { VRMController } from '../core/VRMController';
+import type { MocapFrame, VrmHumanBoneName } from '../mocap/types';
 
 /** 目標幀率（省電：30 fps） */
 const TARGET_FPS = 30;
@@ -107,6 +108,41 @@ export class PreviewPanel {
 
     this.vrmController = controller;
     return true;
+  }
+
+  /**
+   * 取得當前 VRM 模型實際存在的 humanoid bone 集合
+   *
+   * 供 MocapStudioApp 計算 SMPL → VRM 映射時使用。
+   * 若尚未載入 VRM 則回傳空 Set。
+   */
+  getAvailableHumanoidBones(): Set<VrmHumanBoneName> {
+    if (!this.vrmController) return new Set();
+    return this.vrmController.getAvailableHumanoidBones() as Set<VrmHumanBoneName>;
+  }
+
+  /**
+   * 套用單一 MocapFrame 到 VRM 預覽
+   *
+   * **不使用 AnimationMixer**（LESSONS.md 2026-04-09 clipAction reuse 陷阱）。
+   * 直接透過 VRMController.setBoneRotations 寫入 bone quaternion，
+   * 下一次 render loop 會渲染更新後的 pose。
+   *
+   * @param frame 已經過 smplToVrm + clamp + filter 的幀資料
+   */
+  applyMocapFrame(frame: MocapFrame): void {
+    if (!this.vrmController) return;
+    this.vrmController.setBoneRotations(frame.boneRotations);
+  }
+
+  /**
+   * 將所有 humanoid bone 重置為 identity pose（rest pose）
+   *
+   * 離開 mocap 模式或載入新 fixture 時呼叫。
+   */
+  resetMocapPose(): void {
+    if (!this.vrmController) return;
+    this.vrmController.resetHumanoidPose();
   }
 
   /** 釋放當前模型（保留 renderer 與場景） */

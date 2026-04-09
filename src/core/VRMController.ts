@@ -267,6 +267,73 @@ export class VRMController {
     return this.vrm.humanoid.getNormalizedBoneNode(boneName as never);
   }
 
+  /**
+   * VRM humanoid 的 22 根主要骨骼（含 optional bone）
+   *
+   * 本專案動捕（mocap）使用的骨骼集合，排除手指等精細骨骼。
+   * 與 src/mocap/types.ts 的 VrmHumanBoneName 保持一致。
+   */
+  private static readonly HUMANOID_MOCAP_BONES: readonly string[] = [
+    'hips', 'spine', 'chest', 'upperChest', 'neck', 'head',
+    'leftShoulder', 'rightShoulder',
+    'leftUpperArm', 'rightUpperArm',
+    'leftLowerArm', 'rightLowerArm',
+    'leftHand', 'rightHand',
+    'leftUpperLeg', 'rightUpperLeg',
+    'leftLowerLeg', 'rightLowerLeg',
+    'leftFoot', 'rightFoot',
+    'leftToes', 'rightToes',
+  ];
+
+  /**
+   * 取得當前 VRM 模型實際存在的 humanoid bone 集合
+   *
+   * 用於動捕（mocap）下游 pipeline 的缺失 bone 降級判斷。
+   * 只檢查 HUMANOID_MOCAP_BONES 列出的主要骨骼，不含手指等精細骨骼。
+   *
+   * @returns 存在的骨骼名稱 Set；若 VRM 未載入則回傳空 Set
+   */
+  getAvailableHumanoidBones(): Set<string> {
+    const result = new Set<string>();
+    if (!this.vrm?.humanoid) return result;
+    for (const name of VRMController.HUMANOID_MOCAP_BONES) {
+      if (this.vrm.humanoid.getNormalizedBoneNode(name as never)) {
+        result.add(name);
+      }
+    }
+    return result;
+  }
+
+  /**
+   * 批次設定 humanoid bone 的 local quaternion
+   *
+   * 用於動捕 pipeline 每幀套用 MocapFrame.boneRotations 到 VRM。
+   * 不存在的 bone 會被靜默跳過。
+   *
+   * @param rotations 骨骼名 → quaternion 的 partial record
+   */
+  setBoneRotations(rotations: Partial<Record<string, THREE.Quaternion>>): void {
+    if (!this.vrm?.humanoid) return;
+    for (const [name, q] of Object.entries(rotations)) {
+      if (!q) continue;
+      const node = this.vrm.humanoid.getNormalizedBoneNode(name as never);
+      if (node) node.quaternion.copy(q);
+    }
+  }
+
+  /**
+   * 將 HUMANOID_MOCAP_BONES 列出的骨骼全部重置為 identity quaternion
+   *
+   * 用於離開 mocap 模式時恢復 VRM 預設 rest pose。
+   */
+  resetHumanoidPose(): void {
+    if (!this.vrm?.humanoid) return;
+    for (const name of VRMController.HUMANOID_MOCAP_BONES) {
+      const node = this.vrm.humanoid.getNormalizedBoneNode(name as never);
+      if (node) node.quaternion.set(0, 0, 0, 1);
+    }
+  }
+
   /** 可重用的 Vector3，避免每幀 GC */
   private static readonly _tempWorldPos = new THREE.Vector3();
   private static readonly _tempScreenPos = new THREE.Vector3();
