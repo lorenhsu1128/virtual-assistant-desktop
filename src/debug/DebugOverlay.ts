@@ -1,60 +1,136 @@
 /**
  * Debug Overlay
  *
- * 在桌寵視窗上顯示角色狀態資訊、桌面視窗清單和紅虛線外框。
+ * 在桌寵視窗上顯示角色狀態資訊與桌面視窗清單的單一合併面板，
+ * 可由使用者拖曳至視窗任意位置（位置儲存於 localStorage）。
  * 使用 HTML 元素疊加在 canvas 上，不影響 3D 渲染。
  */
+
+const STORAGE_KEY = 'debugOverlayPosition';
+const DEFAULT_POS = { x: 8, y: 8 };
+
 export class DebugOverlay {
   private enabled = false;
   private panel: HTMLDivElement | null = null;
-  private windowPanel: HTMLDivElement | null = null;
+  private header: HTMLDivElement | null = null;
+  private stateSection: HTMLDivElement | null = null;
+  private windowsSection: HTMLDivElement | null = null;
   private border: HTMLDivElement | null = null;
+
+  /** 拖曳狀態 */
+  private dragging = false;
+  private dragOffsetX = 0;
+  private dragOffsetY = 0;
+  private boundOnMouseMove: (e: MouseEvent) => void;
+  private boundOnMouseUp: (e: MouseEvent) => void;
+
+  /** 上次的 mesh 清單（合併顯示在 panel 中） */
+  private lastMeshList: MeshListEntry[] = [];
+
+  constructor() {
+    this.boundOnMouseMove = this.onMouseMove.bind(this);
+    this.boundOnMouseUp = this.onMouseUp.bind(this);
+  }
+
+  /** 從 localStorage 讀取儲存位置，失敗時回傳預設 */
+  private loadPosition(): { x: number; y: number } {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return { ...DEFAULT_POS };
+      const parsed = JSON.parse(raw) as { x: number; y: number };
+      if (typeof parsed.x !== 'number' || typeof parsed.y !== 'number') {
+        return { ...DEFAULT_POS };
+      }
+      return parsed;
+    } catch {
+      return { ...DEFAULT_POS };
+    }
+  }
+
+  /** 儲存位置到 localStorage，失敗時靜默略過 */
+  private savePosition(x: number, y: number): void {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ x, y }));
+    } catch {
+      // localStorage 不可用時略過
+    }
+  }
 
   /** 建立 overlay 元素 */
   private createElements(): void {
     if (this.panel) return;
 
-    // 狀態資訊面板（左上角）
+    const pos = this.loadPosition();
+
+    // 合併面板：header + body(state + windows)
     this.panel = document.createElement('div');
     this.panel.style.cssText = `
       position: fixed;
-      top: 8px;
-      left: 8px;
-      background: rgba(0, 0, 0, 0.7);
+      top: ${pos.y}px;
+      left: ${pos.x}px;
+      background: rgba(0, 0, 0, 0.75);
       color: #0f0;
       font-family: monospace;
       font-size: 12px;
-      padding: 8px 12px;
       border-radius: 4px;
-      pointer-events: none;
+      pointer-events: auto;
       z-index: 9999;
+      display: none;
+      max-height: 85vh;
+      max-width: 480px;
+      overflow: hidden;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+      user-select: none;
+    `;
+
+    // 標題列（拖曳把手）
+    this.header = document.createElement('div');
+    this.header.textContent = 'DEBUG ▸ drag to move';
+    this.header.style.cssText = `
+      padding: 4px 10px;
+      background: rgba(0, 180, 0, 0.25);
+      color: #cfc;
+      font-size: 11px;
+      cursor: move;
+      border-bottom: 1px solid rgba(0, 255, 0, 0.3);
+      border-radius: 4px 4px 0 0;
+    `;
+    this.header.addEventListener('mousedown', this.onHeaderMouseDown);
+    this.panel.appendChild(this.header);
+
+    // body 容器（可捲動）
+    const body = document.createElement('div');
+    body.style.cssText = `
+      padding: 8px 12px;
+      max-height: calc(85vh - 28px);
+      overflow-y: auto;
+      overflow-x: hidden;
+    `;
+
+    // 狀態區段
+    this.stateSection = document.createElement('div');
+    this.stateSection.style.cssText = `
       white-space: pre;
       line-height: 1.5;
-      display: none;
+      color: #0f0;
     `;
-    document.body.appendChild(this.panel);
+    body.appendChild(this.stateSection);
 
-    // 視窗清單面板（左下角）
-    this.windowPanel = document.createElement('div');
-    this.windowPanel.style.cssText = `
-      position: fixed;
-      bottom: 8px;
-      left: 8px;
-      background: rgba(0, 0, 0, 0.7);
-      color: #0ff;
-      font-family: monospace;
-      font-size: 11px;
-      padding: 8px 12px;
-      border-radius: 4px;
-      pointer-events: none;
-      z-index: 9999;
+    // 視窗清單區段
+    this.windowsSection = document.createElement('div');
+    this.windowsSection.style.cssText = `
       white-space: pre;
       line-height: 1.4;
-      max-height: 40vh;
-      overflow: hidden;
-      display: none;
+      color: #0ff;
+      font-size: 11px;
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px dashed rgba(0, 255, 255, 0.3);
     `;
-    document.body.appendChild(this.windowPanel);
+    body.appendChild(this.windowsSection);
+
+    this.panel.appendChild(body);
+    document.body.appendChild(this.panel);
 
     // 紅虛線外框
     this.border = document.createElement('div');
@@ -72,6 +148,49 @@ export class DebugOverlay {
     document.body.appendChild(this.border);
   }
 
+  /** Header mousedown: 啟動拖曳 */
+  private onHeaderMouseDown = (e: MouseEvent): void => {
+    if (!this.panel) return;
+    // 避免觸發 DragHandler 拖曳桌寵
+    e.stopPropagation();
+    e.preventDefault();
+
+    const rect = this.panel.getBoundingClientRect();
+    this.dragOffsetX = e.clientX - rect.left;
+    this.dragOffsetY = e.clientY - rect.top;
+    this.dragging = true;
+
+    window.addEventListener('mousemove', this.boundOnMouseMove);
+    window.addEventListener('mouseup', this.boundOnMouseUp);
+  };
+
+  private onMouseMove(e: MouseEvent): void {
+    if (!this.dragging || !this.panel) return;
+
+    const panelWidth = this.panel.offsetWidth;
+    const panelHeight = this.panel.offsetHeight;
+    const maxX = Math.max(0, window.innerWidth - panelWidth);
+    const maxY = Math.max(0, window.innerHeight - panelHeight);
+
+    const x = Math.min(maxX, Math.max(0, e.clientX - this.dragOffsetX));
+    const y = Math.min(maxY, Math.max(0, e.clientY - this.dragOffsetY));
+
+    this.panel.style.left = `${x}px`;
+    this.panel.style.top = `${y}px`;
+  }
+
+  private onMouseUp = (): void => {
+    if (!this.dragging || !this.panel) return;
+    this.dragging = false;
+    window.removeEventListener('mousemove', this.boundOnMouseMove);
+    window.removeEventListener('mouseup', this.boundOnMouseUp);
+
+    // 儲存最終位置
+    const x = parseInt(this.panel.style.left, 10) || 0;
+    const y = parseInt(this.panel.style.top, 10) || 0;
+    this.savePosition(x, y);
+  };
+
   /** 啟用/停用 debug overlay */
   setEnabled(enabled: boolean): void {
     this.enabled = enabled;
@@ -82,9 +201,6 @@ export class DebugOverlay {
 
     if (this.panel) {
       this.panel.style.display = enabled ? 'block' : 'none';
-    }
-    if (this.windowPanel) {
-      this.windowPanel.style.display = enabled ? 'block' : 'none';
     }
     if (this.border) {
       this.border.style.display = enabled ? 'block' : 'none';
@@ -98,7 +214,7 @@ export class DebugOverlay {
 
   /** 更新狀態資訊 */
   update(info: DebugInfo): void {
-    if (!this.enabled || !this.panel) return;
+    if (!this.enabled || !this.stateSection) return;
 
     const lines = [
       `State: ${info.state}`,
@@ -162,15 +278,15 @@ export class DebugOverlay {
       }
     }
 
-    this.panel.textContent = lines.join('\n');
+    this.stateSection.textContent = lines.join('\n');
   }
 
   /** 更新桌面視窗清單 */
   updateWindowList(windows: WindowListEntry[]): void {
-    if (!this.enabled || !this.windowPanel) return;
+    if (!this.enabled || !this.windowsSection) return;
 
     if (windows.length === 0) {
-      this.windowPanel.textContent = '-- No windows --';
+      this.windowsSection.textContent = '-- No windows --';
       return;
     }
 
@@ -185,25 +301,30 @@ export class DebugOverlay {
       rows.push(`   ... +${windows.length - 15} more`);
     }
 
-    this.windowPanel.textContent = [header, separator, ...rows].join('\n');
+    this.windowsSection.textContent = [header, separator, ...rows].join('\n');
   }
 
   /** 更新場景 mesh 清單 */
   updateMeshList(meshes: MeshListEntry[]): void {
-    if (!this.enabled || !this.panel) return;
+    if (!this.enabled || !this.stateSection) return;
     this.lastMeshList = meshes;
   }
 
-  /** 上次的 mesh 清單（合併顯示在 panel 中） */
-  private lastMeshList: MeshListEntry[] = [];
-
   /** 銷毀 overlay 元素 */
   dispose(): void {
+    // 清除可能殘留的拖曳 listener
+    window.removeEventListener('mousemove', this.boundOnMouseMove);
+    window.removeEventListener('mouseup', this.boundOnMouseUp);
+    if (this.header) {
+      this.header.removeEventListener('mousedown', this.onHeaderMouseDown);
+    }
+
     this.panel?.remove();
-    this.windowPanel?.remove();
     this.border?.remove();
     this.panel = null;
-    this.windowPanel = null;
+    this.header = null;
+    this.stateSection = null;
+    this.windowsSection = null;
     this.border = null;
   }
 }
@@ -220,7 +341,7 @@ export interface DebugInfo {
   /** 速率倍率 */
   moveSpeedMultiplier: number;
   paused: boolean;
-  /** 步伐長���（世界單位，scale=1 基準） */
+  /** 步伐長度（世界單位，scale=1 基準） */
   stepLength?: number;
   /** 當前播放的動畫名稱 */
   currentAnimation?: string;
@@ -230,9 +351,9 @@ export interface DebugInfo {
   offScreenDir?: string | null;
   /** 角色超出螢幕的面積比率（0~1） */
   offScreenRatio?: number;
-  /** 角色被視窗��蓋的最大比率（0~1） */
+  /** 角色被視窗覆蓋的最大比率（0~1） */
   occlusionRatio?: number;
-  /** 遮擋 mesh 清�� */
+  /** 遮擋 mesh 清單 */
   occlusionMeshes?: OcclusionDebugEntry[];
   /** 可站立平面清單 */
   platforms?: PlatformDebugEntry[];

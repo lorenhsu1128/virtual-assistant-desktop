@@ -18,6 +18,7 @@ export class HitTestManager {
   private deps: HitTestDeps;
   private isIgnoring = false;
   private isDragLocked = false;
+  private forceInteractive = false;
   private pixel = new Uint8Array(4);
   private ready = false;
 
@@ -61,6 +62,21 @@ export class HitTestManager {
     this.isDragLocked = false;
   }
 
+  /**
+   * 強制整個視窗保持 interactive（不穿透）
+   *
+   * 用於 Debug overlay 等 HTML 面板場景：HitTestManager 只讀 canvas
+   * alpha 判定穿透，DOM 面板蓋在 canvas 透明區域上時會誤判為穿透，
+   * 導致點不到面板。啟用此旗標後，onMouseMove 會維持不穿透狀態。
+   */
+  setForceInteractive(on: boolean): void {
+    this.forceInteractive = on;
+    if (on && this.isIgnoring) {
+      this.isIgnoring = false;
+      this.deps.setIgnoreCursorEvents(false);
+    }
+  }
+
   /** 銷毀，移除事件監聽 */
   dispose(): void {
     window.removeEventListener('mousemove', this.boundMouseMove);
@@ -69,6 +85,15 @@ export class HitTestManager {
   private onMouseMove(e: MouseEvent): void {
     // 未就緒或拖曳中不切換
     if (!this.ready || !this.gl || this.isDragLocked) return;
+
+    // 強制互動模式：維持不穿透，完全跳過 alpha 判定
+    if (this.forceInteractive) {
+      if (this.isIgnoring) {
+        this.isIgnoring = false;
+        this.deps.setIgnoreCursorEvents(false);
+      }
+      return;
+    }
 
     try {
       const rect = this.canvas.getBoundingClientRect();
