@@ -87,10 +87,36 @@ describe('clampSmplTrack', () => {
 
   it('uses SMPL_JOINT_AXIS_LIMITS as default', () => {
     expect(SMPL_JOINT_AXIS_LIMITS.length).toBe(SMPL_JOINT_COUNT);
-    // Phase 2a 預設是寬鬆的 [-π, π]
+    // Phase 5c：每 joint 的每軸 min < max 且為有限值
     for (const l of SMPL_JOINT_AXIS_LIMITS) {
-      expect(l.x[0]).toBe(-Math.PI);
-      expect(l.x[1]).toBe(Math.PI);
+      for (const axis of [l.x, l.y, l.z] as const) {
+        expect(Number.isFinite(axis[0])).toBe(true);
+        expect(Number.isFinite(axis[1])).toBe(true);
+        expect(axis[0]).toBeLessThan(axis[1]);
+        // 限制對稱（±bound）且至少不小於 ±30° 避免過度裁切
+        expect(axis[1]).toBeGreaterThanOrEqual(Math.PI / 6 - 1e-9);
+      }
+    }
+  });
+
+  it('tightens torso joints below π (spine / neck / collar)', () => {
+    // Phase 5c：脊椎 / 頸 / collar 應收緊到 < π
+    const torsoIndices = [3, 6, 9, 12, 13, 14]; // spine1/2/3, neck, leftCollar, rightCollar
+    for (const i of torsoIndices) {
+      const l = SMPL_JOINT_AXIS_LIMITS[i];
+      expect(l.x[1]).toBeLessThan(Math.PI);
+      expect(l.y[1]).toBeLessThan(Math.PI);
+      expect(l.z[1]).toBeLessThan(Math.PI);
+    }
+  });
+
+  it('keeps large-range joints wide (hip / shoulder / knee / elbow)', () => {
+    // 這些 joint 需要完整 ±π 範圍；per-axis clamp 過緊會裁掉正確姿態
+    const wideIndices = [0, 1, 2, 4, 5, 16, 17, 18, 19]; // pelvis, hip, knee, shoulder, elbow
+    for (const i of wideIndices) {
+      const l = SMPL_JOINT_AXIS_LIMITS[i];
+      expect(l.x[1]).toBeCloseTo(Math.PI, 5);
+      expect(l.x[0]).toBeCloseTo(-Math.PI, 5);
     }
   });
 

@@ -38,6 +38,8 @@ import {
 } from '../../src/mocap/hybrik/SolverCore';
 import { buildSmplTrackFromLandmarks } from '../../src/mocap/hybrik/buildSmplTrackFromLandmarks';
 import type { PoseLandmark, PoseLandmarks } from '../../src/mocap/mediapipe/types';
+import { clampSmplFrame } from '../../src/mocap/smpl/applyClamp';
+import { SMPL_JOINT_AXIS_LIMITS } from '../../src/mocap/smpl/jointLimits';
 
 // ═══════════════════════════════════════════════════════════
 // SmplRestPose 常數
@@ -485,6 +487,29 @@ describe('buildSmplTrackFromLandmarks', () => {
         expect(Number.isNaN(track.frames[0][j][k])).toBe(false);
       }
     }
+  });
+
+  it('Phase 5c: extreme noise gets clamped on torso joints', () => {
+    // 造一個 24 × 3 都是極大值的 frame，clamp 後脊椎 / 頸應被拉到 ±π/3
+    const noisy: number[][] = Array.from({ length: SMPL_JOINT_COUNT }, () => [10, 10, 10]);
+    clampSmplFrame(noisy, SMPL_JOINT_AXIS_LIMITS);
+    const torsoIndices = [3, 6, 9, 12]; // spine1/2/3, neck
+    for (const i of torsoIndices) {
+      expect(noisy[i][0]).toBeCloseTo(Math.PI / 3, 5);
+      expect(noisy[i][1]).toBeCloseTo(Math.PI / 3, 5);
+      expect(noisy[i][2]).toBeCloseTo(Math.PI / 3, 5);
+    }
+    // hip (寬鬆) 被拉到 ±π
+    expect(noisy[1][0]).toBeCloseTo(Math.PI, 5);
+    // toes (最緊) 被拉到 ±π/6
+    expect(noisy[10][0]).toBeCloseTo(Math.PI / 6, 5);
+  });
+
+  it('Phase 5c: rest pose output survives clamp without modification', () => {
+    const restFrame: number[][] = Array.from({ length: SMPL_JOINT_COUNT }, () => [0, 0, 0]);
+    const before = JSON.stringify(restFrame);
+    clampSmplFrame(restFrame, SMPL_JOINT_AXIS_LIMITS);
+    expect(JSON.stringify(restFrame)).toBe(before);
   });
 
   it('output axis-angle lengths are finite and reasonable', () => {
