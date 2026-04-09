@@ -151,6 +151,14 @@
 
 > 標記說明：`[Windows]` = 僅 Windows 適用；`[macOS]` = 僅 macOS 適用；`[跨平台]` = 兩平台都需注意。
 
+### [2026-04-09] `[跨平台]` — VRMA 匯出「全零 hips translation」會讓主視窗角色消失
+
+- **錯誤**：Phase 3 VrmaExporter 對左手舉起 fixture 產生的 `.vrma` 匯出後，主視窗切換播放該動畫時角色瞬間消失、Debug panel `pos(NaN, NaN)`
+- **根因**：`generateLeftArmRaiseFixture` 填 `SmplTrack.trans = [[0,0,0], ...]` 作為「無 hip 運動」的佔位符；pipeline `buildMocapFrames` 把 `[0,0,0]` 原樣轉成 `hipsWorldPosition = {x:0,y:0,z:0}`（非 null）；VrmaExporter 的 `hasHipsTranslation` 判定只看 `!== null`，於是發出一條全零的 hips translation channel。主視窗載入播放時，mixer 把 `vrm.humanoid.hips.node.position` 強制設成 `(0,0,0)`，覆寫了 VRM rest pose 的 hips 位置，導致 `VRMController.applyHipSmoothing` 偵測到 hip 世界座標大幅跳變並觸發 NaN 邊界條件 → 角色 screen position 變 NaN → 從畫面消失
+- **正確做法**：VrmaExporter 的 `hasHipsTranslation` 檢查必須**同時**要求至少有一個分量 `|v| > 1e-6`。全零等同於「無運動」，應跳過 translation channel
+- **受影響檔案**：`src/mocap/exporter/VrmaExporter.ts`、`tests/unit/VrmaExporter.test.ts`
+- **根因記憶**：動捕 pipeline 中「缺資料」與「值為零」是不同語意但容易混淆：`null` / `undefined` / `[0,0,0]` / `{x:0,y:0,z:0}` 都可能被下游當成「有效的零值」並寫入檔案。匯出層必須用**語意等價於 identity 的檢查**（quat 近 identity、translation 近 zero、weight 近 0）來決定該 channel 是否值得保留，而不是只看「是否 defined」
+
 ### [2026-04-09] `[跨平台]` — three.js AnimationAction instance reuse 陷阱導致 A→B→A→B 切換後 T-pose
 
 - **錯誤**：角色 state=hide（debug panel 確認）、AnimationManager.currentDisplayName 顯示 `SYS:hide:SYS_HIDE_01.vrma`、transition 的 `setEffectiveWeight` 持續爬到 ~1，但角色視覺呈 T-pose。診斷 log 顯示 `isRunning=false, time=0.000`，代表 action 不在 mixer active list 中卻被設 weight

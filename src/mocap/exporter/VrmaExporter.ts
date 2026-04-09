@@ -63,8 +63,18 @@ export function exportMocapToVrma(
     }
   }
 
-  // 2. 若有任何幀帶 hips 位移，確保 hips bone 被包含
-  const hasHipsTranslation = frames.some((f) => f.hipsWorldPosition !== null);
+  // 2. 若有任何幀帶 **有效的非零** hips 位移，確保 hips bone 被包含
+  //
+  // 重要：只有 null 檢查不夠——若所有幀 hipsWorldPosition 都是 (0,0,0)，
+  // 代表「無 hip 運動」（fixture 產生器常用 (0,0,0) 當佔位符）。
+  // 若此時仍輸出 translation channel，會把主視窗的 VRM hips 強制固定在
+  // (0,0,0) 世界座標，覆寫 VRM rest pose，並可能觸發 VRMController
+  // applyHipSmoothing 的 NaN 邊界條件，導致角色消失（已實測）。
+  const hasHipsTranslation = frames.some((f) => {
+    const p = f.hipsWorldPosition;
+    if (p === null) return false;
+    return Math.abs(p.x) > 1e-6 || Math.abs(p.y) > 1e-6 || Math.abs(p.z) > 1e-6;
+  });
   if (hasHipsTranslation) {
     usedBoneSet.add('hips');
   }

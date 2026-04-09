@@ -279,6 +279,24 @@ describe('exportMocapToVrma — hips translation', () => {
     expect(translationChannels.length).toBe(0);
   });
 
+  it('no hips translation channel when all hipsWorldPosition are zero (bug fix: avoid NaN)', () => {
+    // Regression test: generator 常用 (0,0,0) 當「無運動」佔位符，
+    // exporter 應該把這當成「無 translation 軌道」跳過，否則會覆寫
+    // 主視窗 VRM hips rest pose 造成 VRMController applyHipSmoothing
+    // 產生 NaN、角色消失。
+    const track = generateLeftArmRaiseFixture(30, 0.5); // trans 全為 [0,0,0]
+    const frames = buildMocapFrames(track, FULL_BONES, { skipFilter: true });
+    // 確認 pipeline 產生的是 {x:0, y:0, z:0}（非 null）
+    expect(frames[0].hipsWorldPosition).toEqual({ x: 0, y: 0, z: 0 });
+    const { json } = parseGlb(exportMocapToVrma(frames));
+    const gj = json as GltfJson;
+
+    const translationChannels = gj.animations[0].channels.filter(
+      (c) => c.target.path === 'translation',
+    );
+    expect(translationChannels.length).toBe(0);
+  });
+
   it('combined fixture: rotations + hips translation', () => {
     // Manually build a combined frame: left arm raise + walking hips
     const track = generateLeftArmRaiseFixture(30, 1.0);
