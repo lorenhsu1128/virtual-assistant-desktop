@@ -89,6 +89,10 @@ src/                → TypeScript 前端（主視窗 renderer process）
                       filters/（OneEuroFilter）
                       exporter/（gltfWriter / VrmaExporter）
                       fixtures/（testFixtures dev-only 產生器）
+                      mediapipe/（PoseRunner / SkeletonDrawer 33 點骨架）
+                      hybrik/（SmplRestPose / TwistSwing / LandmarkToSmplJoint /
+                              SolverCore / buildSmplTrackFromLandmarks —
+                              Phase 5b HybrIK-TS IK 求解器，zero-twist 近似）
 electron/           → Electron 主程序（main process）
   main.ts           → 應用程式入口、BrowserWindow 建立
   preload.ts        → contextBridge 暴露 IPC API（主視窗與 picker 共用）

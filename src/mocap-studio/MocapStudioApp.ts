@@ -32,6 +32,7 @@ import { PoseRunner } from '../mocap/mediapipe/PoseRunner';
 import { drawSkeleton } from '../mocap/mediapipe/SkeletonDrawer';
 import type { PoseLandmarks } from '../mocap/mediapipe/types';
 import type { MocapFrame } from '../mocap/types';
+import { buildSmplTrackFromLandmarks } from '../mocap/hybrik/buildSmplTrackFromLandmarks';
 
 const $ = <T extends HTMLElement>(id: string): T => {
   const el = document.getElementById(id);
@@ -148,6 +149,49 @@ export class MocapStudioApp {
     this.playBtn.addEventListener('click', this.onPlayToggle);
     this.exportBtn.addEventListener('click', this.onExportClick);
     window.addEventListener('resize', this.onResize);
+
+    // Phase 5b dev hook：在 console 執行 `__mocapHybrikDev.runOnce()` 可
+    // 把當前偵測到的 lastLandmarks 丟進 HybrIK-TS solver + 下游 pipeline，
+    // 把解出的單幀 pose 套到 VRM 預覽。尚未接上 UI，等 Phase 5d 再做下拉切換。
+    (window as unknown as { __mocapHybrikDev?: unknown }).__mocapHybrikDev = {
+      runOnce: (): boolean => this.runHybrikOnCurrentLandmarks(),
+    };
+  }
+
+  /**
+   * Phase 5b dev-only：用當前 lastLandmarks 跑 HybrIK-TS solver + pipeline，
+   * 結果以單幀 fixture 形式套用到預覽。
+   *
+   * @returns 成功套用回傳 true；缺 landmarks / VRM / 骨架時回傳 false
+   */
+  private runHybrikOnCurrentLandmarks(): boolean {
+    if (!this.previewPanel || !this.timeline) return false;
+    if (!this.lastLandmarks) {
+      this.setStatus('[HybrIK dev] 尚未偵測到 landmarks，先啟用姿態偵測');
+      return false;
+    }
+    const availableBones = this.previewPanel.getAvailableHumanoidBones();
+    if (availableBones.size === 0) {
+      this.setStatus('[HybrIK dev] 無 VRM 骨架');
+      return false;
+    }
+    const track = buildSmplTrackFromLandmarks([this.lastLandmarks], 30);
+    this.mocapFrames = buildMocapFrames(track, availableBones, {
+      filter: { minCutoff: 2.0, beta: 0.5 },
+    });
+    this.stopPlayback();
+    this.playbackMode = 'fixture';
+    this.fixtureFps = track.fps;
+    this.currentFixtureTimeSec = 0;
+    const durationSec = Math.max(track.frameCount / track.fps, 1 / 30);
+    this.timeline.setDuration(durationSec);
+    this.timeline.setEnabled(true);
+    if (this.playBtn) this.playBtn.disabled = false;
+    this.updateTimeDisplay(0, durationSec);
+    this.applyFixtureFrameAtTime(0);
+    if (this.exportBtn) this.exportBtn.disabled = false;
+    this.setStatus(`[HybrIK dev] 已套用 1 幀（${track.frameCount} frames）`);
+    return true;
   }
 
   // ── TopBar 事件：載入影片（Phase 1） ──
@@ -596,6 +640,7 @@ export class MocapStudioApp {
       URL.revokeObjectURL(this.currentVideoObjectUrl);
       this.currentVideoObjectUrl = null;
     }
+    delete (window as unknown as { __mocapHybrikDev?: unknown }).__mocapHybrikDev;
   }
 }
 
