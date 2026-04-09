@@ -400,8 +400,11 @@ async function initializeBehaviorSystem(
   const hitTestManager = new HitTestManager(canvas, sceneManager.getRenderer(), {
     setIgnoreCursorEvents: (ignore) => ipc.setIgnoreCursorEvents(ignore),
   });
-  // Debug overlay 啟用時強制視窗保持 interactive，否則點不到可拖曳面板
-  hitTestManager.setForceInteractive(debugOverlay.isEnabled());
+  // Debug panel 白名單：游標位於面板矩形內時強制不穿透，
+  // 矩形外維持原本的 canvas alpha 判定（不影響下層視窗點擊）
+  hitTestManager.setInteractiveRectProvider(() =>
+    debugOverlay.isEnabled() ? debugOverlay.getPanelRect() : null,
+  );
 
   // ── 互動系統 ──
   const dragHandler = new DragHandler(canvas, {
@@ -493,7 +496,6 @@ async function initializeBehaviorSystem(
     switch (actionId) {
       case 'toggle_debug':
         debugOverlay.setEnabled(!debugOverlay.isEnabled());
-        hitTestManager.setForceInteractive(debugOverlay.isEnabled());
         sceneManager.updatePlatformMeshVisibility();
         break;
       case 'toggle_pause':

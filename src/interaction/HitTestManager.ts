@@ -18,7 +18,11 @@ export class HitTestManager {
   private deps: HitTestDeps;
   private isIgnoring = false;
   private isDragLocked = false;
-  private forceInteractive = false;
+  /**
+   * 取得「應強制 interactive」的矩形（用於 Debug panel 等 DOM 面板）
+   * 游標位於回傳矩形內時跳過 alpha 判定，維持不穿透。
+   */
+  private interactiveRectProvider: (() => DOMRect | null) | null = null;
   private pixel = new Uint8Array(4);
   private ready = false;
 
@@ -63,18 +67,16 @@ export class HitTestManager {
   }
 
   /**
-   * 強制整個視窗保持 interactive（不穿透）
+   * 設定「interactive 白名單矩形」的 provider
    *
-   * 用於 Debug overlay 等 HTML 面板場景：HitTestManager 只讀 canvas
-   * alpha 判定穿透，DOM 面板蓋在 canvas 透明區域上時會誤判為穿透，
-   * 導致點不到面板。啟用此旗標後，onMouseMove 會維持不穿透狀態。
+   * 用於 Debug overlay 等 HTML 面板：HitTest 預設靠 canvas alpha 判
+   * 穿透，DOM 面板蓋在透明 canvas 區域時會被誤判為穿透而點不到。
+   * provider 回傳的矩形內會強制 interactive，矩形外維持原本 alpha 判定。
+   *
+   * 傳 null 可清除 provider。
    */
-  setForceInteractive(on: boolean): void {
-    this.forceInteractive = on;
-    if (on && this.isIgnoring) {
-      this.isIgnoring = false;
-      this.deps.setIgnoreCursorEvents(false);
-    }
+  setInteractiveRectProvider(provider: (() => DOMRect | null) | null): void {
+    this.interactiveRectProvider = provider;
   }
 
   /** 銷毀，移除事件監聽 */
@@ -86,8 +88,16 @@ export class HitTestManager {
     // 未就緒或拖曳中不切換
     if (!this.ready || !this.gl || this.isDragLocked) return;
 
-    // 強制互動模式：維持不穿透，完全跳過 alpha 判定
-    if (this.forceInteractive) {
+    // 白名單矩形：游標位於 interactive rect 內 → 強制不穿透
+    // （供 Debug panel 等 DOM 面板使用，矩形外仍走 alpha 判定）
+    const interactiveRect = this.interactiveRectProvider?.();
+    if (
+      interactiveRect &&
+      e.clientX >= interactiveRect.left &&
+      e.clientX <= interactiveRect.right &&
+      e.clientY >= interactiveRect.top &&
+      e.clientY <= interactiveRect.bottom
+    ) {
       if (this.isIgnoring) {
         this.isIgnoring = false;
         this.deps.setIgnoreCursorEvents(false);

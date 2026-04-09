@@ -212,6 +212,17 @@ export class DebugOverlay {
     return this.enabled;
   }
 
+  /**
+   * 取得 panel 當前的 bounding rect（供 HitTestManager 白名單使用）
+   *
+   * 未啟用或 panel 尚未建立時回傳 null。
+   * 每次呼叫都即時讀取，反映拖曳後的最新位置。
+   */
+  getPanelRect(): DOMRect | null {
+    if (!this.enabled || !this.panel) return null;
+    return this.panel.getBoundingClientRect();
+  }
+
   /** 更新狀態資訊 */
   update(info: DebugInfo): void {
     if (!this.enabled || !this.stateSection) return;
