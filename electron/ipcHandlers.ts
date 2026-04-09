@@ -165,6 +165,34 @@ export function registerIpcHandlers(
     },
   );
 
+  /**
+   * 讀取影片檔案為 bytes（mocap studio 使用）
+   *
+   * 為什麼不直接用 local-file:// 協定：
+   *   `<video>` 元素走 Chromium 的 media pipeline，需要完整支援 HTTP
+   *   range requests 才能正確 seek。我們的 local-file:// 協定實作
+   *   只轉發 net.fetch 結果，沒有處理 Range header，於是 metadata
+   *   能載入（duration 正確）但 seek 會被拒絕（currentTime 不更新）。
+   *   改為把整個檔案讀回 renderer，由 renderer 建立 Blob URL，
+   *   完全繞開協定層的 range 問題。
+   */
+  ipcMain.handle(
+    'mocap_read_video_bytes',
+    async (_event, filePath: string): Promise<ArrayBuffer | null> => {
+      try {
+        const buffer = await fs.readFile(filePath);
+        // 回傳 ArrayBuffer（而非 Node Buffer）以方便 renderer 轉 Blob
+        return buffer.buffer.slice(
+          buffer.byteOffset,
+          buffer.byteOffset + buffer.byteLength,
+        );
+      } catch (e) {
+        console.warn('[ipcHandlers] mocap_read_video_bytes failed:', e);
+        return null;
+      }
+    },
+  );
+
   /** 影片檔案選擇器（mocap studio 使用） */
   ipcMain.handle('mocap_pick_video', async (event): Promise<string | null> => {
     const senderWindow = BrowserWindow.fromWebContents(event.sender) ?? mainWindow;

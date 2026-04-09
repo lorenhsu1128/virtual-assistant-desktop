@@ -25,6 +25,7 @@ interface ElectronAPI {
   openMocapStudio(): Promise<void>;
   mocapGetCurrentVrmPath(): Promise<string | null>;
   mocapPickVideo(): Promise<string | null>;
+  mocapReadVideoBytes(filePath: string): Promise<ArrayBuffer | null>;
   mocapSaveVrma(bytes: Uint8Array, suggestedName: string): Promise<string | null>;
   getWindowList(): Promise<WindowRect[]>;
   getDisplayInfo(): Promise<DisplayInfo[]>;
@@ -285,6 +286,24 @@ class ElectronIPC {
       return await window.electronAPI.mocapPickVideo();
     } catch (e) {
       console.warn('[ElectronIPC] pickVideo failed:', e);
+      return null;
+    }
+  }
+
+  /**
+   * 讀取影片檔案為 ArrayBuffer（mocap studio 用 Blob URL 載入）
+   *
+   * 為什麼不用 local-file://：`<video>` 元素需要 HTTP range request 支援才能
+   * seek，我們的 local-file:// 協定沒實作 range，metadata 能載但 seek 失敗。
+   *
+   * 記憶體成本：整個檔案複製到 renderer（Electron IPC 用 structured clone）。
+   * 典型 30 秒測試影片約 50MB，可接受。
+   */
+  async readVideoBytes(filePath: string): Promise<ArrayBuffer | null> {
+    try {
+      return await window.electronAPI.mocapReadVideoBytes(filePath);
+    } catch (e) {
+      console.warn('[ElectronIPC] readVideoBytes failed:', e);
       return null;
     }
   }

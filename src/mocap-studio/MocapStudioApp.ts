@@ -62,6 +62,9 @@ export class MocapStudioApp {
   private fixturePlaybackFromSec = 0;
   private currentFixtureTimeSec = 0;
 
+  /** 當前影片的 blob object URL（載入新影片時需釋放舊的） */
+  private currentVideoObjectUrl: string | null = null;
+
   // Phase 5a 狀態（MediaPipe）
   private poseRunner: PoseRunner | null = null;
   private lastLandmarks: PoseLandmarks | null = null;
@@ -160,13 +163,36 @@ export class MocapStudioApp {
       return;
     }
 
-    this.setStatus(`載入影片：${basename(videoPath)}...`);
-    const url = ipc.convertToAssetUrl(videoPath);
-    const duration = await this.videoPanel.loadVideo(url);
+    this.setStatus(`讀取影片：${basename(videoPath)}...`);
+    // 讀取整個檔案為 ArrayBuffer，建立 blob URL 餵給 <video>
+    // （避免 local-file:// 協定不支援 HTTP range requests 導致的 seek 失敗）
+    const bytes = await ipc.readVideoBytes(videoPath);
+    if (this.disposed) return;
+    if (!bytes) {
+      this.setStatus('影片讀取失敗');
+      return;
+    }
+
+    // 釋放舊的 object URL（若有）
+    if (this.currentVideoObjectUrl) {
+      URL.revokeObjectURL(this.currentVideoObjectUrl);
+      this.currentVideoObjectUrl = null;
+    }
+
+    // 從副檔名推斷 MIME type
+    const mime = guessVideoMime(videoPath);
+    const blob = new Blob([bytes], { type: mime });
+    const objectUrl = URL.createObjectURL(blob);
+    this.currentVideoObjectUrl = objectUrl;
+
+    this.setStatus(`解碼影片：${basename(videoPath)}...`);
+    const duration = await this.videoPanel.loadVideo(objectUrl);
     if (this.disposed) return;
 
     if (duration === null || !Number.isFinite(duration) || duration <= 0) {
       this.setStatus('影片載入失敗');
+      URL.revokeObjectURL(objectUrl);
+      this.currentVideoObjectUrl = null;
       return;
     }
 
@@ -565,12 +591,28 @@ export class MocapStudioApp {
       this.previewPanel.dispose();
       this.previewPanel = null;
     }
+    // 釋放 blob object URL
+    if (this.currentVideoObjectUrl) {
+      URL.revokeObjectURL(this.currentVideoObjectUrl);
+      this.currentVideoObjectUrl = null;
+    }
   }
 }
 
 function basename(p: string): string {
   const idx = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
   return idx >= 0 ? p.slice(idx + 1) : p;
+}
+
+/** 從影片檔路徑的副檔名推斷 MIME type */
+function guessVideoMime(path: string): string {
+  const lower = path.toLowerCase();
+  if (lower.endsWith('.mp4') || lower.endsWith('.m4v')) return 'video/mp4';
+  if (lower.endsWith('.webm')) return 'video/webm';
+  if (lower.endsWith('.mov')) return 'video/quicktime';
+  if (lower.endsWith('.mkv')) return 'video/x-matroska';
+  if (lower.endsWith('.avi')) return 'video/x-msvideo';
+  return 'video/mp4'; // 預設
 }
 
 /** 產生檔名用的時間戳記（YYYYMMDD_HHmmss） */
