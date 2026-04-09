@@ -162,7 +162,7 @@ export class SceneManager {
       canvas,
       alpha: true,
       antialias: true,
-      premultipliedAlpha: false,
+      premultipliedAlpha: true,
       preserveDrawingBuffer: true,
     });
     this.renderer.setSize(canvas.width, canvas.height);
