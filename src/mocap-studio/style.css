@@ -3,6 +3,7 @@
  *
  * Layout：CSS Grid 四區塊（top bar / body / timeline / status bar）。
  * Body 內部再用 grid 分為左影片 / 右預覽兩欄。
+ * Video pane 內部再用 grid 分為影片區 + 控制列。
  */
 
 * {
@@ -24,7 +25,7 @@ html, body {
 
 #mocap-root {
   display: grid;
-  grid-template-rows: 48px 1fr 96px 24px;
+  grid-template-rows: 48px 1fr 72px 24px;
   height: 100vh;
   width: 100vw;
 }
@@ -98,21 +99,43 @@ select:disabled {
   overflow: hidden;
 }
 
-#mocap-video-pane,
+#mocap-video-pane {
+  position: relative;
+  background-color: #14141c;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: 1fr 36px;
+}
+
+.mocap-video {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  object-fit: contain;
+  background-color: #000;
+  display: block;
+}
+
+#mocap-video-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  background-color: #1a1a24;
+  border-top: 1px solid #3a3a4a;
+}
+
+#mocap-time-display {
+  color: #9a9aae;
+  font-family: 'Consolas', 'Menlo', 'Courier New', monospace;
+  font-size: 11px;
+  letter-spacing: 0.03em;
+}
+
 #mocap-preview-pane {
   position: relative;
   background-color: #14141c;
   overflow: hidden;
-}
-
-#mocap-video-placeholder,
-#mocap-timeline-placeholder {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  color: #6a6a7e;
-  font-style: italic;
 }
 
 #mocap-preview-canvas {
@@ -139,9 +162,94 @@ select:disabled {
 
 /* ── Timeline ── */
 #mocap-timeline {
+  position: relative;
   background-color: #2a2a3a;
   border-top: 1px solid #3a3a4a;
-  overflow: hidden;
+  overflow: visible;
+  padding: 20px 16px 24px;
+}
+
+.tl-track {
+  position: relative;
+  width: 100%;
+  height: 8px;
+  background-color: #3a3a4e;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.tl-range {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  background-color: #4a7edb;
+  border-radius: 4px;
+  pointer-events: none;
+}
+
+.tl-playhead {
+  position: absolute;
+  top: -6px;
+  left: 0;
+  width: 2px;
+  height: 20px;
+  background-color: #ffffff;
+  pointer-events: none;
+  transform: translateX(-1px);
+  box-shadow: 0 0 4px rgba(255, 255, 255, 0.5);
+}
+
+.tl-handle {
+  position: absolute;
+  top: -8px;
+  width: 14px;
+  height: 24px;
+  background-color: #e6c66a;
+  border: 1px solid #c9a94a;
+  cursor: grab;
+  transform: translateX(-7px);
+  touch-action: none;
+}
+
+.tl-handle:active {
+  cursor: grabbing;
+  background-color: #f2d578;
+}
+
+.tl-handle-in {
+  border-radius: 3px 0 0 3px;
+}
+
+.tl-handle-out {
+  border-radius: 0 3px 3px 0;
+}
+
+.tl-handle-label {
+  position: absolute;
+  top: 26px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 10px;
+  color: #e6c66a;
+  font-family: 'Consolas', 'Menlo', 'Courier New', monospace;
+  white-space: nowrap;
+  pointer-events: none;
+  letter-spacing: 0.02em;
+}
+
+.timeline-disabled .tl-track {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.timeline-disabled .tl-handle {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.timeline-disabled .tl-handle-label {
+  opacity: 0.5;
 }
 
 /* ── Status bar ── */

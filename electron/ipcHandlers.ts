@@ -134,6 +134,21 @@ export function registerIpcHandlers(
     return config.vrmModelPath ?? null;
   });
 
+  /** 影片檔案選擇器（mocap studio 使用） */
+  ipcMain.handle('mocap_pick_video', async (event): Promise<string | null> => {
+    const senderWindow = BrowserWindow.fromWebContents(event.sender) ?? mainWindow;
+    const result = await dialog.showOpenDialog(senderWindow, {
+      title: '\u9078\u64c7\u5f71\u7247',
+      filters: [
+        { name: 'Video', extensions: ['mp4', 'webm', 'mov', 'mkv', 'avi', 'm4v'] },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+      properties: ['openFile'],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0];
+  });
+
   // ── Window Monitor ──
 
   ipcMain.handle('get_window_list', (): WindowRect[] => {

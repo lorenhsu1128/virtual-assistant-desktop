@@ -24,6 +24,7 @@ interface ElectronAPI {
   applyVrmModel(vrmPath: string): Promise<boolean>;
   openMocapStudio(): Promise<void>;
   mocapGetCurrentVrmPath(): Promise<string | null>;
+  mocapPickVideo(): Promise<string | null>;
   getWindowList(): Promise<WindowRect[]>;
   getDisplayInfo(): Promise<DisplayInfo[]>;
   setWindowPosition(x: number, y: number): Promise<void>;
@@ -269,6 +270,20 @@ class ElectronIPC {
       return await window.electronAPI.mocapGetCurrentVrmPath();
     } catch (e) {
       console.warn('[ElectronIPC] getCurrentVrmPath failed:', e);
+      return null;
+    }
+  }
+
+  /**
+   * 開啟影片檔案選擇器（mocap studio 使用）
+   *
+   * 使用者取消 / 失敗時回傳 null。
+   */
+  async pickVideo(): Promise<string | null> {
+    try {
+      return await window.electronAPI.mocapPickVideo();
+    } catch (e) {
+      console.warn('[ElectronIPC] pickVideo failed:', e);
       return null;
     }
   }

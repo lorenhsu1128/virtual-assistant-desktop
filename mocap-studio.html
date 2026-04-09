@@ -8,10 +8,10 @@
   </head>
   <body>
     <div id="mocap-root">
-      <!-- 上方工具列：Phase 0 僅佔位，Phase 1 之後填入實際按鈕 -->
+      <!-- 上方工具列 -->
       <div id="mocap-topbar">
         <div id="mocap-topbar-left">
-          <button id="mocap-load-video-btn" type="button" disabled>載入影片</button>
+          <button id="mocap-load-video-btn" type="button">載入影片</button>
           <label class="mocap-field">
             <span class="mocap-field-label">引擎</span>
             <select id="mocap-engine-select" disabled>
@@ -28,7 +28,11 @@
       <!-- 中間主區：左影片 / 右預覽 -->
       <div id="mocap-body">
         <div id="mocap-video-pane">
-          <div id="mocap-video-placeholder">影片載入區（Phase 1）</div>
+          <video id="mocap-video-element" class="mocap-video"></video>
+          <div id="mocap-video-controls">
+            <button id="mocap-play-btn" type="button" disabled>▶ 播放</button>
+            <span id="mocap-time-display">00:00.000 / 00:00.000</span>
+          </div>
         </div>
         <div id="mocap-preview-pane">
           <canvas id="mocap-preview-canvas"></canvas>
@@ -36,9 +40,18 @@
         </div>
       </div>
 
-      <!-- 下方時間軸：Phase 0 佔位 -->
-      <div id="mocap-timeline">
-        <div id="mocap-timeline-placeholder">時間軸（Phase 1）</div>
+      <!-- 下方時間軸（預設 disabled，載入影片後啟用） -->
+      <div id="mocap-timeline" class="timeline-disabled">
+        <div class="tl-track" id="mocap-tl-track">
+          <div class="tl-range" id="mocap-tl-range"></div>
+          <div class="tl-playhead" id="mocap-tl-playhead"></div>
+          <div class="tl-handle tl-handle-in" id="mocap-tl-in">
+            <div class="tl-handle-label" id="mocap-tl-in-label">00:00.000</div>
+          </div>
+          <div class="tl-handle tl-handle-out" id="mocap-tl-out">
+            <div class="tl-handle-label" id="mocap-tl-out-label">00:00.000</div>
+          </div>
+        </div>
       </div>
 
       <!-- 狀態列 -->
