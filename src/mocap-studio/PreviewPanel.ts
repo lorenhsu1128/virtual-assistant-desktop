@@ -122,6 +122,18 @@ export class PreviewPanel {
   }
 
   /**
+   * 取得當前載入 VRM 的 metaVersion（'0' / '1' / null）
+   *
+   * 供 MocapStudioApp 匯出 .vrma 時決定是否需要 VRM 0.x 座標系補償。
+   */
+  getVrmMetaVersion(): string | null {
+    if (!this.vrmController) return null;
+    const meta = this.vrmController.getMeta();
+    // three-vrm 的 meta.metaVersion 欄位在 VRM 0.x/1.0 上皆存在
+    return (meta as { metaVersion?: string } | null)?.metaVersion ?? null;
+  }
+
+  /**
    * 套用單一 MocapFrame 到 VRM 預覽
    *
    * **不使用 AnimationMixer**（LESSONS.md 2026-04-09 clipAction reuse 陷阱）。

@@ -220,11 +220,13 @@ export class MocapStudioApp {
       return;
     }
     this.setStatus('匯出 .vrma...');
+    const metaVersion = this.previewPanel?.getVrmMetaVersion() ?? null;
     let bytes: Uint8Array;
     try {
       bytes = exportMocapToVrma(this.mocapFrames, {
         generator: 'virtual-assistant-desktop mocap studio',
         animationName: 'mocap',
+        sourceMetaVersion: metaVersion,
       });
     } catch (e) {
       console.warn('[MocapStudioApp] exportMocapToVrma failed:', e);

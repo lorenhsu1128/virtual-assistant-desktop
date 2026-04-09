@@ -239,6 +239,58 @@ describe('exportMocapToVrma — rotation data', () => {
 
 // ── Hips translation round-trip ──
 
+describe('exportMocapToVrma — VRM 0.x coordinate compensation', () => {
+  it('sourceMetaVersion="0" negates x/z of rotation quaternions', () => {
+    const track = generateLeftArmRaiseFixture(30, 0.5);
+    const frames = buildMocapFrames(track, FULL_BONES, { skipFilter: true });
+    const { json: json1, binary: bin1 } = parseGlb(exportMocapToVrma(frames));
+    const { json: json0, binary: bin0 } = parseGlb(
+      exportMocapToVrma(frames, { sourceMetaVersion: '0' }),
+    );
+    const gj1 = json1 as GltfJson;
+    const gj0 = json0 as GltfJson;
+
+    const leftLowerArm1 = gj1.extensions.VRMC_vrm_animation.humanoid.humanBones.leftLowerArm.node;
+    const leftLowerArm0 = gj0.extensions.VRMC_vrm_animation.humanoid.humanBones.leftLowerArm.node;
+
+    const channel1 = gj1.animations[0].channels.find(
+      (c) => c.target.node === leftLowerArm1 && c.target.path === 'rotation',
+    )!;
+    const channel0 = gj0.animations[0].channels.find(
+      (c) => c.target.node === leftLowerArm0 && c.target.path === 'rotation',
+    )!;
+
+    const acc1 = gj1.accessors[gj1.animations[0].samplers[channel1.sampler].output];
+    const acc0 = gj0.accessors[gj0.animations[0].samplers[channel0.sampler].output];
+
+    const view1 = readAccessorAsFloat32(bin1, acc1, gj1.bufferViews[acc1.bufferView]);
+    const view0 = readAccessorAsFloat32(bin0, acc0, gj0.bufferViews[acc0.bufferView]);
+
+    for (let i = 0; i < frames.length; i++) {
+      expect(view0[i * 4 + 0]).toBeCloseTo(-view1[i * 4 + 0]); // x flipped
+      expect(view0[i * 4 + 1]).toBeCloseTo(view1[i * 4 + 1]);  // y unchanged
+      expect(view0[i * 4 + 2]).toBeCloseTo(-view1[i * 4 + 2]); // z flipped
+      expect(view0[i * 4 + 3]).toBeCloseTo(view1[i * 4 + 3]);  // w unchanged
+    }
+  });
+
+  it('sourceMetaVersion="1" or undefined does not negate anything', () => {
+    const track = generateLeftArmRaiseFixture(30, 0.3);
+    const frames = buildMocapFrames(track, FULL_BONES, { skipFilter: true });
+    const { json: j1, binary: b1 } = parseGlb(exportMocapToVrma(frames, { sourceMetaVersion: '1' }));
+    const { json: jUndef, binary: bUndef } = parseGlb(exportMocapToVrma(frames));
+
+    const gj1 = j1 as GltfJson;
+    const gjU = jUndef as GltfJson;
+    expect(gj1.accessors.length).toBe(gjU.accessors.length);
+    // Compare raw binary content
+    expect(b1.byteLength).toBe(bUndef.byteLength);
+    for (let i = 0; i < b1.byteLength; i++) {
+      expect(b1[i]).toBe(bUndef[i]);
+    }
+  });
+});
+
 describe('exportMocapToVrma — hips translation', () => {
   it('hips walk fixture produces a translation channel on hips node', () => {
     const track = generateHipsWalkFixture(30, 2.0);

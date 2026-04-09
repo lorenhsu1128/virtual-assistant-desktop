@@ -151,6 +151,18 @@
 
 > 標記說明：`[Windows]` = 僅 Windows 適用；`[macOS]` = 僅 macOS 適用；`[跨平台]` = 兩平台都需注意。
 
+### [2026-04-09] `[跨平台]` — VRMA 匯出對 VRM 0.x 模型需要 x/z 座標系反補償
+
+- **錯誤**：Phase 3 VrmaExporter 匯出的 `.vrma` 載入 VRM 0.x 模型後播放，手肘反向彎曲（朝上彎，人體做不到）；同一份 MocapFrame[] 在 mocap studio 預覽卻是正確方向（朝下彎）
+- **根因**：`@pixiv/three-vrm-animation` 的 `createVRMAnimationHumanoidTracks` 第 1694 行有這段：
+  ```js
+  origTrack.values.map((v, i) => metaVersion === "0" && i % 2 === 0 ? -v : v)
+  ```
+  **載入 .vrma 到 VRM 0.x 時**，loader 會自動對每個 quaternion 的 **x 和 z 分量取負**（等價於繞 Y 軸 180° 反轉），補償 VRM 0.x vs 1.0 的座標系差異。VRMA 規範期待檔案內容是「VRM 1.0 canonical frame」。mocap studio 預覽直接 `setBoneRotations` 把 quat 套到 VRM 0.x 的 normalized bone 看起來正確（因為 quat 和 bone 都在 0.x frame）；但這份 quat 不是 VRMA canonical frame，匯出後 loader 又 flip 一次 → 雙重補償 → 反向
+- **正確做法**：VrmaExporter 新增 `sourceMetaVersion` 選項；當 source 為 `'0'` 時，寫入每個 quat 時預先對 x/z 取負，讓 loader 的 flip 剛好抵消。MocapStudioApp 透過 `PreviewPanel.getVrmMetaVersion()` 取得當前 VRM 版本傳給 exporter
+- **受影響檔案**：`src/mocap/exporter/VrmaExporter.ts`、`src/mocap-studio/PreviewPanel.ts`、`src/mocap-studio/MocapStudioApp.ts`、`tests/unit/VrmaExporter.test.ts`
+- **根因記憶**：VRMA 是 **model-agnostic** 格式，檔案內容必須在「canonical frame」（VRM 1.0 axis convention）。寫入端若用來源模型的「normalized bone 原生 frame」直接輸出，對 1.0 模型巧合正確，對 0.x 模型會被 loader 二次補償而反向。任何「VRMA 匯出器」都要考慮 source 和 target 的 metaVersion 組合；最安全的做法是**永遠輸出 1.0 canonical**，由 loader 處理目標相容性
+
 ### [2026-04-09] `[跨平台]` — VRMA 匯出「全零 hips translation」會讓主視窗角色消失
 
 - **錯誤**：Phase 3 VrmaExporter 對左手舉起 fixture 產生的 `.vrma` 匯出後，主視窗切換播放該動畫時角色瞬間消失、Debug panel `pos(NaN, NaN)`

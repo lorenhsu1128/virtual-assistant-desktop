@@ -25,6 +25,19 @@ export interface VrmaExportOptions {
   generator?: string;
   /** 動畫名稱（預設 'mocap'） */
   animationName?: string;
+  /**
+   * 來源 VRM 的 metaVersion（'0' 或 '1'）
+   *
+   * 用於處理 VRM 0.x vs 1.0 座標系差異。VRMA 規範期待 quaternion 儲存於
+   * 「VRM 1.0 canonical frame」。若來源 VRM 是 0.x，MocapFrame 中的 quat
+   * 是在 0.x 座標系的 local bone frame（與 setBoneRotations 直接套用結果一致），
+   * exporter 會在寫入前對每個 quat 的 x/z 分量取負（等價於繞 Y 軸 180° 反轉），
+   * 這樣 @pixiv/three-vrm-animation 載入時若目標也是 0.x，它會再 flip 一次
+   * 剛好抵消；若目標是 1.0，flip 不發生，quat 已經在正確的 canonical frame。
+   *
+   * 若未提供或為 '1'，不做轉換（預設假設 source 是 1.0 canonical）。
+   */
+  sourceMetaVersion?: string | null;
 }
 
 interface AnimationChannel {
@@ -54,6 +67,8 @@ export function exportMocapToVrma(
   }
 
   const t0 = frames[0].timestampMs;
+  // VRM 0.x 補償：寫入前對 quat 的 x/z 取負（見 VrmaExportOptions.sourceMetaVersion）
+  const needs0xFlip = options.sourceMetaVersion === '0';
 
   // 1. 蒐集所有出現過的 bone
   const usedBoneSet = new Set<VrmHumanBoneName>();
@@ -106,9 +121,9 @@ export function exportMocapToVrma(
     for (let i = 0; i < frames.length; i++) {
       const q = frames[i].boneRotations[bone];
       if (q) {
-        arr[i * 4 + 0] = q.x;
+        arr[i * 4 + 0] = needs0xFlip ? -q.x : q.x;
         arr[i * 4 + 1] = q.y;
-        arr[i * 4 + 2] = q.z;
+        arr[i * 4 + 2] = needs0xFlip ? -q.z : q.z;
         arr[i * 4 + 3] = q.w;
       } else {
         // identity quaternion
