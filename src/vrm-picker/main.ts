@@ -58,6 +58,9 @@ async function init(): Promise<void> {
   const infoUndress = $<HTMLSpanElement>('info-undress');
   const infoExprCount = $<HTMLSpanElement>('info-expr-count');
   const infoExprList = $<HTMLUListElement>('info-expr-list');
+  const animPane = $<HTMLDivElement>('picker-anim-pane');
+  const animList = $<HTMLUListElement>('picker-anim-list');
+  const animEmpty = $<HTMLDivElement>('picker-anim-empty');
   const controlsOverlay = $<HTMLDivElement>('picker-preview-controls-overlay');
   const undressRow = $<HTMLDivElement>('control-undress-row');
   const undressToggle = $<HTMLInputElement>('control-undress-toggle');
@@ -254,6 +257,50 @@ async function init(): Promise<void> {
 
     if (previewScene) {
       await previewScene.loadModel(entry.fullPath, state.sysVrmaDir);
+      renderAnimList();
+    }
+  }
+
+  /** 渲染 SYS 動畫清單（模型載入後呼叫） */
+  function renderAnimList(): void {
+    animList.innerHTML = '';
+    const files = previewScene?.getAllSysFiles() ?? [];
+
+    if (files.length === 0) {
+      animPane.classList.add('hidden');
+      return;
+    }
+
+    animPane.classList.remove('hidden');
+    animEmpty.classList.add('hidden');
+
+    for (const filePath of files) {
+      const fileName = filePath.replace(/\\/g, '/').split('/').pop() ?? filePath;
+      const displayName = fileName.replace(/\.vrma$/i, '');
+      const li = document.createElement('li');
+      li.className = 'picker-anim-item';
+      li.textContent = displayName;
+      li.dataset.path = filePath;
+      li.addEventListener('click', () => selectAnim(li, filePath));
+      animList.appendChild(li);
+    }
+  }
+
+  /** 選取動畫項目 → 循環播放；再點同一個 → 取消選取恢復 idle */
+  async function selectAnim(li: HTMLLIElement, filePath: string): Promise<void> {
+    const wasSelected = li.classList.contains('selected');
+
+    // 取消所有選取
+    animList.querySelectorAll('.picker-anim-item').forEach((el) => {
+      el.classList.remove('selected');
+    });
+
+    if (wasSelected) {
+      // 再點同一個 → 恢復 idle
+      await previewScene?.resumeIdleLoop();
+    } else {
+      li.classList.add('selected');
+      await previewScene?.playSpecificAnimation(filePath);
     }
   }
 }

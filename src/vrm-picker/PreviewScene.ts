@@ -73,11 +73,15 @@ export class PreviewScene {
   private vrmController: VRMController | null = null;
   private fallback: FallbackAnimation | null = null;
 
-  // ── SYS_IDLE 連續播放狀態 ──
+  // ── SYS 動畫播放狀態 ──
   private sysIdleFiles: string[] = [];
+  /** 所有 SYS_*.vrma 檔案路徑（含 IDLE/WALK/SIT 等） */
+  private allSysFiles: string[] = [];
   private currentSysAction: THREE.AnimationAction | null = null;
   private nextIdleTimer: number | null = null;
   private mixerListenerRegistered = false;
+  /** 是否正在播放使用者指定的特定動畫（非隨機 idle） */
+  private playingSpecific = false;
 
   // ── 互動狀態 ──
   private rotationY = 0;
@@ -247,11 +251,13 @@ export class PreviewScene {
     const controller = this.vrmController;
     if (!controller) return;
 
-    // 1. 掃描資料夾並過濾 SYS_IDLE_*.vrma
+    // 1. 掃描資料夾並分類
     console.log('[PreviewScene] Scanning sysVrmaDir:', sysVrmaDir);
     const all = await ipc.scanVrmaFiles(sysVrmaDir);
     if (token !== this.loadToken || this.disposed) return;
+    this.allSysFiles = all;
     this.sysIdleFiles = all.filter(isSysIdleFile);
+    this.playingSpecific = false;
     console.log(
       `[PreviewScene] Found ${all.length} .vrma files, ${this.sysIdleFiles.length} are SYS_IDLE`,
     );
@@ -317,13 +323,73 @@ export class PreviewScene {
   };
 
   private onSysIdleFinished = (): void => {
-    // 'finished' event 觸發於 LoopOnce 結束時。等一下下立刻接下一段（crossfade）。
-    if (this.disposed) return;
+    // 'finished' event 觸發於 LoopOnce 結束時。
+    // 如果正在播放特定動畫（LoopRepeat），不會觸發此事件，所以這裡只處理 idle 輪播。
+    if (this.disposed || this.playingSpecific) return;
     this.nextIdleTimer = window.setTimeout(() => {
       this.nextIdleTimer = null;
       void this.playRandomSysIdle(this.loadToken, true);
     }, NEXT_IDLE_DELAY_MS);
   };
+
+  // ── 公開的動畫控制 ──
+
+  /** 取得所有 SYS_*.vrma 檔案路徑清單 */
+  getAllSysFiles(): string[] {
+    return this.allSysFiles;
+  }
+
+  /**
+   * 播放指定的 SYS 動畫（LoopRepeat，持續循環）
+   *
+   * 停止 idle 輪播，切換到指定動畫。呼叫 resumeIdleLoop() 恢復。
+   */
+  async playSpecificAnimation(filePath: string): Promise<void> {
+    const controller = this.vrmController;
+    if (!controller || this.disposed) return;
+
+    // 停止 idle 輪播計時器
+    if (this.nextIdleTimer !== null) {
+      clearTimeout(this.nextIdleTimer);
+      this.nextIdleTimer = null;
+    }
+    this.playingSpecific = true;
+
+    const url = ipc.convertToAssetUrl(filePath);
+    let clip: THREE.AnimationClip | null = null;
+    try {
+      clip = await controller.loadVRMAnimation(url);
+    } catch (e) {
+      console.warn('[PreviewScene] playSpecificAnimation load failed:', filePath, e);
+      return;
+    }
+    if (!clip || this.disposed) return;
+
+    const mixer = controller.getAnimationMixer();
+    if (!mixer) return;
+
+    const action = mixer.clipAction(clip);
+    action.reset();
+    action.setLoop(THREE.LoopRepeat, Infinity);
+    action.clampWhenFinished = false;
+
+    if (this.currentSysAction) {
+      this.currentSysAction.crossFadeTo(action, CROSSFADE_DURATION, true);
+    }
+    action.play();
+    this.currentSysAction = action;
+  }
+
+  /**
+   * 恢復隨機 idle 輪播
+   *
+   * 從指定動畫切回 SYS_IDLE 隨機輪播。
+   */
+  async resumeIdleLoop(): Promise<void> {
+    if (this.disposed || this.sysIdleFiles.length === 0) return;
+    this.playingSpecific = false;
+    await this.playRandomSysIdle(this.loadToken, true);
+  }
 
   // ── 滑鼠拖曳互動 ──
 

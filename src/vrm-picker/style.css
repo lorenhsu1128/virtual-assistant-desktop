@@ -379,6 +379,61 @@ button:disabled {
   border-color: #cba6f7;
 }
 
+/* ── 動畫清單窗格（右側）── */
+#picker-anim-pane {
+  flex: 0 0 220px;
+  border-left: 1px solid #313244;
+  overflow-y: auto;
+  background: #181825;
+  display: flex;
+  flex-direction: column;
+}
+
+#picker-anim-header {
+  padding: 8px 14px;
+  color: #a6adc8;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid #313244;
+  flex: 0 0 auto;
+}
+
+#picker-anim-list {
+  list-style: none;
+  flex: 1 1 auto;
+  overflow-y: auto;
+}
+
+.picker-anim-item {
+  padding: 6px 14px;
+  cursor: pointer;
+  border-bottom: 1px solid #1e1e2e;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  font-family: Consolas, 'SF Mono', monospace;
+}
+
+.picker-anim-item:hover {
+  background: #313244;
+}
+
+.picker-anim-item.selected {
+  background: #89b4fa;
+  color: #1e1e2e;
+  font-weight: 600;
+}
+
+#picker-anim-empty {
+  padding: 20px 14px;
+  color: #6c7086;
+  text-align: center;
+  font-size: 12px;
+}
+
 #picker-footer {
   flex: 0 0 auto;
   display: flex;

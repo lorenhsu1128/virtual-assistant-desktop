@@ -64,9 +64,9 @@ export function getPickerWindowOptions(
   parent: BrowserWindow
 ): Electron.BrowserWindowConstructorOptions {
   return {
-    width: 900,
+    width: 1120,
     height: 560,
-    minWidth: 720,
+    minWidth: 900,
     minHeight: 480,
     parent,
     modal: false,
