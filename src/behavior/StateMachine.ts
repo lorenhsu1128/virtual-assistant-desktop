@@ -77,9 +77,9 @@ export class StateMachine {
       return this.makeOutput(changed, null);
     }
 
-    // typing 優先級最高：使用者開始/停止打字時切換狀態
-    // drag 除外（拖曳中不受 typing 影響）
-    if (input.isUserTyping && this.state !== 'typing') {
+    // typing 優先級高：使用者開始/停止打字時切換狀態
+    // opendoor 除外（開門動畫不被 typing 中斷；drag 已在上方 early return）
+    if (input.isUserTyping && this.state !== 'typing' && this.state !== 'opendoor') {
       this.enterState('typing');
     } else if (!input.isUserTyping && this.state === 'typing') {
       this.enterState('idle');
@@ -518,6 +518,7 @@ export class StateMachine {
     this.opendoorTargetHwnd = hwnd;
     this.clearHidePeekState();
     this.enterState('opendoor');
+    this.pendingStateChange = true;
   }
 
   // ── 狀態轉移 ──
