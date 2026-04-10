@@ -5,10 +5,17 @@
  * 輸出：24 個 SMPL joint 的 3D 座標（SMPL 慣例：Y up / +X 角色左側 / +Z 角色前方）
  *
  * 座標系轉換（MediaPipe world → SMPL）：
- *   - MediaPipe world: x 右、y 下、z 遠離鏡頭
- *   - SMPL: y 上、x 角色左側（= 面對鏡頭時的觀察者右側，通常 ≈ MediaPipe x）、
- *          z 角色前方（= 鏡頭方向，通常 ≈ -MediaPipe z）
- *   - 因此 smpl = (mp.x, -mp.y, -mp.z)
+ *   - MediaPipe Pose Landmarker world（GHUM 模型輸出，hip-centered 公尺）：
+ *       x = 主體左側為正（image right，面對鏡頭時）
+ *       y = 向下為正（沿用 image 慣例，head 為負 y）
+ *       z = 主體前方為正（主體面對方向；**經驗觀察**，官方文件未明確規範）
+ *   - SMPL: y 上 / x 主體左側 / z 主體前方
+ *   - 因此 smpl = (mp.x, -mp.y, mp.z)
+ *
+ * Z 軸方向注意：
+ *   初版曾依 image-z 慣例假設 z 翻轉（"closer to camera = negative z"），
+ *   導致推箱子等前傾動作被解成後仰。2026-04-09 實測後修正為不翻 z。
+ *   見 LESSONS.md 對應條目。
  *
  * 33 → 24 對照見 `landmarksToSmplJointPositions` 內的逐 joint 註解。
  *
@@ -57,9 +64,10 @@ const MP = {
  * 將 MediaPipe world 座標轉為 SMPL 慣例（Y up）
  *
  * 不做任何尺度修正；假設 MediaPipe 已回傳公尺單位。
+ * 只翻 Y（image y-down → SMPL y-up）；X 與 Z 保持原值。
  */
 export function mediaPipeWorldToSmpl(lm: PoseLandmark, out: THREE.Vector3): THREE.Vector3 {
-  out.set(lm.x, -lm.y, -lm.z);
+  out.set(lm.x, -lm.y, lm.z);
   return out;
 }
 
@@ -78,13 +86,13 @@ function restPosTo(out: THREE.Vector3, smplIdx: number): void {
   out.set(p.x, p.y, p.z);
 }
 
-/** SMPL 座標 = avg(lm[a], lm[b]) */
+/** SMPL 座標 = avg(lm[a], lm[b])（與 mediaPipeWorldToSmpl 同轉換） */
 function avgToSmpl(
   out: THREE.Vector3,
   a: PoseLandmark,
   b: PoseLandmark,
 ): void {
-  out.set((a.x + b.x) * 0.5, -(a.y + b.y) * 0.5, -(a.z + b.z) * 0.5);
+  out.set((a.x + b.x) * 0.5, -(a.y + b.y) * 0.5, (a.z + b.z) * 0.5);
 }
 
 /** 線性插值：out = a * (1 - t) + b * t（a, b 為已轉 SMPL 座標系的點） */

@@ -211,12 +211,33 @@ function makeLandmarks(
 }
 
 describe('LandmarkToSmplJoint', () => {
-  it('mediaPipeWorldToSmpl flips Y and Z', () => {
+  it('mediaPipeWorldToSmpl flips Y but preserves X and Z', () => {
     const out = new THREE.Vector3();
     mediaPipeWorldToSmpl({ x: 1, y: 2, z: 3, visibility: 1 }, out);
     expect(out.x).toBe(1);
     expect(out.y).toBe(-2);
-    expect(out.z).toBe(-3);
+    expect(out.z).toBe(3);
+  });
+
+  it('forward-leaning torso in MP space produces forward-leaning body in SMPL', () => {
+    // 模擬前傾：hip 在原點，shoulders 在 (x, y=-0.4, z=+0.3)
+    // MP y 下為正 → y=-0.4 代表上方；MP z 前為正 → z=+0.3 代表前方
+    const lms: PoseLandmark[] = Array.from({ length: 33 }, () => ({
+      x: 0,
+      y: 0,
+      z: 0,
+      visibility: 1,
+    }));
+    lms[23] = { x: 0.08, y: 0, z: 0, visibility: 1 }; // leftHip
+    lms[24] = { x: -0.08, y: 0, z: 0, visibility: 1 }; // rightHip
+    lms[11] = { x: 0.15, y: -0.4, z: 0.3, visibility: 1 }; // leftShoulder 上+前
+    lms[12] = { x: -0.15, y: -0.4, z: 0.3, visibility: 1 }; // rightShoulder 上+前
+
+    const positions = landmarksToSmplJointPositions(lms);
+    // neck (index 12) = avg(shoulders)
+    // pelvis (index 0) = avg(hips)
+    expect(positions[12].y).toBeGreaterThan(positions[0].y); // 軀幹向上
+    expect(positions[12].z).toBeGreaterThan(positions[0].z); // 軀幹向前 (前傾)
   });
 
   it('returns rest pose when all landmarks invisible', () => {
@@ -410,10 +431,11 @@ describe('buildSmplTrackFromLandmarks', () => {
     for (let i = 0; i < 33; i++) {
       lm[i] = { x: 0, y: 0, z: 0, visibility: 0 };
     }
-    // SMPL→MediaPipe 反轉：mp = (smpl.x, -smpl.y, -smpl.z)
+    // SMPL→MediaPipe 反轉：mp = (smpl.x, -smpl.y, smpl.z)
+    // 只翻 y；x 與 z 直接對應
     const fromSmpl = (smplIdx: number): PoseLandmark => {
       const p = SMPL_REST_POSITIONS[smplIdx];
-      return { x: p.x, y: -p.y, z: -p.z, visibility: 1 };
+      return { x: p.x, y: -p.y, z: p.z, visibility: 1 };
     };
     const avgSmpl = (a: number, b: number): PoseLandmark => {
       const pa = SMPL_REST_POSITIONS[a];
@@ -421,7 +443,7 @@ describe('buildSmplTrackFromLandmarks', () => {
       return {
         x: (pa.x + pb.x) * 0.5,
         y: -(pa.y + pb.y) * 0.5,
-        z: -(pa.z + pb.z) * 0.5,
+        z: (pa.z + pb.z) * 0.5,
         visibility: 1,
       };
     };
