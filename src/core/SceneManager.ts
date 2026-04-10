@@ -67,6 +67,8 @@ export class SceneManager {
   private previousPosition = { x: 0, y: 0 };
   /** 角色 bounding box 尺寸（螢幕像素，humanoid 骨骼 + 方向性擴展，排除 SpringBone） */
   private characterSize = { width: 300, height: 500 };
+  /** hips 骨骼的螢幕 X（每幀 VRM update 後更新，供下一幀 3D 定位用） */
+  private cachedHipScreenX: number | null = null;
   /** 螢幕原點（螢幕絕對座標，用於 screenToWorld，通常 = (0,0)） */
   private screenOrigin = { x: 0, y: 0 };
   /** workArea 原點（螢幕絕對座標，用於平面位置和活動範圍） */
@@ -732,6 +734,12 @@ export class SceneManager {
         this.peekAnchorOffsetX = 0;
       }
 
+      // 更新 hips 螢幕 X 快取（供下一幀 updateModelWorldPosition 使用）
+      const hipsWorld = this.vrmController.getBoneWorldPosition('hips');
+      if (hipsWorld) {
+        this.cachedHipScreenX = this.worldToScreen(hipsWorld.x, hipsWorld.y).x;
+      }
+
       this.previousPosition.x = this.currentPosition.x;
       this.previousPosition.y = this.currentPosition.y;
     }
@@ -837,9 +845,10 @@ export class SceneManager {
 
   /** 從球座標更新攝影機位置（軌道中心跟隨模型） */
   private updateCameraFromOrbit(): void {
-    // 軌道中心 = 模型目前的世界座標（胸部高度）
+    // 軌道中心 = 模型目前的世界座標（胸部高度），用 hips X 定位
+    const cx = this.cachedHipScreenX ?? (this.currentPosition.x + this.characterSize.width / 2);
     const modelWorld = this.screenToWorld(
-      this.currentPosition.x + this.characterSize.width / 2,
+      cx,
       this.currentPosition.y + this.characterSize.height / 2,
     );
     const t = { x: modelWorld.x, y: modelWorld.y, z: 0 };
@@ -1057,9 +1066,10 @@ export class SceneManager {
   private updateModelWorldPosition(): void {
     if (!this.vrmController) return;
 
-    // currentPosition 是 bounding box 左上角的螢幕座標
-    // 模型原點在腳底 → 用 bounding box 的中下位置
-    const centerX = this.currentPosition.x + this.characterSize.width / 2;
+    // 水平定位：用 hips 骨骼螢幕 X（上一幀值，穩定不隨動畫搖擺）
+    // 首幀或 hips 不存在時 fallback 到 bbox center
+    const centerX = this.cachedHipScreenX ?? (this.currentPosition.x + this.characterSize.width / 2);
+    // 垂直定位：bounding box 底邊（腳底）
     const bottomY = this.currentPosition.y + this.characterSize.height;
     const world = this.screenToWorld(centerX, bottomY);
 
