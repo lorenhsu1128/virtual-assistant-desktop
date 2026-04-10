@@ -50,6 +50,10 @@ export class StateMachine {
   /** peek 結束後正在走出遮擋區域（暫停被動隱藏偵測） */
   private exitingPeek = false;
 
+  // opendoor 狀態
+  /** opendoor 的目標視窗 hwnd */
+  private opendoorTargetHwnd: number | null = null;
+
   // fall 狀態
   private fallSpeed = 0;
 
@@ -104,6 +108,9 @@ export class StateMachine {
           break;
         case 'fall':
           this.tickFall(input);
+          break;
+        case 'opendoor':
+          this.tickOpendoor(input);
           break;
         // typing：無 tick 邏輯，等待 isUserTyping 變 false
       }
@@ -484,6 +491,35 @@ export class StateMachine {
     }
   }
 
+  private tickOpendoor(input: BehaviorInput): void {
+    // opendoor 目標視窗消失 → 立即結束
+    if (this.opendoorTargetHwnd !== null) {
+      const exists = input.windowRects.some((w) => w.hwnd === this.opendoorTargetHwnd);
+      if (!exists) {
+        this.opendoorTargetHwnd = null;
+        this.enterState('idle');
+        return;
+      }
+    }
+
+    // 動畫播放完畢（duration 由 Bridge 設定）→ 回到 idle
+    if (this.stateTimer >= this.stateDuration) {
+      this.opendoorTargetHwnd = null;
+      this.enterState('idle');
+    }
+  }
+
+  /**
+   * 進入 opendoor 狀態
+   *
+   * @param hwnd 目標視窗 hwnd
+   */
+  enterOpendoor(hwnd: number): void {
+    this.opendoorTargetHwnd = hwnd;
+    this.clearHidePeekState();
+    this.enterState('opendoor');
+  }
+
   // ── 狀態轉移 ──
 
   private transitionFromIdle(input: BehaviorInput): void {
@@ -647,6 +683,10 @@ export class StateMachine {
       case 'typing':
         this.stateDuration = Infinity; // 持續到 isUserTyping = false
         break;
+      case 'opendoor':
+        // duration 由 BehaviorAnimationBridge 覆蓋為 clip.duration
+        this.stateDuration = 10;
+        break;
     }
   }
 
@@ -729,6 +769,7 @@ export class StateMachine {
       traversingWindowHwnd: null,
       peekTargetHwnd: this.peekTargetHwnd,
       peekSide: this.peekSide,
+      opendoorTargetHwnd: this.opendoorTargetHwnd,
     };
   }
 
@@ -799,9 +840,15 @@ export class StateMachine {
   }
 
   /**
-   * 主動 hide 路徑：pendingHide walk 途中偵測到隱藏條件，進入 hide
+   * 主動 hide 路徑：pendingHide walk 途中偵測到隱藏條件，進入 hide 或 opendoor
    */
   private enterHideFromPending(input: BehaviorInput): void {
+    // 30% 機率進入 opendoor（僅限視窗 hide，不含螢幕邊緣）
+    if (this.pendingHide?.hwnd !== null && this.pendingHide?.hwnd !== undefined && Math.random() < 0.3) {
+      this.enterOpendoor(this.pendingHide.hwnd);
+      this.pendingHide = null;
+      return;
+    }
     const dpr = (typeof window !== 'undefined' ? window.devicePixelRatio : 1) || 1;
     const charW = input.characterBounds.width;
 

@@ -9,6 +9,7 @@ import type { Rect, WindowRect, DisplayInfo } from '../types/window';
 import type { BehaviorOutput, Platform } from '../types/behavior';
 import type { DebugOverlay } from '../debug/DebugOverlay';
 import type { WindowMeshManager } from '../occlusion/WindowMeshManager';
+import { DoorEffect } from '../occlusion/DoorEffect';
 
 /** 幀率模式 */
 type FpsMode = 'foreground' | 'background' | 'powerSave';
@@ -67,6 +68,10 @@ export class SceneManager {
   private previousPosition = { x: 0, y: 0 };
   /** 使用者是否正在打字（由 IPC keyboard_typing_changed 更新） */
   private isUserTyping = false;
+  /** 門洞效果管理器 */
+  private doorEffect: DoorEffect | null = null;
+  /** opendoor 正在作用的視窗 hwnd（用於 stencil test 管理） */
+  private doorEffectHwnd: number | null = null;
 
   /** 角色 bounding box 尺寸（螢幕像素，humanoid 骨骼 + 方向性擴展，排除 SpringBone） */
   private characterSize = { width: 300, height: 500 };
@@ -682,6 +687,13 @@ export class SceneManager {
       if (this.behaviorBridge) {
         this.behaviorBridge.update(output);
       }
+
+      // ── 門洞效果管理 ──
+      if (output.currentState === 'opendoor' && output.stateChanged) {
+        this.startDoorEffect(output.opendoorTargetHwnd);
+      } else if (output.currentState !== 'opendoor' && this.doorEffect?.isActive()) {
+        this.stopDoorEffect();
+      }
     }
 
     // 移動方向追蹤 → 模型 Y 軸旋轉
@@ -733,6 +745,12 @@ export class SceneManager {
       } else if (this.peekAnchorOffsetX !== 0) {
         // peek 結束，歸零錨定偏移
         this.peekAnchorOffsetX = 0;
+      }
+
+      // Door effect 更新（VRM update 後，讀取 mixer.time 同步門洞形狀）
+      if (this.doorEffect?.isActive() && this.animationManager) {
+        const animTime = this.animationManager.getCurrentAnimationTime();
+        this.doorEffect.update(animTime);
       }
 
       this.previousPosition.x = this.currentPosition.x;
@@ -1142,6 +1160,50 @@ export class SceneManager {
     this.vrmController.offsetWorldPositionX(this.peekAnchorOffsetX);
   }
 
+  /**
+   * 啟動門洞效果
+   *
+   * 為目標視窗建立 stencil 門洞，啟用該視窗的 stencil test。
+   */
+  private startDoorEffect(hwnd: number | null): void {
+    if (!hwnd || !this.windowMeshManager) return;
+
+    const windowInfo = this.windowMeshManager.getWindowMeshWorldInfo(hwnd);
+    if (!windowInfo) return;
+
+    // 建立 DoorEffect
+    if (!this.doorEffect) {
+      this.doorEffect = new DoorEffect(this.scene);
+    }
+
+    // 門洞大小：角色身寬 × 角色身高（以角色為基準）
+    const doorWidth = this.characterSize.width * this.pixelToWorld * 1.2;
+    const doorHeight = this.characterSize.height * this.pixelToWorld * 1.0;
+
+    this.doorEffect.start(
+      { x: windowInfo.x, y: windowInfo.y },
+      doorWidth,
+      doorHeight,
+      windowInfo.z,
+    );
+
+    // 啟用目標視窗的 stencil test
+    this.windowMeshManager.enableStencilTest(hwnd);
+    this.doorEffectHwnd = hwnd;
+  }
+
+  /** 停止門洞效果 */
+  private stopDoorEffect(): void {
+    if (this.doorEffect) {
+      this.doorEffect.stop();
+    }
+    // 恢復目標視窗的共用材質
+    if (this.doorEffectHwnd !== null && this.windowMeshManager) {
+      this.windowMeshManager.disableStencilTest(this.doorEffectHwnd);
+      this.doorEffectHwnd = null;
+    }
+  }
+
   private resolveCharacterZ(output: BehaviorOutput | null): number {
     const DEFAULT_Z = 8.5;
     if (!output || !this.windowMeshManager) return DEFAULT_Z;
@@ -1180,6 +1242,16 @@ export class SceneManager {
     // typing 狀態：置頂（使用者打字時角色最上層）
     if (output.currentState === 'typing') {
       return DEFAULT_Z;
+    }
+    // opendoor 狀態：根據動畫進度切換 Z 深度
+    if (output.currentState === 'opendoor' && output.opendoorTargetHwnd !== null) {
+      const animTime = this.animationManager?.getCurrentAnimationTime() ?? 0;
+      if (this.doorEffect?.isCharacterInFront(animTime)) {
+        return DEFAULT_Z; // 角色在視窗前面
+      }
+      // 角色在目標視窗後面
+      const windowZ = this.windowMeshManager?.getWindowZ(output.opendoorTargetHwnd);
+      return windowZ !== null ? windowZ - 0.5 : DEFAULT_Z;
     }
 
     // 拖曳後置頂：放下後維持最上方

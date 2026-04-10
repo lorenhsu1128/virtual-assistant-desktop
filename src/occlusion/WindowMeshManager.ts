@@ -147,6 +147,61 @@ export class WindowMeshManager {
     return entries;
   }
 
+  /**
+   * 對指定視窗的 depth mesh 啟用 stencil test（門洞效果用）
+   *
+   * 替換該視窗的共用材質為獨立材質（加 stencil test），
+   * 讓門洞 stencil writer 能「挖洞」。
+   */
+  enableStencilTest(hwnd: number): void {
+    const record = this.meshMap.get(hwnd);
+    if (!record) return;
+    const mat = new THREE.MeshBasicMaterial({
+      colorWrite: false,
+      depthWrite: true,
+      side: THREE.DoubleSide,
+      stencilWrite: false,
+      stencilRef: 1,
+      stencilFunc: THREE.NotEqualStencilFunc,
+      stencilFail: THREE.KeepStencilOp,
+      stencilZFail: THREE.KeepStencilOp,
+      stencilZPass: THREE.KeepStencilOp,
+    });
+    record.mesh.material = mat;
+  }
+
+  /**
+   * 對指定視窗的 depth mesh 停用 stencil test
+   *
+   * 恢復為共用材質（無 stencil test）。
+   */
+  disableStencilTest(hwnd: number): void {
+    const record = this.meshMap.get(hwnd);
+    if (!record) return;
+    // 如果當前材質不是共用的，先 dispose
+    if (record.mesh.material !== this.sharedMaterial) {
+      (record.mesh.material as THREE.Material).dispose();
+    }
+    record.mesh.material = this.sharedMaterial;
+  }
+
+  /**
+   * 取得指定視窗 depth mesh 的世界座標資訊
+   *
+   * 供 DoorEffect 定位門洞使用。
+   */
+  getWindowMeshWorldInfo(hwnd: number): { x: number; y: number; z: number; width: number; height: number } | null {
+    const record = this.meshMap.get(hwnd);
+    if (!record) return null;
+    return {
+      x: record.mesh.position.x,
+      y: record.mesh.position.y,
+      z: record.meshZ,
+      width: record.mesh.scale.x,
+      height: record.mesh.scale.y,
+    };
+  }
+
   /** 清除所有 mesh 並釋放資源 */
   dispose(): void {
     for (const record of this.meshMap.values()) {

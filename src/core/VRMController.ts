@@ -416,7 +416,7 @@ export class VRMController {
    * 封裝 VRM-specific 的動畫轉換邏輯。
    * 其他模組只需使用回傳的 Three.js AnimationClip。
    */
-  async loadVRMAnimation(url: string): Promise<THREE.AnimationClip | null> {
+  async loadVRMAnimation(url: string, options?: { keepHipZ?: boolean }): Promise<THREE.AnimationClip | null> {
     if (!this.vrm) return null;
 
     const gltf = await this.loader.loadAsync(url);
@@ -427,7 +427,10 @@ export class VRMController {
     const clip = createVRMAnimationClip(vrmAnimation, this.vrm);
 
     // 移除 hips position track 的 Z 分量（避免 near plane 裁切）
-    this.stripHipsPositionZ(clip);
+    // opendoor 動畫需要保留 hip Z（穿門移動）
+    if (!options?.keepHipZ) {
+      this.stripHipsPositionZ(clip);
+    }
 
     return clip;
   }

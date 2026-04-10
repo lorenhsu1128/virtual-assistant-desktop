@@ -329,6 +329,11 @@ export class AnimationManager {
     return this.currentAction?.getClip() ?? null;
   }
 
+  /** 取得當前動畫的播放時間（秒） */
+  getCurrentAnimationTime(): number {
+    return this.currentAction?.time ?? 0;
+  }
+
   /** 取得當前播放的動畫顯示名稱（.vrma 檔名或系統動畫名） */
   getCurrentAnimationName(): string | null {
     return this.currentDisplayName;

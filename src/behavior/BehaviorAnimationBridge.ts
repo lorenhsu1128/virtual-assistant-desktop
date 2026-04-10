@@ -19,6 +19,7 @@ const STATE_TO_POOL: Partial<Record<BehaviorState, SystemAnimationState>> = {
   peek: 'peek',
   fall: 'fall',
   typing: 'typing',
+  opendoor: 'opendoor',
 };
 
 /**
@@ -114,7 +115,18 @@ export class BehaviorAnimationBridge {
       return;
     }
 
-    // sit / drag / fall 等其他狀態：直接播放對應池
+    // opendoor 狀態：用實際 clip duration 覆蓋 StateMachine timeout
+    if (poolState === 'opendoor') {
+      const picked = this.animationManager.playStateRandom('opendoor');
+      if (picked && this.stateMachine) {
+        this.stateMachine.setStateDuration((picked.clip as THREE.AnimationClip).duration);
+      } else if (!picked) {
+        console.warn('[BehaviorBridge] opendoor pool empty, no animation played');
+      }
+      return;
+    }
+
+    // sit / drag / fall / typing 等其他狀態：直接播放對應池
     const picked = this.animationManager.playStateRandom(poolState);
     if (!picked) {
       console.warn(`[BehaviorBridge] ${poolState} pool empty, no animation played`);

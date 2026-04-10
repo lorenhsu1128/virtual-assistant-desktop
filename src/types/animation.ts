@@ -51,7 +51,8 @@ export type SystemAnimationState =
   | 'peek'
   | 'fall'
   | 'hide'
-  | 'typing';
+  | 'typing'
+  | 'opendoor';
 
 /**
  * 狀態 → 檔案前綴對照表
@@ -68,6 +69,7 @@ export const SYSTEM_STATE_FILE_PREFIX: Record<SystemAnimationState, string> = {
   fall: 'FALL',
   hide: 'HIDE',
   typing: 'TYPING',
+  opendoor: 'OPENDOOR',
 };
 
 /** 所有系統動畫狀態列表（供迴圈遍歷） */
@@ -80,6 +82,7 @@ export const SYSTEM_ANIMATION_STATES: readonly SystemAnimationState[] = [
   'fall',
   'hide',
   'typing',
+  'opendoor',
 ] as const;
 
 /** 單一系統動畫池的每支 clip */
@@ -120,4 +123,5 @@ export const SYSTEM_STATE_PLAY_CONFIG: Record<SystemAnimationState, SystemStateP
   fall: { loop: false, fadeDuration: 0.3, clampWhenFinished: true },
   hide: { loop: true, fadeDuration: 0.3, clampWhenFinished: false },
   typing: { loop: true, fadeDuration: 0.5, clampWhenFinished: false },
+  opendoor: { loop: false, fadeDuration: 0.3, clampWhenFinished: true },
 };
