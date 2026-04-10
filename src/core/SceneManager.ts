@@ -1282,16 +1282,12 @@ export class SceneManager {
     const charW = this.characterSize.width;
     const charH = this.characterSize.height;
 
-    // X 活動範圍：左右各允許超出 1.5 倍角色寬度（考慮配件等額外空間）
-    const minX = this.workAreaOrigin.x - charW * 1.5;
-    const maxX = this.workAreaOrigin.x + this.workAreaSize.width + charW * 0.5;
-    // Y 活動範圍：
-    //   上限 = 工作區頂部往上 0.3 倍角色高度（讓上半身可略微超出，但下半身一定在工作區內）
-    //   下限 = 保留上半身可見
-    // 注意：原本是 -charH * 1.0，但這允許整個角色 bounding box 完全在工作區上方，
-    // sit 在頂部視窗時導致整個角色在 camera 視野上方而消失。改為 -charH * 0.3。
-    const minY = this.workAreaOrigin.y - charH * 0.3;
-    const maxY = this.screenOrigin.y + screenH - charH * 0.5;
+    // X 活動範圍：左右各允許超出 1 倍角色寬度
+    const minX = this.workAreaOrigin.x - charW;
+    const maxX = this.workAreaOrigin.x + this.workAreaSize.width + charW;
+    // Y 活動範圍：上方允許超出 1 倍角色高度，下方允許超出 0.5 倍角色高度
+    const minY = this.workAreaOrigin.y - charH;
+    const maxY = this.screenOrigin.y + screenH + charH * 0.5;
 
     return {
       x: Math.max(minX, Math.min(maxX, pos.x)),
