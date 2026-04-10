@@ -735,6 +735,7 @@ export class SceneManager {
         this.frameCount = 0;
         this.lastFpsTime = now;
       }
+      const hideInfo = this.stateMachine?.getDebugHideInfo();
       this.debugOverlay.update({
         state: this.stateMachine?.getState() ?? 'N/A',
         posX: this.currentPosition.x,
@@ -756,7 +757,26 @@ export class SceneManager {
           screenY: p.screenY,
           width: p.screenXMax - p.screenXMin,
         })),
+        peekSide: hideInfo?.peekSide ?? null,
+        peekTargetHwnd: hideInfo?.peekTargetHwnd ?? null,
+        hideEdgeTargetX: hideInfo?.hideEdgeTargetX ?? null,
       });
+
+      // 角色外框
+      this.debugOverlay.updateCharacterBounds({
+        x: this.currentPosition.x,
+        y: this.currentPosition.y,
+        width: this.characterSize.width,
+        height: this.characterSize.height,
+      });
+
+      // hide 目標線
+      const currentState = this.stateMachine?.getState();
+      const showHideLine = currentState === 'hide' || currentState === 'peek';
+      this.debugOverlay.updateHideTarget(
+        showHideLine ? (hideInfo?.hideEdgeTargetX ?? null) : null,
+        this.renderer.domElement.clientHeight || this.renderer.domElement.height,
+      );
 
       // 視窗清單（每秒更新一次）
       if (this.windowListFetcher && now - this.lastWindowListUpdate > SceneManager.WINDOW_LIST_INTERVAL) {

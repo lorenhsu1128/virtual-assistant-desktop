@@ -169,6 +169,15 @@ export class StateMachine {
     return { timer: this.stateTimer, duration: this.stateDuration };
   }
 
+  /** Debug: 取得 hide/peek 狀態詳細資訊 */
+  getDebugHideInfo(): { hideEdgeTargetX: number | null; peekSide: 'left' | 'right' | null; peekTargetHwnd: number | null } {
+    return {
+      hideEdgeTargetX: this.hideEdgeTargetX,
+      peekSide: this.peekSide,
+      peekTargetHwnd: this.peekTargetHwnd,
+    };
+  }
+
   /**
    * 設定吸附的視窗
    *

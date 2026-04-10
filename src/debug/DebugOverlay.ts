@@ -21,6 +21,10 @@ export class DebugOverlay {
   private stateSection: HTMLDivElement | null = null;
   private windowsSection: HTMLDivElement | null = null;
   private border: HTMLDivElement | null = null;
+  /** 角色 bounding box 外框（青色虛線） */
+  private characterBox: HTMLDivElement | null = null;
+  /** hide 目標 X 位置指示線（紅色豎線） */
+  private hideTargetLine: HTMLDivElement | null = null;
 
   /** 拖曳狀態 */
   private dragging = false;
@@ -195,6 +199,31 @@ export class DebugOverlay {
       display: none;
     `;
     document.body.appendChild(this.border);
+
+    // 角色 bounding box 外框
+    this.characterBox = document.createElement('div');
+    this.characterBox.style.cssText = `
+      position: fixed;
+      border: 2px dashed cyan;
+      pointer-events: none;
+      z-index: 9997;
+      display: none;
+      box-sizing: border-box;
+    `;
+    document.body.appendChild(this.characterBox);
+
+    // hide 目標 X 指示線
+    this.hideTargetLine = document.createElement('div');
+    this.hideTargetLine.style.cssText = `
+      position: fixed;
+      width: 2px;
+      background: #ff4444;
+      pointer-events: none;
+      z-index: 9997;
+      display: none;
+      opacity: 0.8;
+    `;
+    document.body.appendChild(this.hideTargetLine);
   }
 
   /** Header mousedown: 啟動拖曳，同時記錄起始位置以區分點擊 */
@@ -269,6 +298,12 @@ export class DebugOverlay {
     if (this.border) {
       this.border.style.display = enabled ? 'block' : 'none';
     }
+    if (this.characterBox) {
+      this.characterBox.style.display = enabled ? 'block' : 'none';
+    }
+    if (this.hideTargetLine) {
+      this.hideTargetLine.style.display = enabled ? 'block' : 'none';
+    }
   }
 
   /** 是否啟用 */
@@ -305,6 +340,18 @@ export class DebugOverlay {
 
     if (info.currentAnimation) {
       lines.push(`Anim: ${info.currentAnimation}`);
+    }
+
+    // hide/peek 狀態資訊
+    if (info.state === 'hide' || info.state === 'peek') {
+      const side = info.peekSide ?? '?';
+      const hwnd = info.peekTargetHwnd !== null && info.peekTargetHwnd !== undefined
+        ? `0x${info.peekTargetHwnd.toString(16)}`
+        : 'screen';
+      const targetX = info.hideEdgeTargetX !== null && info.hideEdgeTargetX !== undefined
+        ? Math.round(info.hideEdgeTargetX)
+        : '-';
+      lines.push(`PeekSide: ${side}  Target: ${hwnd}  EdgeX: ${targetX}`);
     }
 
     if (info.stepLength !== undefined && info.stepLength > 0) {
@@ -385,6 +432,37 @@ export class DebugOverlay {
     this.lastMeshList = meshes;
   }
 
+  /**
+   * 更新角色 bounding box 外框位置
+   *
+   * @param bounds 角色的螢幕座標 bounding box（邏輯像素）
+   */
+  updateCharacterBounds(bounds: { x: number; y: number; width: number; height: number }): void {
+    if (!this.enabled || !this.characterBox) return;
+    this.characterBox.style.left = `${bounds.x}px`;
+    this.characterBox.style.top = `${bounds.y}px`;
+    this.characterBox.style.width = `${bounds.width}px`;
+    this.characterBox.style.height = `${bounds.height}px`;
+  }
+
+  /**
+   * 更新 hide 目標 X 指示線
+   *
+   * @param targetX hide 狀態的目標 X 座標（邏輯像素），null 時隱藏
+   * @param screenHeight 螢幕高度（邏輯像素），用於設定線高
+   */
+  updateHideTarget(targetX: number | null, screenHeight: number): void {
+    if (!this.enabled || !this.hideTargetLine) return;
+    if (targetX === null) {
+      this.hideTargetLine.style.display = 'none';
+      return;
+    }
+    this.hideTargetLine.style.display = 'block';
+    this.hideTargetLine.style.left = `${targetX}px`;
+    this.hideTargetLine.style.top = '0px';
+    this.hideTargetLine.style.height = `${screenHeight}px`;
+  }
+
   /** 銷毀 overlay 元素 */
   dispose(): void {
     // 清除可能殘留的拖曳 listener
@@ -396,12 +474,16 @@ export class DebugOverlay {
 
     this.panel?.remove();
     this.border?.remove();
+    this.characterBox?.remove();
+    this.hideTargetLine?.remove();
     this.panel = null;
     this.header = null;
     this.body = null;
     this.stateSection = null;
     this.windowsSection = null;
     this.border = null;
+    this.characterBox = null;
+    this.hideTargetLine = null;
   }
 }
 
@@ -433,6 +515,12 @@ export interface DebugInfo {
   occlusionMeshes?: OcclusionDebugEntry[];
   /** 可站立平面清單 */
   platforms?: PlatformDebugEntry[];
+  /** hide/peek 狀態：peekSide */
+  peekSide?: 'left' | 'right' | null;
+  /** hide/peek 狀態：目標視窗 hwnd */
+  peekTargetHwnd?: number | null;
+  /** hide 狀態：目標 X 座標（邏輯像素） */
+  hideEdgeTargetX?: number | null;
 }
 
 /** Platform debug 條目 */
