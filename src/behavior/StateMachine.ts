@@ -73,6 +73,14 @@ export class StateMachine {
       return this.makeOutput(changed, null);
     }
 
+    // typing 優先級最高：使用者開始/停止打字時切換狀態
+    // drag 除外（拖曳中不受 typing 影響）
+    if (input.isUserTyping && this.state !== 'typing') {
+      this.enterState('typing');
+    } else if (!input.isUserTyping && this.state === 'typing') {
+      this.enterState('idle');
+    }
+
     // paused 時跳過自主狀態轉移與計時器推進，但仍計算 getTargetPosition
     // 讓 forceState 觸發的 sit/hide/peek 等能正確貼齊 platform、跟隨視窗
     if (!this.paused) {
@@ -97,6 +105,7 @@ export class StateMachine {
         case 'fall':
           this.tickFall(input);
           break;
+        // typing：無 tick 邏輯，等待 isUserTyping 變 false
       }
     }
 
@@ -634,6 +643,9 @@ export class StateMachine {
         break;
       case 'drag':
         this.stateDuration = Infinity;
+        break;
+      case 'typing':
+        this.stateDuration = Infinity; // 持續到 isUserTyping = false
         break;
     }
   }

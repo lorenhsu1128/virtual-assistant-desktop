@@ -18,6 +18,7 @@ const STATE_TO_POOL: Partial<Record<BehaviorState, SystemAnimationState>> = {
   drag: 'drag',
   peek: 'peek',
   fall: 'fall',
+  typing: 'typing',
 };
 
 /**

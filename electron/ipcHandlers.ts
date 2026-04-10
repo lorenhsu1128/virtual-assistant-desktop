@@ -4,6 +4,7 @@ import * as fileManager from './fileManager.js';
 import { WindowMonitor, type WindowRect } from './windowMonitor.js';
 import { openPickerWindow, closePickerWindow } from './vrmPickerWindow.js';
 import { isMac } from './platform/index.js';
+import { KeyboardMonitor } from './keyboardMonitor.js';
 
 /** Display info returned to renderer */
 interface DisplayInfo {
@@ -215,5 +216,20 @@ export function registerIpcHandlers(
 
   ipcMain.handle('close_window', () => {
     mainWindow.close();
+  });
+
+  // ── Keyboard Monitor ──
+
+  const keyboardMonitor = new KeyboardMonitor();
+  keyboardMonitor.setCallback((isTyping) => {
+    if (!mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('keyboard_typing_changed', isTyping);
+    }
+  });
+  keyboardMonitor.start();
+
+  // 視窗關閉時停止偵測
+  mainWindow.on('closed', () => {
+    keyboardMonitor.stop();
   });
 }

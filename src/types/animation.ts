@@ -50,7 +50,8 @@ export type SystemAnimationState =
   | 'drag'
   | 'peek'
   | 'fall'
-  | 'hide';
+  | 'hide'
+  | 'typing';
 
 /**
  * 狀態 → 檔案前綴對照表
@@ -66,6 +67,7 @@ export const SYSTEM_STATE_FILE_PREFIX: Record<SystemAnimationState, string> = {
   peek: 'PEEK',
   fall: 'FALL',
   hide: 'HIDE',
+  typing: 'TYPING',
 };
 
 /** 所有系統動畫狀態列表（供迴圈遍歷） */
@@ -77,6 +79,7 @@ export const SYSTEM_ANIMATION_STATES: readonly SystemAnimationState[] = [
   'peek',
   'fall',
   'hide',
+  'typing',
 ] as const;
 
 /** 單一系統動畫池的每支 clip */
@@ -116,4 +119,5 @@ export const SYSTEM_STATE_PLAY_CONFIG: Record<SystemAnimationState, SystemStateP
   peek: { loop: false, fadeDuration: 0.5, clampWhenFinished: true },
   fall: { loop: false, fadeDuration: 0.3, clampWhenFinished: true },
   hide: { loop: true, fadeDuration: 0.3, clampWhenFinished: false },
+  typing: { loop: true, fadeDuration: 0.5, clampWhenFinished: false },
 };

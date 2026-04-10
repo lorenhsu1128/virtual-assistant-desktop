@@ -65,6 +65,9 @@ export class SceneManager {
   // 角色位置管理（全螢幕模式：角色在 canvas 內移動，視窗不動）
   private currentPosition = { x: 0, y: 0 };
   private previousPosition = { x: 0, y: 0 };
+  /** 使用者是否正在打字（由 IPC keyboard_typing_changed 更新） */
+  private isUserTyping = false;
+
   /** 角色 bounding box 尺寸（螢幕像素，humanoid 骨骼 + 方向性擴展，排除 SpringBone） */
   private characterSize = { width: 300, height: 500 };
   /** 螢幕原點（螢幕絕對座標，用於 screenToWorld，通常 = (0,0)） */
@@ -244,6 +247,11 @@ export class SceneManager {
   }
 
   /** 設定 Debug Overlay */
+  /** 設定使用者打字狀態（由 IPC keyboard_typing_changed 呼叫） */
+  setUserTyping(isTyping: boolean): void {
+    this.isUserTyping = isTyping;
+  }
+
   setDebugOverlay(overlay: DebugOverlay): void {
     this.debugOverlay = overlay;
     // 同步平面 mesh 可見性
@@ -657,6 +665,7 @@ export class SceneManager {
         isFullyOccluded,
         isOffScreenLeft,
         isOffScreenRight,
+        isUserTyping: this.isUserTyping,
       });
 
       this.lastBehaviorOutput = output;
@@ -1166,6 +1175,10 @@ export class SceneManager {
     }
     if (output.currentState === 'sit') {
       this.forceTopAfterDrag = false;
+      return DEFAULT_Z;
+    }
+    // typing 狀態：置頂（使用者打字時角色最上層）
+    if (output.currentState === 'typing') {
       return DEFAULT_Z;
     }
 

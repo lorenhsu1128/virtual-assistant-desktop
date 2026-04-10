@@ -491,6 +491,11 @@ async function initializeBehaviorSystem(
     sceneManager.debugMove(direction);
   }));
 
+  // ── 鍵盤打字偵測 ──
+  cleanupFns.push(await ipc.onKeyboardTypingChanged((isTyping) => {
+    sceneManager.setUserTyping(isTyping);
+  }));
+
   // ── 系統托盤事件 ──
   cleanupFns.push(await ipc.onTrayAction((actionId) => {
     switch (actionId) {

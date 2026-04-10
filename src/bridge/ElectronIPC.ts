@@ -37,6 +37,7 @@ interface ElectronAPI {
   onRequestMenuData(callback: () => void): () => void;
   sendMenuData(data: TrayMenuData): void;
   onDebugMove(callback: (direction: string) => void): () => void;
+  onKeyboardTypingChanged(callback: (isTyping: boolean) => void): () => void;
   convertToAssetUrl(filePath: string): string;
 }
 
@@ -410,6 +411,11 @@ class ElectronIPC {
   /** Listen for debug move events (Ctrl+Arrow global shortcuts) */
   async onDebugMove(callback: (direction: string) => void): Promise<() => void> {
     return window.electronAPI.onDebugMove(callback);
+  }
+
+  /** Listen for keyboard typing state changes */
+  async onKeyboardTypingChanged(callback: (isTyping: boolean) => void): Promise<() => void> {
+    return window.electronAPI.onKeyboardTypingChanged(callback);
   }
 
   /**

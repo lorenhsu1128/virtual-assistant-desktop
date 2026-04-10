@@ -23,14 +23,16 @@
   "dependencies": {
     "@pixiv/three-vrm": "^3.4.0",
     "@pixiv/three-vrm-animation": "^3.4.0",
-    "three": "^0.172.0"
+    "three": "^0.172.0",
+    "uiohook-napi": "^1.5.5"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
       "electron",
       "electron-winstaller",
       "esbuild",
-      "koffi"
+      "koffi",
+      "uiohook-napi"
     ]
   },
   "devDependencies": {

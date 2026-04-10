@@ -78,6 +78,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.send('menu_data_response', data);
   },
 
+  onKeyboardTypingChanged: (callback: (isTyping: boolean) => void) => {
+    const handler = (_event: unknown, isTyping: boolean) => callback(isTyping);
+    ipcRenderer.on('keyboard_typing_changed', handler);
+    return () => ipcRenderer.removeListener('keyboard_typing_changed', handler);
+  },
+
   onDebugMove: (callback: (direction: string) => void) => {
     const handler = (_event: unknown, direction: string) => callback(direction);
     ipcRenderer.on('debug_move', handler);

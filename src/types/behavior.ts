@@ -1,7 +1,7 @@
 import type { Rect, WindowRect } from './window';
 
 /** 行為狀態 */
-export type BehaviorState = 'idle' | 'walk' | 'sit' | 'hide' | 'peek' | 'fall' | 'drag';
+export type BehaviorState = 'idle' | 'walk' | 'sit' | 'hide' | 'peek' | 'fall' | 'drag' | 'typing';
 
 /**
  * StateMachine.tick() 的輸出
@@ -76,6 +76,8 @@ export interface BehaviorInput {
   isOffScreenLeft: boolean;
   /** 角色是否完全在螢幕右側外 */
   isOffScreenRight: boolean;
+  /** 使用者是否正在打字（5 秒內有鍵盤按鍵） */
+  isUserTyping: boolean;
 }
 
 /**
