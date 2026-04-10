@@ -16,15 +16,22 @@
  *
  * 方法：
  *   1. hipMid = avg(leftHip, rightHip) — 原點
- *   2. shoulderMid = avg(leftShoulder, rightShoulder)
- *   3. bodyUp = normalize(shoulderMid - hipMid)  — 沿軀幹方向（注：非世界垂直）
+ *   2. ankleMid = avg(leftAnkle, rightAnkle)（若可見）
+ *   3. bodyUp = normalize(hipMid - ankleMid) — 約等於世界垂直（腳→髖方向）
+ *      - 若 ankle 不可見，退化為 normalize(shoulderMid - hipMid)（沿軀幹方向）
  *   4. bodyLeft = orthogonalize(leftHip - rightHip, bodyUp) — 主體左右方向
  *   5. bodyForward = cross(bodyLeft, bodyUp) — 主體前方（右手系）
  *   6. 所有 landmark 投影到 (bodyLeft, bodyUp, bodyForward) 座標系
  *
- * 優點：座標系無關，不需猜 MediaPipe 的 x/y/z 方向
- * 限制：**失去全域身體傾斜**（角色永遠直立）。手臂/腿相對位置正確。
- *       未來可用 ankle→hip 的世界垂直向量補回傾斜。
+ * 為什麼用 ankle→hip 而非 hip→shoulder 當「上」：
+ *   hip→shoulder 是軀幹方向，人前傾時嚴重傾斜。腿投影到傾斜的 body-frame
+ *   會變形（直直往下的腿變成「向前延伸」），導致 IK solver 解出荒謬的腿部旋轉。
+ *   ankle→hip 更接近世界垂直（人站著時腿大致垂直），不會扭曲腿部。
+ *   同時也能保留上身前傾：shoulder 位置在 body-frame 中仍在 hip 前方。
+ *
+ * 優點：座標系無關，不需猜 MediaPipe 的 x/y/z 方向；腿部方向正確
+ * 限制：若人不是站立（例如躺著、坐著），ankle→hip 不是世界垂直 — 需要
+ *       更進階的重力偵測。目前假設人是站立 / 行走 / 蹲踞。
  *
  * 低 visibility 處理：
  *   - 若任一所需 landmark 的 visibility < MIN_VISIBILITY，該 SMPL joint 以
@@ -117,30 +124,40 @@ interface BodyFrame {
 }
 
 /**
- * 從軀幹四點建立 body-local 正交座標系
+ * 從軀幹 + 腳踝建立 body-local 正交座標系
  *
- * @returns null if degenerate (hips and shoulders too close or collinear)
+ * 「上」方向優先用 ankle→hip（近似世界垂直），避免前傾軀幹扭曲腿部。
+ * 若 ankle 不可見，退化為 hip→shoulder。
+ *
+ * @returns null if degenerate
  */
 function buildBodyFrame(
   leftHip: Vec3,
   rightHip: Vec3,
   leftShoulder: Vec3,
   rightShoulder: Vec3,
+  leftAnkle: Vec3 | null,
+  rightAnkle: Vec3 | null,
 ): BodyFrame | null {
   const hipMid = vecMid(leftHip, rightHip);
-  const shoulderMid = vecMid(leftShoulder, rightShoulder);
 
-  // up = hip → shoulder 方向
-  const upRaw = vecSub(shoulderMid, hipMid);
-  if (vecLen(upRaw) < 0.01) return null; // 退化（hips 和 shoulders 重合）
+  // up 方向：優先用 ankle→hip（世界垂直近似）
+  let upRaw: Vec3;
+  if (leftAnkle && rightAnkle) {
+    const ankleMid = vecMid(leftAnkle, rightAnkle);
+    upRaw = vecSub(hipMid, ankleMid); // 從腳踝指向髖部 = 世界「上」
+  } else {
+    const shoulderMid = vecMid(leftShoulder, rightShoulder);
+    upRaw = vecSub(shoulderMid, hipMid); // 退化：軀幹方向
+  }
+  if (vecLen(upRaw) < 0.01) return null;
   const up = vecNormalize(upRaw);
 
   // left = rightHip → leftHip 方向（subject's left）
   const leftRaw = vecSub(leftHip, rightHip);
-  // 正交化：移除 leftRaw 中的 up 分量
   const leftDotUp = vecDot(leftRaw, up);
   const leftOrth = vecSub(leftRaw, vecScale(up, leftDotUp));
-  if (vecLen(leftOrth) < 0.001) return null; // 退化（hip line 平行 spine）
+  if (vecLen(leftOrth) < 0.001) return null;
   const left = vecNormalize(leftOrth);
 
   // forward = cross(left, up) → right-hand rule: left × up = forward
@@ -260,8 +277,13 @@ export function landmarksToSmplJointPositions(
     return out;
   }
 
+  // ── 取得 ankle（用於 body-frame 的「上」方向） ──
+  const ankleVisible = allVisible(landmarks, [MP.LEFT_ANKLE, MP.RIGHT_ANKLE]);
+  const la = ankleVisible ? landmarks[MP.LEFT_ANKLE] : null;
+  const ra = ankleVisible ? landmarks[MP.RIGHT_ANKLE] : null;
+
   // ── 建立 body-frame ──
-  const frame = buildBodyFrame(lh, rh, ls, rs);
+  const frame = buildBodyFrame(lh, rh, ls, rs, la, ra);
   if (!frame) {
     for (let i = 0; i < SMPL_JOINT_COUNT; i++) restPosTo(out[i], i);
     return out;

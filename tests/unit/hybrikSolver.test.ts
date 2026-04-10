@@ -264,24 +264,25 @@ describe('LandmarkToSmplJoint', () => {
   });
 
   it('body-frame: arm extended forward → elbow/wrist at positive Z', () => {
-    // 模擬：手臂向前伸（沿 MP 任意方向），body-frame 應將其放在 +Z
+    // 模擬直立人物手臂前伸，body-frame 應把 elbow 放在 +Z（前方）
     const lms: PoseLandmark[] = Array.from({ length: 33 }, () => ({
       x: 0, y: 0, z: 0, visibility: 0,
     }));
-    // 軀幹在 Y 軸上（直立，MP 的 y 方向任意）
-    lms[23] = { x: 0.08, y: 0, z: 0, visibility: 1 };
-    lms[24] = { x: -0.08, y: 0, z: 0, visibility: 1 };
-    lms[11] = { x: 0.15, y: -0.5, z: 0, visibility: 1 };
-    lms[12] = { x: -0.15, y: -0.5, z: 0, visibility: 1 };
-    // 手肘在肩膀前方（MP: z 方向負 = 靠近鏡頭，但 body-frame 不管方向）
-    // 這裡讓 elbow 在 shoulder 的「前方」= 沿 body-forward 軸
-    // body-forward = cross(bodyLeft, bodyUp). bodyUp = (0, -1, 0) normalized (MP y down).
-    // bodyLeft = leftHip - rightHip = (0.16, 0, 0) → (1, 0, 0).
-    // bodyForward = cross((1,0,0), (0,-1,0)) = (0*0 - 0*(-1), 0*1 - 1*0, 1*(-1) - 0*0) = (0, 0, -1)
-    // So body-forward = (0, 0, -1) in MP coords → elbow z = shoulder z - 0.3 = 0 - 0.3 = -0.3
+    // 軀幹四點（直立）
+    lms[23] = { x: 0.08, y: 0, z: 0, visibility: 1 };   // leftHip
+    lms[24] = { x: -0.08, y: 0, z: 0, visibility: 1 };  // rightHip
+    lms[11] = { x: 0.15, y: -0.5, z: 0, visibility: 1 }; // leftShoulder
+    lms[12] = { x: -0.15, y: -0.5, z: 0, visibility: 1 }; // rightShoulder
+    // 腳踝（讓 body-frame 用 ankle→hip 當上方向）
+    lms[27] = { x: 0.08, y: 0.9, z: 0, visibility: 1 };  // leftAnkle 在 hip 正下方
+    lms[28] = { x: -0.08, y: 0.9, z: 0, visibility: 1 }; // rightAnkle
+    // body-frame axes (with ankle→hip up):
+    //   bodyUp = normalize(hipMid - ankleMid) = normalize((0, -0.9, 0)) = (0, -1, 0)
+    //   bodyLeft = normalize(leftHip - rightHip) = normalize((0.16, 0, 0)) = (1, 0, 0)
+    //   bodyForward = cross(bodyLeft, bodyUp) = cross((1,0,0), (0,-1,0)) = (0, 0, -1)
+    // So body-forward = (0, 0, -1) in MP → elbow forward = shoulder z - 0.3
     lms[13] = { x: 0.15, y: -0.5, z: -0.3, visibility: 1 }; // leftElbow forward
     const positions = landmarksToSmplJointPositions(lms);
-    // In body-frame, leftElbow should have z > 0 (forward in SMPL)
     expect(positions[18].z).toBeGreaterThan(0.2);
   });
 
@@ -311,13 +312,14 @@ describe('LandmarkToSmplJoint', () => {
   });
 
   it('body-frame: neck always above pelvis', () => {
-    // 任何 MP 座標系下，只要 shoulders 和 hips 可見，
-    // body-frame 中 neck 就在 pelvis 正上方（bodyUp 方向 = +Y）
+    // MP y-down convention: hip y=0, shoulder y=-0.4 (上), ankle y=0.6 (下)
     const lms = makeLandmarks((i) => {
-      if (i === 23) return [0.1, 0.5, 0]; // leftHip
-      if (i === 24) return [-0.1, 0.5, 0]; // rightHip
-      if (i === 11) return [0.1, -0.3, 0]; // leftShoulder
-      if (i === 12) return [-0.1, -0.3, 0]; // rightShoulder
+      if (i === 23) return [0.1, 0, 0];     // leftHip
+      if (i === 24) return [-0.1, 0, 0];    // rightHip
+      if (i === 11) return [0.15, -0.4, 0]; // leftShoulder (上方)
+      if (i === 12) return [-0.15, -0.4, 0];// rightShoulder
+      if (i === 27) return [0.1, 0.6, 0];   // leftAnkle (下方)
+      if (i === 28) return [-0.1, 0.6, 0];  // rightAnkle
       return [0, 0, 0];
     });
     const positions = landmarksToSmplJointPositions(lms);
