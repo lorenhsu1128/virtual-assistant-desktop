@@ -140,28 +140,45 @@ function buildBodyFrame(
   rightAnkle: Vec3 | null,
 ): BodyFrame | null {
   const hipMid = vecMid(leftHip, rightHip);
+  const shoulderMid = vecMid(leftShoulder, rightShoulder);
 
-  // up 方向：優先用 ankle→hip（世界垂直近似）
+  // ── up：ankle→hip（世界垂直近似） ──
   let upRaw: Vec3;
   if (leftAnkle && rightAnkle) {
     const ankleMid = vecMid(leftAnkle, rightAnkle);
-    upRaw = vecSub(hipMid, ankleMid); // 從腳踝指向髖部 = 世界「上」
+    upRaw = vecSub(hipMid, ankleMid);
   } else {
-    const shoulderMid = vecMid(leftShoulder, rightShoulder);
-    upRaw = vecSub(shoulderMid, hipMid); // 退化：軀幹方向
+    upRaw = vecSub(shoulderMid, hipMid); // fallback
   }
   if (vecLen(upRaw) < 0.01) return null;
   const up = vecNormalize(upRaw);
 
-  // left = rightHip → leftHip 方向（subject's left）
-  const leftRaw = vecSub(leftHip, rightHip);
-  const leftDotUp = vecDot(leftRaw, up);
-  const leftOrth = vecSub(leftRaw, vecScale(up, leftDotUp));
-  if (vecLen(leftOrth) < 0.001) return null;
-  const left = vecNormalize(leftOrth);
+  // ── forward：從 hipMid→shoulderMid 的水平分量推導 ──
+  // 將 shoulderMid - hipMid 投影到垂直於 up 的平面上 = 軀幹前傾方向
+  // 這個方向永遠指向「肩膀所在的那一側」= 主體前方
+  // 比 cross(left, up) 穩定：cross product 有正負號歧義
+  const shoulderFromHip = vecSub(shoulderMid, hipMid);
+  const sDotUp = vecDot(shoulderFromHip, up);
+  const forwardRaw = vecSub(shoulderFromHip, vecScale(up, sDotUp));
 
-  // forward = cross(left, up) → right-hand rule: left × up = forward
-  const forward = vecCross(left, up);
+  let forward: Vec3;
+  let left: Vec3;
+
+  if (vecLen(forwardRaw) > 0.001) {
+    // 正常情況：肩膀有前後偏移 → 直接用作 forward
+    forward = vecNormalize(forwardRaw);
+    // left = up × forward（右手系：up × forward = left）
+    left = vecNormalize(vecCross(up, forward));
+  } else {
+    // 退化：完全直立（肩膀正好在髖部正上方）→ 無法從肩膀推導 forward
+    // 改用 hip line 叉積（可能有正負號歧義，但直立姿勢下不太重要）
+    const leftRaw = vecSub(leftHip, rightHip);
+    const leftDotUp = vecDot(leftRaw, up);
+    const leftOrth = vecSub(leftRaw, vecScale(up, leftDotUp));
+    if (vecLen(leftOrth) < 0.001) return null;
+    left = vecNormalize(leftOrth);
+    forward = vecCross(left, up);
+  }
 
   return { origin: hipMid, left, up, forward };
 }
