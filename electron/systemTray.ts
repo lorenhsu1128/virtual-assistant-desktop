@@ -249,6 +249,12 @@ export class SystemTray {
       click: () => this.emitAction('toggle_mtoon_outline'),
     });
 
+    // 測試開門（開發用）
+    template.push({
+      label: '\u6e2c\u8a66\u958b\u9580',
+      click: () => this.emitAction('test_opendoor'),
+    });
+
     // Debug 模式
     template.push({
       label: 'Debug \u6a21\u5f0f',

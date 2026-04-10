@@ -503,6 +503,17 @@ async function initializeBehaviorSystem(
         debugOverlay.setEnabled(!debugOverlay.isEnabled());
         sceneManager.updatePlatformMeshVisibility();
         break;
+      case 'test_opendoor': {
+        // 找第一個可見視窗，強制觸發 opendoor
+        const bounds = sceneManager.getCharacterBounds();
+        const dpr = window.devicePixelRatio || 1;
+        const windows = sceneManager.getCachedWindowRects();
+        const target = windows.find((w) => w.width / dpr > bounds.width);
+        if (target) {
+          stateMachine.enterOpendoor(target.hwnd);
+        }
+        break;
+      }
       case 'toggle_pause':
         if (stateMachine.isPaused()) { stateMachine.resume(); } else { stateMachine.pause(); }
         config.autonomousMovementPaused = stateMachine.isPaused();

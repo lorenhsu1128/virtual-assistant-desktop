@@ -257,6 +257,11 @@ export class SceneManager {
     this.isUserTyping = isTyping;
   }
 
+  /** 取得快取的視窗清單（供外部模組讀取） */
+  getCachedWindowRects(): WindowRect[] {
+    return this.cachedWindowRects;
+  }
+
   setDebugOverlay(overlay: DebugOverlay): void {
     this.debugOverlay = overlay;
     // 同步平面 mesh 可見性
