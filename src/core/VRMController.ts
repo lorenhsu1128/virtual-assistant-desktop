@@ -424,7 +424,44 @@ export class VRMController {
     const vrmAnimation = gltf.userData.vrmAnimations?.[0] as VRMAnimation | undefined;
     if (!vrmAnimation) return null;
 
-    return createVRMAnimationClip(vrmAnimation, this.vrm);
+    const clip = createVRMAnimationClip(vrmAnimation, this.vrm);
+
+    // 移除 hips position track 的 Z 分量（避免 near plane 裁切）
+    this.stripHipsPositionZ(clip);
+
+    return clip;
+  }
+
+  /**
+   * 移除動畫 clip 中 hips bone position track 的 Z 分量
+   *
+   * VRM sit 動畫常含大幅 hip Z 位移（如 +1.25m），會把模型推向
+   * camera near plane 導致前方部位被裁切。在載入時歸零 Z 分量，
+   * 從源頭消除問題，不需 runtime 補償。
+   */
+  private stripHipsPositionZ(clip: THREE.AnimationClip): void {
+    if (!this.vrm) return;
+
+    const hipsNode = this.vrm.humanoid.getNormalizedBoneNode('hips');
+    if (!hipsNode) return;
+
+    const hipsTrackName = `${hipsNode.name}.position`;
+
+    for (const track of clip.tracks) {
+      if (track.name === hipsTrackName) {
+        // VectorKeyframeTrack values: [x0,y0,z0, x1,y1,z1, ...]
+        const values = track.values;
+        let maxAbsZ = 0;
+        for (let i = 2; i < values.length; i += 3) {
+          maxAbsZ = Math.max(maxAbsZ, Math.abs(values[i]));
+          values[i] = 0;
+        }
+        if (maxAbsZ > 0.01) {
+          console.log(`[VRMController] stripped hips Z from "${clip.name}" (max |Z|=${maxAbsZ.toFixed(3)}m)`);
+        }
+        break;
+      }
+    }
   }
 
   /**

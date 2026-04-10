@@ -1083,34 +1083,23 @@ export class SceneManager {
    * 使用 lerp 平滑避免每幀微調導致的抖動。
    */
   /**
-   * Sit 狀態 hip 錨定：Y 軸對齊 platform + Z 軸防止 near plane 裁切
+   * Sit 狀態 hip 錨定：讓 hip bone 世界 Y 對齊 platform
    *
-   * Y 軸：讓 hip bone 世界 Y 對齊 platform 世界 Y。
-   * Z 軸：抵消動畫的 hip Z 偏移，讓 hips 固定在 currentCharacterZ，
-   *       避免 sit 動畫的 hip translation 把模型推向 camera near plane。
+   * Z 軸補償不再需要：loadVRMAnimation 已在載入時移除 hips position Z 分量。
    */
   private applySitHipAnchor(): void {
     if (!this.vrmController) return;
 
-    const hipOffset = this.vrmController.getHipsRelativeOffset();
-    if (!hipOffset) return;
+    const hipOffsetY = this.vrmController.getHipOffsetY();
+    if (hipOffsetY === null) return;
 
-    // ── Y 軸：hip 對齊 platform ──
     const platformScreenY = this.currentPosition.y + this.characterSize.height;
     const cx = this.currentPosition.x + this.characterSize.width / 2;
     const platformWorld = this.screenToWorld(cx, platformScreenY);
     const modelWorld = this.screenToWorld(cx, platformScreenY);
-    const dy = platformWorld.y - (modelWorld.y + hipOffset.y);
+    const dy = platformWorld.y - (modelWorld.y + hipOffsetY);
     if (Math.abs(dy) > 0.001) {
       this.vrmController.offsetWorldPositionY(dy);
-    }
-
-    // ── Z 軸：抵消 hip Z 偏移，防止 near plane 裁切 ──
-    // 目標：hip Z = currentCharacterZ
-    // 目前：hip Z = vrm.scene.position.z + hipOffset.z
-    // 修正：vrm.scene.position.z -= hipOffset.z
-    if (Math.abs(hipOffset.z) > 0.001) {
-      this.vrmController.offsetWorldPositionZ(-hipOffset.z);
     }
   }
 
