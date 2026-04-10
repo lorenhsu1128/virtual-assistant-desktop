@@ -6,16 +6,16 @@
  *
  * 座標系轉換（MediaPipe world → SMPL）：
  *   - MediaPipe Pose Landmarker world（GHUM 模型輸出，hip-centered 公尺）：
- *       x = 主體左側為正（image right，面對鏡頭時）
- *       y = 向下為正（沿用 image 慣例，head 為負 y）
- *       z = 主體前方為正（主體面對方向；**經驗觀察**，官方文件未明確規範）
- *   - SMPL: y 上 / x 主體左側 / z 主體前方
- *   - 因此 smpl = (mp.x, -mp.y, mp.z)
+ *       x = 主體左側為正（L_hip x > 0, R_hip x < 0）
+ *       y = 向下為正（head y < 0, foot y > 0）
+ *       z = 主體後方為正（closer to camera = negative z；與 image z 同向）
+ *   - SMPL: +y 上 / +x 主體左側 / +z 主體前方
+ *   - 因此 smpl = (mp.x, -mp.y, -mp.z)
  *
- * Z 軸方向注意：
- *   初版曾依 image-z 慣例假設 z 翻轉（"closer to camera = negative z"），
- *   導致推箱子等前傾動作被解成後仰。2026-04-09 實測後修正為不翻 z。
- *   見 LESSONS.md 對應條目。
+ * 實測驗證（2026-04-10，推箱子影片第一幀 diagnostic log）：
+ *   - L_shoulder z = -0.44 → 靠近鏡頭 → 人物前方 → SMPL z = +0.44 (forward) ✓
+ *   - L_ankle z = +0.27 → 遠離鏡頭 → 人物後方 → SMPL z = -0.27 (backward) ✓
+ *   - head y = -0.36 → MP y 較小 → 在上方 → SMPL y = +0.36 (up) ✓
  *
  * 33 → 24 對照見 `landmarksToSmplJointPositions` 內的逐 joint 註解。
  *
@@ -64,10 +64,10 @@ const MP = {
  * 將 MediaPipe world 座標轉為 SMPL 慣例（Y up）
  *
  * 不做任何尺度修正；假設 MediaPipe 已回傳公尺單位。
- * 只翻 Y（image y-down → SMPL y-up）；X 與 Z 保持原值。
+ * 翻 Y（image y-down → SMPL y-up）與 Z（MP z-backward → SMPL z-forward）。
  */
 export function mediaPipeWorldToSmpl(lm: PoseLandmark, out: THREE.Vector3): THREE.Vector3 {
-  out.set(lm.x, -lm.y, lm.z);
+  out.set(lm.x, -lm.y, -lm.z);
   return out;
 }
 
@@ -92,7 +92,7 @@ function avgToSmpl(
   a: PoseLandmark,
   b: PoseLandmark,
 ): void {
-  out.set((a.x + b.x) * 0.5, -(a.y + b.y) * 0.5, (a.z + b.z) * 0.5);
+  out.set((a.x + b.x) * 0.5, -(a.y + b.y) * 0.5, -(a.z + b.z) * 0.5);
 }
 
 /** 線性插值：out = a * (1 - t) + b * t（a, b 為已轉 SMPL 座標系的點） */
