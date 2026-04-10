@@ -716,7 +716,8 @@ async function loadAllSystemAnimations(
     for (const filePath of files) {
       const url = ipc.convertToAssetUrl(filePath);
       try {
-        const clip = await vrmController.loadVRMAnimation(url);
+        // opendoor 動畫需要保留 hip Z（角色穿門移動）
+        const clip = await vrmController.loadVRMAnimation(url, state === 'opendoor' ? { keepHipZ: true } : undefined);
         if (clip) {
           clips.push({ fileName: extractBasename(filePath), clip });
         }
