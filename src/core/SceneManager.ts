@@ -1171,22 +1171,28 @@ export class SceneManager {
   private startDoorEffect(hwnd: number | null): void {
     if (!hwnd || !this.windowMeshManager) return;
 
-    const windowInfo = this.windowMeshManager.getWindowMeshWorldInfo(hwnd);
-    if (!windowInfo) return;
+    const windowZ = this.windowMeshManager.getWindowZ(hwnd);
+    if (windowZ === null) return;
 
     if (!this.doorEffect) {
       this.doorEffect = new DoorEffect(this.scene);
     }
 
-    // 門洞大小：角色身寬 × 角色身高
-    const doorWidth = this.characterSize.width * this.pixelToWorld * 1.2;
-    const doorHeight = this.characterSize.height * this.pixelToWorld * 1.0;
+    // 門洞位置 = 角色當前位置的 3D 世界座標（不是視窗中心）
+    const cx = this.currentPosition.x + this.characterSize.width / 2;
+    const cy = this.currentPosition.y + this.characterSize.height / 2;
+    const charWorld = this.screenToWorld(cx, cy);
+
+    // 門洞大小：coreSize × 倍率
+    const coreW = this.vrmController?.getCoreWorldSize();
+    const doorWidth = (coreW?.width ?? this.characterSize.width * this.pixelToWorld) * 1.5;
+    const doorHeight = (coreW?.height ?? this.characterSize.height * this.pixelToWorld) * 1.3;
 
     this.doorEffect.start(
-      { x: windowInfo.x, y: windowInfo.y },
+      { x: charWorld.x, y: charWorld.y },
       doorWidth,
       doorHeight,
-      windowInfo.z,
+      windowZ,
     );
 
   }

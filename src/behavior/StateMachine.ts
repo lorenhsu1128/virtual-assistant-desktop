@@ -384,6 +384,15 @@ export class StateMachine {
       return;
     }
 
+    // 隨機觸發 opendoor（視窗 hide 限定，螢幕邊緣不觸發）
+    // 進入 hide 1 秒後開始，每幀約 15%/秒 的機率（≈ 0.005/幀 @ 30fps）
+    if (this.peekTargetHwnd !== null && this.stateTimer > 1.0) {
+      if (Math.random() < 0.005) {
+        this.enterOpendoor(this.peekTargetHwnd);
+        return;
+      }
+    }
+
     // 碰柱子偵測：角色 bounding box 邊緣是否碰到視窗/螢幕邊緣
     const charLeft = input.currentPosition.x;
     const charRight = input.currentPosition.x + input.characterBounds.width;
@@ -841,15 +850,11 @@ export class StateMachine {
   }
 
   /**
-   * 主動 hide 路徑：pendingHide walk 途中偵測到隱藏條件，進入 hide 或 opendoor
+   * 主動 hide 路徑：pendingHide walk 途中偵測到隱藏條件，進入 hide
+   *
+   * opendoor 觸發已移至 tickHide（hide 狀態期間隨機觸發）。
    */
   private enterHideFromPending(input: BehaviorInput): void {
-    // 30% 機率進入 opendoor（僅限視窗 hide，不含螢幕邊緣）
-    if (this.pendingHide?.hwnd !== null && this.pendingHide?.hwnd !== undefined && Math.random() < 0.3) {
-      this.enterOpendoor(this.pendingHide.hwnd);
-      this.pendingHide = null;
-      return;
-    }
     const dpr = (typeof window !== 'undefined' ? window.devicePixelRatio : 1) || 1;
     const charW = input.characterBounds.width;
 
