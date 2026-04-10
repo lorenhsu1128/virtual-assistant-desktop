@@ -733,14 +733,14 @@ export class StateMachine {
         const winLeft = occluder.x / dpr;
         const winRight = (occluder.x + occluder.width) / dpr;
         const winCenterX = (winLeft + winRight) / 2;
-        // 角色在視窗左半 → peekSide='left'，移向右邊緣
-        // 角色在視窗右半 → peekSide='right'，移向左邊緣
+        // 角色在視窗左半 → 移向左邊緣（最近）→ peekSide='right'（身體留右側）
+        // 角色在視窗右半 → 移向右邊緣（最近）→ peekSide='left'（身體留左側）
         if (charCenterX <= winCenterX) {
-          this.peekSide = 'left';
-          this.hideEdgeTargetX = winRight - charW * 0.3;
-        } else {
           this.peekSide = 'right';
           this.hideEdgeTargetX = winLeft + charW * 0.3 - charW;
+        } else {
+          this.peekSide = 'left';
+          this.hideEdgeTargetX = winRight - charW * 0.3;
         }
         this.peekTargetHwnd = occluder.hwnd;
       } else {
@@ -778,8 +778,8 @@ export class StateMachine {
         if (targetWin) {
           const winLeft = targetWin.x / dpr;
           const winRight = (targetWin.x + targetWin.width) / dpr;
-          // peekSide='left'（身體在左）→ 移向視窗右邊緣
-          // peekSide='right'（身體在右）→ 移向視窗左邊緣
+          // peekSide='left'（身體在左）→ charRight 碰視窗右邊緣 → 移向右邊緣
+          // peekSide='right'（身體在右）→ charLeft 碰視窗左邊緣 → 移向左邊緣
           this.hideEdgeTargetX = this.peekSide === 'left'
             ? winRight - charW * 0.3
             : winLeft + charW * 0.3 - charW;
