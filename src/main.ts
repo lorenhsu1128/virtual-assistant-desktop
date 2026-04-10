@@ -541,14 +541,6 @@ async function initializeBehaviorSystem(
           sceneManager.setCurrentPosition({ x: cx, y: cy });
         });
         break;
-      case 'change_model':
-        ipc.pickVrmFile().then(async (p) => {
-          if (!p) return;
-          config.vrmModelPath = p;
-          await ipc.writeConfig(config);
-          window.location.reload();
-        });
-        break;
       case 'browse_models':
         ipc.openVrmPicker();
         break;

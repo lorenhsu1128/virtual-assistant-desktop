@@ -227,12 +227,6 @@ export class SystemTray {
 
     template.push({ type: 'separator' });
 
-    // 更換 VRM 模型
-    template.push({
-      label: '\u66f4\u63db VRM \u6a21\u578b',
-      click: () => this.emitAction('change_model'),
-    });
-
     // 瀏覽 VRM 模型...（自訂預覽對話框）
     template.push({
       label: '\u700f\u89bd VRM \u6a21\u578b...',
