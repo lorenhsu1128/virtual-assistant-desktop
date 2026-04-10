@@ -67,8 +67,6 @@ export class SceneManager {
   private previousPosition = { x: 0, y: 0 };
   /** 角色 bounding box 尺寸（螢幕像素，humanoid 骨骼 + 方向性擴展，排除 SpringBone） */
   private characterSize = { width: 300, height: 500 };
-  /** hips 骨骼相對於 currentPosition.x 的螢幕 X 偏移（每幀 VRM update 後更新） */
-  private cachedHipRelativeX: number | null = null;
   /** 螢幕原點（螢幕絕對座標，用於 screenToWorld，通常 = (0,0)） */
   private screenOrigin = { x: 0, y: 0 };
   /** workArea 原點（螢幕絕對座標，用於平面位置和活動範圍） */
@@ -603,14 +601,8 @@ export class SceneManager {
     this.lastFrameTime = now - (delta % targetInterval);
     const deltaTime = Math.min(delta / 1000, 0.1); // cap at 100ms to avoid spiral
 
-    // 每幀更新 characterSize（從 humanoid 骨骼核心尺寸）
-    const coreWorld = this.vrmController?.getCoreWorldSize();
-    if (coreWorld) {
-      this.characterSize = {
-        width: Math.round(coreWorld.width / this.pixelToWorld),
-        height: Math.round(coreWorld.height / this.pixelToWorld),
-      };
-    }
+    // characterSize 不在每幀更新（避免骨骼位置 jitter 導致定位搖擺）
+    // 僅在 setScale / setDisplayInfo 時透過 updateCharacterSize() 更新
     this.ratiosCachedThisFrame = false;
 
     // Debug 移動（Ctrl+方向鍵 global shortcut，debug mode 時有效）
@@ -734,13 +726,6 @@ export class SceneManager {
         this.peekAnchorOffsetX = 0;
       }
 
-      // 更新 hips 相對偏移快取（供下一幀 updateModelWorldPosition 使用）
-      const hipsWorld = this.vrmController.getBoneWorldPosition('hips');
-      if (hipsWorld) {
-        const hipScreenX = this.worldToScreen(hipsWorld.x, hipsWorld.y).x;
-        this.cachedHipRelativeX = hipScreenX - this.currentPosition.x;
-      }
-
       this.previousPosition.x = this.currentPosition.x;
       this.previousPosition.y = this.currentPosition.y;
     }
@@ -846,10 +831,8 @@ export class SceneManager {
 
   /** 從球座標更新攝影機位置（軌道中心跟隨模型） */
   private updateCameraFromOrbit(): void {
-    // 軌道中心 = 模型目前的世界座標（胸部高度），用 hips 相對偏移定位
-    const cx = this.cachedHipRelativeX !== null
-      ? this.currentPosition.x + this.cachedHipRelativeX
-      : this.currentPosition.x + this.characterSize.width / 2;
+    // 軌道中心 = 模型目前的世界座標（胸部高度）
+    const cx = this.currentPosition.x + this.characterSize.width / 2;
     const modelWorld = this.screenToWorld(
       cx,
       this.currentPosition.y + this.characterSize.height / 2,
@@ -1069,11 +1052,8 @@ export class SceneManager {
   private updateModelWorldPosition(): void {
     if (!this.vrmController) return;
 
-    // 水平定位：currentPosition.x + hips 相對偏移（穩定不隨 characterSize.width 搖擺）
-    // 首幀或 hips 不存在時 fallback 到 bbox center
-    const centerX = this.cachedHipRelativeX !== null
-      ? this.currentPosition.x + this.cachedHipRelativeX
-      : this.currentPosition.x + this.characterSize.width / 2;
+    // 水平定位：bounding box 中心
+    const centerX = this.currentPosition.x + this.characterSize.width / 2;
     // 垂直定位：bounding box 底邊（腳底）
     const bottomY = this.currentPosition.y + this.characterSize.height;
     const world = this.screenToWorld(centerX, bottomY);
