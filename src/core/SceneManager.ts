@@ -65,8 +65,10 @@ export class SceneManager {
   // 角色位置管理（全螢幕模式：角色在 canvas 內移動，視窗不動）
   private currentPosition = { x: 0, y: 0 };
   private previousPosition = { x: 0, y: 0 };
-  /** 角色 bounding box 尺寸（螢幕像素） */
+  /** 角色 bounding box 尺寸（螢幕像素，含 SpringBone） */
   private characterSize = { width: 300, height: 500 };
+  /** 角色核心尺寸（螢幕像素，排除 SpringBone，humanoid 骨骼 + 方向性擴展） */
+  private coreSize = { width: 200, height: 400 };
   /** 螢幕原點（螢幕絕對座標，用於 screenToWorld，通常 = (0,0)） */
   private screenOrigin = { x: 0, y: 0 };
   /** workArea 原點（螢幕絕對座標，用於平面位置和活動範圍） */
@@ -453,6 +455,23 @@ export class SceneManager {
     };
   }
 
+  /**
+   * 角色核心 bounding box（排除 SpringBone，以 characterBounds 中心為基準）
+   *
+   * 用 humanoid 骨骼 + 方向性擴展計算，不含頭髮/飾品/布料。
+   * 中心與 characterBounds 相同，尺寸較小。
+   */
+  getCoreCharacterBounds(): Rect {
+    const cx = this.currentPosition.x + this.characterSize.width / 2;
+    const cy = this.currentPosition.y + this.characterSize.height / 2;
+    return {
+      x: cx - this.coreSize.width / 2,
+      y: cy - this.coreSize.height / 2,
+      width: this.coreSize.width,
+      height: this.coreSize.height,
+    };
+  }
+
   /** 角色寬高比（3D 模型） */
   private charAspectRatio = 0.4;
   // screenLogicalHeight removed: fullscreen mode uses canvas dimensions directly
@@ -606,6 +625,15 @@ export class SceneManager {
     // 每幀快取模型尺寸（避免重複呼叫 getModelWorldSize 4 次）
     this.cachedModelSize = this.vrmController?.getModelWorldSize() ?? null;
     this.ratiosCachedThisFrame = false;
+
+    // 每幀更新核心尺寸快取
+    const coreWorld = this.vrmController?.getCoreWorldSize();
+    if (coreWorld) {
+      this.coreSize = {
+        width: Math.round(coreWorld.width / this.pixelToWorld),
+        height: Math.round(coreWorld.height / this.pixelToWorld),
+      };
+    }
 
     // Debug 移動（Ctrl+方向鍵 global shortcut，debug mode 時有效）
     if (this.debugMoveDir) {
@@ -770,20 +798,16 @@ export class SceneManager {
         height: this.characterSize.height,
       });
 
-      // 核心內框（排除 SpringBone）
-      const coreSize = this.vrmController?.getCoreWorldSize();
-      if (coreSize) {
-        const coreW = Math.round(coreSize.width / this.pixelToWorld);
-        const coreH = Math.round(coreSize.height / this.pixelToWorld);
-        this.debugOverlay.updateCoreCharacterBounds(
-          {
-            x: this.currentPosition.x + this.characterSize.width / 2,
-            y: this.currentPosition.y + this.characterSize.height / 2,
-          },
-          coreW,
-          coreH,
-        );
-      }
+      // 核心內框（排除 SpringBone，使用快取的 coreSize）
+      const coreBounds = this.getCoreCharacterBounds();
+      this.debugOverlay.updateCoreCharacterBounds(
+        {
+          x: this.currentPosition.x + this.characterSize.width / 2,
+          y: this.currentPosition.y + this.characterSize.height / 2,
+        },
+        coreBounds.width,
+        coreBounds.height,
+      );
 
       // hide 目標線
       const currentState = this.stateMachine?.getState();
