@@ -240,11 +240,25 @@ export class StateMachine {
       pos.x > sb.x + sb.width ||
       pos.y + ch < sb.y ||
       pos.y > sb.y + sb.height;
+
+    // walk 第一幀：把已接觸的 platform 加入忽略清單（避免從 idle 立即 sit）
+    if (this.stateTimer <= input.deltaTime * 1.5) {
+      const feetY0 = pos.y + ch;
+      const triggerY0 = input.hipScreenY ?? feetY0;
+      for (const platform of input.platforms) {
+        if (triggerY0 >= platform.screenY &&
+            pos.x + cw > platform.screenXMin &&
+            pos.x < platform.screenXMax) {
+          this.ignoredPlatforms.add(platform.id);
+        }
+      }
+    }
+
     if (this.sitCooldown <= 0 && !isOutsideScreen && !this.pendingHide && !this.exitingPeek) {
       const feetY = pos.y + ch;
       const triggerY = input.hipScreenY ?? feetY;
       for (const platform of input.platforms) {
-        // 已忽略的 platform（本次 walk 已拒絕坐下）不再重複判定
+        // 已忽略的 platform（本次 walk 已拒絕坐下或進入時已接觸）不再重複判定
         if (this.ignoredPlatforms.has(platform.id)) continue;
         if (triggerY >= platform.screenY &&
             input.currentPosition.x + input.characterBounds.width > platform.screenXMin &&
