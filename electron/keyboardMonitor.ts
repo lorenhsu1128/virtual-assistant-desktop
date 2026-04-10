@@ -8,6 +8,10 @@
  * 載入失敗時優雅降級（isTyping 永遠為 false）。
  */
 
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+
 /** typing 狀態變化 callback */
 export type TypingStateCallback = (isTyping: boolean) => void;
 
@@ -36,8 +40,7 @@ export class KeyboardMonitor {
     this.started = true;
 
     try {
-      // 動態 import uiohook-napi（native addon，macOS/Windows 皆支援）
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      // 動態載入 uiohook-napi（native addon，macOS/Windows 皆支援）
       const { uIOhook } = require('uiohook-napi');
       this.uIOhook = uIOhook;
 
