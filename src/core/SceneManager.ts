@@ -1366,6 +1366,7 @@ export class SceneManager {
     const logicalRects = this.cachedWindowRects.map((r) => ({
       hwnd: r.hwnd,
       zOrder: r.zOrder,
+      isForeground: r.isForeground === true,
       left: r.x / dpr,
       top: r.y / dpr,
       right: (r.x + r.width) / dpr,
@@ -1387,9 +1388,12 @@ export class SceneManager {
       if (lr.top < minSittableTop) continue;
 
       // 計算露出區段：從完整頂部邊緣 [left, right] 扣除更上層視窗的覆蓋
+      // 跳過前景視窗作為 occluder：桌寵永遠 always-on-top，
+      // 前景視窗（通常正在被拖動）不應使其他視窗的 platform 消失
       const occIntervals: Array<{ start: number; end: number }> = [];
       for (const other of logicalRects) {
         if (other.hwnd === lr.hwnd || other.zOrder >= lr.zOrder) continue;
+        if (other.isForeground) continue;
         if (other.top <= lr.top && other.bottom > lr.top) {
           const overlapLeft = Math.max(other.left, lr.left);
           const overlapRight = Math.min(other.right, lr.right);
@@ -1473,9 +1477,11 @@ export class SceneManager {
         const edgeX = edgeSide === 'left' ? lr.left : lr.right;
 
         // 遮擋過濾：收集覆蓋此邊緣的更上層視窗垂直區間
+        // 同 platform 邏輯，跳過前景視窗作為 occluder
         const edgeOccIntervals: Array<{ start: number; end: number }> = [];
         for (const other of logicalRects) {
           if (other.hwnd === lr.hwnd || other.zOrder >= lr.zOrder) continue;
+          if (other.isForeground) continue;
           if (other.left <= edgeX && other.right >= edgeX) {
             const overlapTop = Math.max(other.top, lr.top);
             const overlapBot = Math.min(other.bottom, lr.bottom);

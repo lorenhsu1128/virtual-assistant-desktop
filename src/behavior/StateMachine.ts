@@ -657,6 +657,14 @@ export class StateMachine {
               y: sitY - input.characterBounds.height,
             };
           }
+          // Platform 被暫時移除（例如前景視窗遮擋導致 rebuild 時過濾），
+          // 維持當前位置不動，避免 null 導致坐姿跳動
+          if (this.attachedWindowHwnd !== null) {
+            const windowExists = input.windowRects.some((w) => w.hwnd === this.attachedWindowHwnd);
+            if (windowExists) {
+              return { x: input.currentPosition.x, y: input.currentPosition.y };
+            }
+          }
         }
         return null;
       }
