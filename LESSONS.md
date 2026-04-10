@@ -183,17 +183,22 @@
 - **受影響檔案**：`src/animation/AnimationManager.ts` (`startTransition`)
 - **根因記憶**：只要模組用 `mixer.clipAction(clip)` 並且會在 A/B 之間頻繁切換，就要假設「previous action」和「new action」可能是同一個 JS instance。任何「stop previous」、「fade out previous」類型的邏輯都要先檢查是否會誤傷 new action。特別是三連（或多連）轉換時，前一個 transition 的 oldAction 可能就是本次的 newAction
 
-### [2026-04-09] `[跨平台]` — MediaPipe Pose Landmarker world z 方向與 image z 相反
+### [2026-04-09] `[跨平台]` — ⚠️ ERRATA：HybrIK-TS 座標慣例修正是基於推理而非實測，**被證偽**
 
-- **錯誤**：Phase 5b HybrIK-TS 的 `mediaPipeWorldToSmpl` 實作為 `(lm.x, -lm.y, -lm.z)`，依據「image-z 慣例：closer to camera = negative z」推理 SMPL +Z（主體前方）對應 -MP z。實測推箱子影片第一幀，人物前傾推箱卻被解成**後仰 + 雙臂上舉**
-- **根因**：MediaPipe Pose Landmarker 用 **GHUM 模型**輸出的 world 3D 座標，官方文件只說「hip-centered 公尺」，未明確規範 z 方向。實測發現 GHUM 輸出的 z **與 image z 相反** — **主體前方 = +z**（不是 -z）。因此我原本對 z 的翻轉剛好做反：原本前傾時 spine1 target 在 pelvis +Z（前方），被翻成 -Z（後方），pelvis 的 two-axis fit 把軀幹向後旋轉 → 後仰。手臂從「後仰的胸部 +Z 方向」延伸，在世界座標投影為「向上」
-- **正確做法**：`mediaPipeWorldToSmpl` 只翻 y（image y-down → SMPL y-up），**x 與 z 保持原值**。修正為 `out.set(lm.x, -lm.y, lm.z)`
-- **受影響檔案**：`src/mocap/hybrik/LandmarkToSmplJoint.ts`（`mediaPipeWorldToSmpl` 與內部 helper `avgToSmpl`）、`tests/unit/hybrikSolver.test.ts`
-- **根因記憶**：MediaPipe 有兩個 3D 概念且方向不同：
-  1. **image-space z**（NormalizedLandmark.z）：closer to camera = negative / smaller
-  2. **world-space z**（Landmark from worldLandmarks）：主體面前 = positive
-  兩者千萬不能混用。y 方向兩者倒是一致（都是 image-y-down 延伸）。
-  偵錯類似「IK 輸出整體鏡像 / 軸向倒錯」問題時，**用已知姿態影片逐幀肉眼檢查**比推理快；同步加一個 regression test（前傾軀幹 → SMPL z 應 > 0）防止回歸
+> 此條目標記為 **ERRATA**。原本記錄「MP world z 與 image z 方向相反」的結論是**基於推理**（第一次觀察後仰，第二次觀察 arms-up），但兩次 transform 嘗試 `(x,-y,-z)` → `(x,-y,z)` 都沒有真正解決問題。更正確的做法是**用實測數據驗證**，不是用文件 + 推理。
+
+- **原始錯誤歷程**：
+  1. Phase 5b 首版：`(lm.x, -lm.y, -lm.z)` — 依 image-z 慣例推理，實測顯示人物前傾被解成後仰 + arms-up
+  2. Phase 5d 第一次修正：改為 `(lm.x, -lm.y, lm.z)` — 反推後解 z 方向，實測仍錯
+  3. 發現單純翻 z 解決不了：**可能 x 軸方向、rest pose、或更深層問題**
+- **正確做法**：**診斷優先、修正在後**。不要繼續用肉眼 + 推理猜 MediaPipe GHUM world 座標慣例：
+  1. 在 HybrikTsEngine 加第一幀 console.log，dump raw MP 世界座標（head / shoulder / hip / wrist / ankle 的 x y z）
+  2. 用已知姿勢影片（站立面對鏡頭）跑一次，肉眼觀察 `head y` vs `foot y` 判斷 y 軸方向；`hand z` vs `hip z` 判斷 z 軸方向
+  3. 根據**實測值**寫 transform，不要根據文件或推理
+- **受影響檔案**：`src/mocap/engines/HybrikTsEngine.ts`（`logFirstFrameDiagnostics`）、`src/mocap/hybrik/LandmarkToSmplJoint.ts`、`tests/unit/hybrikSolver.test.ts`
+- **根因記憶**：**任何第三方座標慣例，在沒有實測數據前不要猜**。MediaPipe Pose Landmarker GHUM 輸出的 world 座標慣例，官方文件沒寫清楚，社群討論也不一致。用 console.log 實測值再寫 transform。犯過兩次相反方向的錯誤才學到這個教訓 — 若早知道「先加診斷」能省兩次 iteration。
+
+  另外：除了座標慣例，還要檢查「VRM bind pose 是否透過 `getNormalizedBoneNode` 存取」（已確認）；「SMPL primary target 映射是否正確」；「rest pose T-pose 與 VRM 1.0 canonical 是否一致」（已確認）。多層可能的 bug，只從症狀很難定位，需要**逐層打 log**。
 
 ### [2026-04-09] `[跨平台]` — HybrIK-TS swing-only IK 無法決定 bone twist
 

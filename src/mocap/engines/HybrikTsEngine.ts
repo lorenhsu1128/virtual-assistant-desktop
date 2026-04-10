@@ -28,10 +28,13 @@
  */
 
 import { PoseRunner } from '../mediapipe/PoseRunner';
-import type { PoseLandmarks } from '../mediapipe/types';
+import type { PoseLandmark, PoseLandmarks } from '../mediapipe/types';
 import type { SmplTrack } from '../types';
 import { buildSmplTrackFromLandmarks, type LandmarksFrame } from '../hybrik/buildSmplTrackFromLandmarks';
+import { landmarksToSmplJointPositions } from '../hybrik/LandmarkToSmplJoint';
+import { solveSmplFromJointPositions } from '../hybrik/SolverCore';
 import { seekVideoTo } from './videoFrameSeeker';
+import { SMPL_JOINT_NAMES } from '../smpl/SmplSkeleton';
 
 /** 解算過程中呼叫的進度回報，ratio ∈ [0, 1] */
 export type ProgressCallback = (ratio: number) => void;
@@ -133,6 +136,11 @@ export class HybrikTsEngine {
       }
       landmarksFrames[i] = lm;
 
+      // Phase 5d+ 診斷：第一幀 dump raw MP / SMPL / solver axis-angles
+      if (i === 0 && lm) {
+        logFirstFrameDiagnostics(lm);
+      }
+
       if (options.onProgress && (i % PROGRESS_EVERY_N_FRAMES === 0 || i === frameCount - 1)) {
         options.onProgress((i + 1) / frameCount);
       }
@@ -151,4 +159,120 @@ export class HybrikTsEngine {
     }
     this.initialized = false;
   }
+}
+
+// ═══════════════════════════════════════════════════════════
+// 診斷工具（Phase 5d+）
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * MediaPipe 33 個 landmark 中的關鍵點索引與語意名稱
+ * 供第一幀 dump 使用，便於肉眼辨認實際座標方向
+ */
+const DIAG_KEYPOINTS: ReadonlyArray<readonly [number, string]> = [
+  [0, 'nose'],
+  [11, 'L_shoulder'],
+  [12, 'R_shoulder'],
+  [13, 'L_elbow'],
+  [14, 'R_elbow'],
+  [15, 'L_wrist'],
+  [16, 'R_wrist'],
+  [23, 'L_hip'],
+  [24, 'R_hip'],
+  [25, 'L_knee'],
+  [26, 'R_knee'],
+  [27, 'L_ankle'],
+  [28, 'R_ankle'],
+];
+
+const DIAG_SMPL_JOINTS: ReadonlyArray<number> = [
+  0,  // pelvis
+  3,  // spine1
+  12, // neck
+  15, // head
+  16, // leftShoulder (upper arm)
+  18, // leftElbow (lower arm)
+  20, // leftWrist
+  1,  // leftHip
+  4,  // leftKnee
+  7,  // leftAnkle
+];
+
+/** 格式化一個浮點數為 4 位小數 */
+function fmt(n: number): string {
+  return n.toFixed(4).padStart(8);
+}
+
+/** 一個 PoseLandmark 印成單行字串 */
+function formatLandmark(lm: PoseLandmark): string {
+  return `x=${fmt(lm.x)} y=${fmt(lm.y)} z=${fmt(lm.z)}  vis=${lm.visibility.toFixed(2)}`;
+}
+
+/**
+ * 印出第一幀診斷訊息到 console
+ *
+ * 目的：把 MediaPipe 實際輸出的 world landmark 值、經過 mediaPipeWorldToSmpl
+ * 轉換後的 SMPL 位置、以及 HybrIK solver 輸出的 axis-angle 全部 dump 出來，
+ * 以便肉眼比對「預期方向」vs「實際方向」，精準定位座標系 / solver 的錯誤。
+ *
+ * 只在第一幀呼叫一次，不會 spam console。
+ */
+function logFirstFrameDiagnostics(lm: PoseLandmarks): void {
+  /* eslint-disable no-console */
+  const world = lm.world;
+  if (!world || world.length < 33) {
+    console.warn('[HybrIK diag] first frame world landmarks missing');
+    return;
+  }
+
+  console.group('%c[HybrIK diag] First frame dump', 'color:#7ac; font-weight:bold');
+
+  // ── 1. Raw MediaPipe world landmarks（關鍵點）──
+  console.group('1. Raw MediaPipe world landmarks (meters, hip-centered)');
+  console.log('Hint: 站立面向鏡頭時，觀察 head/foot 的 y 值誰大誰小 → 判斷 y 上/下；');
+  console.log('      手部/臉部的 z 值比 hip 大還小 → 判斷 z 前/後');
+  for (const [idx, name] of DIAG_KEYPOINTS) {
+    const p = world[idx];
+    if (p) {
+      console.log(`  [${String(idx).padStart(2)}] ${name.padEnd(12)}  ${formatLandmark(p)}`);
+    }
+  }
+  console.groupEnd();
+
+  // ── 2. Transformed SMPL positions ──
+  const smplPositions = landmarksToSmplJointPositions(world);
+  console.group('2. After mediaPipeWorldToSmpl → SMPL positions');
+  console.log('Hint: SMPL +Y 應該是「上」、+X 應該是「主體左側」、+Z 應該是「主體前方」');
+  for (const jIdx of DIAG_SMPL_JOINTS) {
+    const p = smplPositions[jIdx];
+    const n = SMPL_JOINT_NAMES[jIdx];
+    console.log(
+      `  [${String(jIdx).padStart(2)}] ${n.padEnd(14)}  x=${fmt(p.x)} y=${fmt(p.y)} z=${fmt(p.z)}`,
+    );
+  }
+  console.groupEnd();
+
+  // ── 3. Solver output axis-angles ──
+  const solveResult = solveSmplFromJointPositions(smplPositions);
+  console.group('3. HybrIK solver output axis-angles (radians)');
+  console.log('Hint: 每個 joint 顯示 [ax, ay, az]，向量長度 = 旋轉角度；');
+  console.log('      若 pelvis rotation 近零但身體該前傾 → 兩軸擬合有問題');
+  for (const jIdx of DIAG_SMPL_JOINTS) {
+    const aa = solveResult.axisAngles[jIdx];
+    const mag = Math.sqrt(aa[0] * aa[0] + aa[1] * aa[1] + aa[2] * aa[2]);
+    const n = SMPL_JOINT_NAMES[jIdx];
+    console.log(
+      `  [${String(jIdx).padStart(2)}] ${n.padEnd(14)}  ` +
+        `[${fmt(aa[0])}, ${fmt(aa[1])}, ${fmt(aa[2])}]  |aa|=${mag.toFixed(4)} (${((mag * 180) / Math.PI).toFixed(1)}°)`,
+    );
+  }
+  console.groupEnd();
+
+  // ── 4. Root translation ──
+  console.log(
+    `4. Root translation: [${solveResult.rootTranslation.map(fmt).join(', ')}]`,
+  );
+
+  console.groupEnd();
+  /* eslint-enable no-console */
 }

@@ -451,6 +451,26 @@ export class MocapStudioApp {
     // 1. 生成 SMPL track
     const track = generateLeftArmRaiseFixture(30, 2.0);
 
+    // Phase 5d+ 診斷：dump fixture 的最後一幀（動作完成狀態）axis-angles
+    // 供使用者比對 fixture 路徑 vs HybrIK 路徑，若 fixture 正常但 HybrIK 錯，
+    // 則問題在 MP→SMPL；若兩者都錯，則問題在 SMPL→VRM
+    /* eslint-disable no-console */
+    console.group('%c[Fixture diag] leftArmRaise final frame', 'color:#7ca; font-weight:bold');
+    const lastFrame = track.frames[track.frameCount - 1];
+    console.log('Hint: 預期 VRM 顯示「左手臂舉起 + 手肘彎曲」');
+    const keyIndices = [0, 3, 12, 16, 18, 20] as const;
+    for (const j of keyIndices) {
+      const aa = lastFrame[j];
+      const mag = Math.sqrt(aa[0] ** 2 + aa[1] ** 2 + aa[2] ** 2);
+      console.log(
+        `  [${String(j).padStart(2)}] joint ${j}  ` +
+          `[${aa[0].toFixed(4)}, ${aa[1].toFixed(4)}, ${aa[2].toFixed(4)}]  ` +
+          `|aa|=${mag.toFixed(4)} (${((mag * 180) / Math.PI).toFixed(1)}°)`,
+      );
+    }
+    console.groupEnd();
+    /* eslint-enable no-console */
+
     // 2. 跑下游 pipeline
     this.mocapFrames = buildMocapFrames(track, availableBones, {
       filter: { minCutoff: 2.0, beta: 0.5 },
