@@ -160,7 +160,9 @@ export class WindowMeshManager {
       colorWrite: false,
       depthWrite: true,
       side: THREE.DoubleSide,
-      stencilWrite: false,
+      // stencilWrite 必須為 true 才能啟用 GL_STENCIL_TEST（Three.js 行為）
+      // 全部 op 設 KEEP → 只測試不寫入
+      stencilWrite: true,
       stencilRef: 1,
       stencilFunc: THREE.NotEqualStencilFunc,
       stencilFail: THREE.KeepStencilOp,
