@@ -211,7 +211,7 @@ function makeLandmarks(
 }
 
 describe('LandmarkToSmplJoint', () => {
-  it('mediaPipeWorldToSmpl flips Y and Z, preserves X', () => {
+  it('mediaPipeWorldToSmpl (legacy) flips Y and Z, preserves X', () => {
     const out = new THREE.Vector3();
     mediaPipeWorldToSmpl({ x: 1, y: 2, z: 3, visibility: 1 }, out);
     expect(out.x).toBe(1);
@@ -219,26 +219,70 @@ describe('LandmarkToSmplJoint', () => {
     expect(out.z).toBe(-3);
   });
 
-  it('forward-leaning torso in MP space produces forward-leaning body in SMPL', () => {
-    // 模擬前傾：hip 在原點，shoulders 在 (x, y=-0.4, z=-0.3)
-    // MP y 下為正 → y=-0.4 代表上方
-    // MP z 後為正 → z=-0.3 代表前方（closer to camera = negative）
-    // 實測驗證（2026-04-10 推箱子影片 shoulder z=-0.44 代表前傾方向）
+  it('body-frame: pelvis is at origin', () => {
+    // 任意 MP 座標系的軀幹四點，pelvis 應在 (0,0,0)
     const lms: PoseLandmark[] = Array.from({ length: 33 }, () => ({
-      x: 0,
-      y: 0,
-      z: 0,
-      visibility: 1,
+      x: 0, y: 0, z: 0, visibility: 1,
     }));
-    lms[23] = { x: 0.08, y: 0, z: 0, visibility: 1 }; // leftHip
-    lms[24] = { x: -0.08, y: 0, z: 0, visibility: 1 }; // rightHip
-    lms[11] = { x: 0.15, y: -0.4, z: -0.3, visibility: 1 }; // leftShoulder 上+前（MP z 負=前）
-    lms[12] = { x: -0.15, y: -0.4, z: -0.3, visibility: 1 }; // rightShoulder
-
+    lms[23] = { x: 0.1, y: 5, z: -3, visibility: 1 }; // leftHip
+    lms[24] = { x: -0.1, y: 5, z: -3, visibility: 1 }; // rightHip
+    lms[11] = { x: 0.15, y: 4.5, z: -3, visibility: 1 }; // leftShoulder
+    lms[12] = { x: -0.15, y: 4.5, z: -3, visibility: 1 }; // rightShoulder
     const positions = landmarksToSmplJointPositions(lms);
-    // neck (index 12) = avg(shoulders), pelvis (index 0) = avg(hips)
-    expect(positions[12].y).toBeGreaterThan(positions[0].y); // 軀幹向上
-    expect(positions[12].z).toBeGreaterThan(positions[0].z); // 軀幹向前 (-(-0.3) = +0.3 > 0)
+    expect(positions[0].x).toBeCloseTo(0, 5);
+    expect(positions[0].y).toBeCloseTo(0, 5);
+    expect(positions[0].z).toBeCloseTo(0, 5);
+  });
+
+  it('body-frame: neck is directly above pelvis (pure +Y)', () => {
+    // 任意 MP 座標，只要 shoulders 在 hips 正上方（沿軀幹軸），
+    // body-frame 就會把 neck 放在 pelvis 正上方（pure +Y）
+    const lms: PoseLandmark[] = Array.from({ length: 33 }, () => ({
+      x: 0, y: 0, z: 0, visibility: 1,
+    }));
+    lms[23] = { x: 0.08, y: 0, z: 0, visibility: 1 };
+    lms[24] = { x: -0.08, y: 0, z: 0, visibility: 1 };
+    lms[11] = { x: 0.15, y: -0.5, z: 0, visibility: 1 };
+    lms[12] = { x: -0.15, y: -0.5, z: 0, visibility: 1 };
+    const positions = landmarksToSmplJointPositions(lms);
+    expect(positions[12].y).toBeGreaterThan(0.3); // neck above pelvis
+    expect(Math.abs(positions[12].x)).toBeLessThan(0.01); // centered
+    expect(Math.abs(positions[12].z)).toBeLessThan(0.01); // no forward offset
+  });
+
+  it('body-frame: leftHip is at positive X (subject left)', () => {
+    const lms: PoseLandmark[] = Array.from({ length: 33 }, () => ({
+      x: 0, y: 0, z: 0, visibility: 1,
+    }));
+    lms[23] = { x: 0.08, y: 0, z: 0, visibility: 1 };
+    lms[24] = { x: -0.08, y: 0, z: 0, visibility: 1 };
+    lms[11] = { x: 0.15, y: -0.5, z: 0, visibility: 1 };
+    lms[12] = { x: -0.15, y: -0.5, z: 0, visibility: 1 };
+    const positions = landmarksToSmplJointPositions(lms);
+    expect(positions[1].x).toBeGreaterThan(0); // leftHip at positive X
+    expect(positions[2].x).toBeLessThan(0);    // rightHip at negative X
+  });
+
+  it('body-frame: arm extended forward → elbow/wrist at positive Z', () => {
+    // 模擬：手臂向前伸（沿 MP 任意方向），body-frame 應將其放在 +Z
+    const lms: PoseLandmark[] = Array.from({ length: 33 }, () => ({
+      x: 0, y: 0, z: 0, visibility: 0,
+    }));
+    // 軀幹在 Y 軸上（直立，MP 的 y 方向任意）
+    lms[23] = { x: 0.08, y: 0, z: 0, visibility: 1 };
+    lms[24] = { x: -0.08, y: 0, z: 0, visibility: 1 };
+    lms[11] = { x: 0.15, y: -0.5, z: 0, visibility: 1 };
+    lms[12] = { x: -0.15, y: -0.5, z: 0, visibility: 1 };
+    // 手肘在肩膀前方（MP: z 方向負 = 靠近鏡頭，但 body-frame 不管方向）
+    // 這裡讓 elbow 在 shoulder 的「前方」= 沿 body-forward 軸
+    // body-forward = cross(bodyLeft, bodyUp). bodyUp = (0, -1, 0) normalized (MP y down).
+    // bodyLeft = leftHip - rightHip = (0.16, 0, 0) → (1, 0, 0).
+    // bodyForward = cross((1,0,0), (0,-1,0)) = (0*0 - 0*(-1), 0*1 - 1*0, 1*(-1) - 0*0) = (0, 0, -1)
+    // So body-forward = (0, 0, -1) in MP coords → elbow z = shoulder z - 0.3 = 0 - 0.3 = -0.3
+    lms[13] = { x: 0.15, y: -0.5, z: -0.3, visibility: 1 }; // leftElbow forward
+    const positions = landmarksToSmplJointPositions(lms);
+    // In body-frame, leftElbow should have z > 0 (forward in SMPL)
+    expect(positions[18].z).toBeGreaterThan(0.2);
   });
 
   it('returns rest pose when all landmarks invisible', () => {
@@ -251,7 +295,7 @@ describe('LandmarkToSmplJoint', () => {
     expect(positions[0].z).toBeCloseTo(0, 6);
   });
 
-  it('pelvis = average of left/right hips (in SMPL frame)', () => {
+  it('body-frame: pelvis at origin regardless of MP coordinates', () => {
     const lms = makeLandmarks((i) => {
       if (i === 23) return [0.1, -0.9, 0]; // leftHip
       if (i === 24) return [-0.1, -0.9, 0]; // rightHip
@@ -260,22 +304,23 @@ describe('LandmarkToSmplJoint', () => {
       return [0, 0, 0];
     });
     const positions = landmarksToSmplJointPositions(lms);
-    // SMPL pelvis = avg(lh, rh) with Y flipped
-    expect(positions[0].x).toBeCloseTo(0, 5);
-    expect(positions[0].y).toBeCloseTo(0.9, 5); // -(-0.9)
-    expect(positions[0].z).toBeCloseTo(0, 5);
+    // body-frame: pelvis (hipMid) 是原點
+    expect(positions[0].x).toBeCloseTo(0, 4);
+    expect(positions[0].y).toBeCloseTo(0, 4);
+    expect(positions[0].z).toBeCloseTo(0, 4);
   });
 
-  it('neck sits above pelvis when torso visible', () => {
+  it('body-frame: neck always above pelvis', () => {
+    // 任何 MP 座標系下，只要 shoulders 和 hips 可見，
+    // body-frame 中 neck 就在 pelvis 正上方（bodyUp 方向 = +Y）
     const lms = makeLandmarks((i) => {
-      if (i === 23) return [0.1, 0.5, 0]; // leftHip (MP y=0.5 → SMPL y=-0.5)
+      if (i === 23) return [0.1, 0.5, 0]; // leftHip
       if (i === 24) return [-0.1, 0.5, 0]; // rightHip
-      if (i === 11) return [0.1, -0.3, 0]; // leftShoulder (MP y=-0.3 → SMPL y=0.3)
+      if (i === 11) return [0.1, -0.3, 0]; // leftShoulder
       if (i === 12) return [-0.1, -0.3, 0]; // rightShoulder
       return [0, 0, 0];
     });
     const positions = landmarksToSmplJointPositions(lms);
-    // neck y 應 > pelvis y
     expect(positions[12].y).toBeGreaterThan(positions[0].y);
   });
 
@@ -425,26 +470,33 @@ describe('solveSmplFromJointPositions', () => {
 // ═══════════════════════════════════════════════════════════
 
 describe('buildSmplTrackFromLandmarks', () => {
-  /** 從 rest pose 構造一組完整 MediaPipe-like landmarks（SMPL→MP 反轉） */
+  /**
+   * 從 SMPL rest pose 構造 MP-like landmarks
+   *
+   * body-frame normalization 版：由於 body-frame 從軀幹四點推導座標系，
+   * 只要 MP landmark 在「一個一致的座標系」內且軀幹四點可見，
+   * landmarksToSmplJointPositions 就能正確投影。
+   *
+   * 這裡直接使用 SMPL rest 座標當作「MP 座標」（沒有翻轉），
+   * body-frame 會自動建立正確基底。
+   */
   function makeRestPoseLandmarks(): PoseLandmarks {
     const lm: PoseLandmark[] = new Array(33);
-    // 預設低可見度，避免未填入的點誤觸發 (0,0,0) 輸入
     for (let i = 0; i < 33; i++) {
       lm[i] = { x: 0, y: 0, z: 0, visibility: 0 };
     }
-    // SMPL→MediaPipe 反轉：mp = (smpl.x, -smpl.y, -smpl.z)
-    // 翻 y 與 z（mediaPipeWorldToSmpl 的逆運算）
+    // 直接用 SMPL rest 座標當 MP 座標（body-frame 不在乎 MP 慣例）
     const fromSmpl = (smplIdx: number): PoseLandmark => {
       const p = SMPL_REST_POSITIONS[smplIdx];
-      return { x: p.x, y: -p.y, z: -p.z, visibility: 1 };
+      return { x: p.x, y: p.y, z: p.z, visibility: 1 };
     };
     const avgSmpl = (a: number, b: number): PoseLandmark => {
       const pa = SMPL_REST_POSITIONS[a];
       const pb = SMPL_REST_POSITIONS[b];
       return {
         x: (pa.x + pb.x) * 0.5,
-        y: -(pa.y + pb.y) * 0.5,
-        z: -(pa.z + pb.z) * 0.5,
+        y: (pa.y + pb.y) * 0.5,
+        z: (pa.z + pb.z) * 0.5,
         visibility: 1,
       };
     };
