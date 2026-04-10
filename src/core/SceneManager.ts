@@ -65,10 +65,8 @@ export class SceneManager {
   // 角色位置管理（全螢幕模式：角色在 canvas 內移動，視窗不動）
   private currentPosition = { x: 0, y: 0 };
   private previousPosition = { x: 0, y: 0 };
-  /** 角色 bounding box 尺寸（螢幕像素，含 SpringBone） */
+  /** 角色 bounding box 尺寸（螢幕像素，humanoid 骨骼 + 方向性擴展，排除 SpringBone） */
   private characterSize = { width: 300, height: 500 };
-  /** 角色核心尺寸（螢幕像素，排除 SpringBone，humanoid 骨骼 + 方向性擴展） */
-  private coreSize = { width: 200, height: 400 };
   /** 螢幕原點（螢幕絕對座標，用於 screenToWorld，通常 = (0,0)） */
   private screenOrigin = { x: 0, y: 0 };
   /** workArea 原點（螢幕絕對座標，用於平面位置和活動範圍） */
@@ -115,8 +113,6 @@ export class SceneManager {
   /** 拖曳後維持最上方，直到前景視窗改變時清除 */
   private forceTopAfterDrag = false;
   private lastForegroundHwnd: number | null = null;
-  /** 每幀快取的模型尺寸（避免重複呼叫 getModelWorldSize） */
-  private cachedModelSize: { width: number; height: number } | null = null;
   /** 每幀快取的遮擋/螢幕外比率（避免重複計算） */
   private cachedOcclusionRatio = 0;
   private cachedOffScreenRatio = 0;
@@ -455,23 +451,6 @@ export class SceneManager {
     };
   }
 
-  /**
-   * 角色核心 bounding box（排除 SpringBone，以 characterBounds 中心為基準）
-   *
-   * 用 humanoid 骨骼 + 方向性擴展計算，不含頭髮/飾品/布料。
-   * 中心與 characterBounds 相同，尺寸較小。
-   */
-  getCoreCharacterBounds(): Rect {
-    const cx = this.currentPosition.x + this.characterSize.width / 2;
-    const cy = this.currentPosition.y + this.characterSize.height / 2;
-    return {
-      x: cx - this.coreSize.width / 2,
-      y: cy - this.coreSize.height / 2,
-      width: this.coreSize.width,
-      height: this.coreSize.height,
-    };
-  }
-
   /** 角色寬高比（3D 模型） */
   private charAspectRatio = 0.4;
   // screenLogicalHeight removed: fullscreen mode uses canvas dimensions directly
@@ -622,18 +601,15 @@ export class SceneManager {
     this.lastFrameTime = now - (delta % targetInterval);
     const deltaTime = Math.min(delta / 1000, 0.1); // cap at 100ms to avoid spiral
 
-    // 每幀快取模型尺寸（避免重複呼叫 getModelWorldSize 4 次）
-    this.cachedModelSize = this.vrmController?.getModelWorldSize() ?? null;
-    this.ratiosCachedThisFrame = false;
-
-    // 每幀更新核心尺寸快取
+    // 每幀更新 characterSize（從 humanoid 骨骼核心尺寸）
     const coreWorld = this.vrmController?.getCoreWorldSize();
     if (coreWorld) {
-      this.coreSize = {
+      this.characterSize = {
         width: Math.round(coreWorld.width / this.pixelToWorld),
         height: Math.round(coreWorld.height / this.pixelToWorld),
       };
     }
+    this.ratiosCachedThisFrame = false;
 
     // Debug 移動（Ctrl+方向鍵 global shortcut，debug mode 時有效）
     if (this.debugMoveDir) {
@@ -797,17 +773,6 @@ export class SceneManager {
         width: this.characterSize.width,
         height: this.characterSize.height,
       });
-
-      // 核心內框（排除 SpringBone，使用快取的 coreSize）
-      const coreBounds = this.getCoreCharacterBounds();
-      this.debugOverlay.updateCoreCharacterBounds(
-        {
-          x: this.currentPosition.x + this.characterSize.width / 2,
-          y: this.currentPosition.y + this.characterSize.height / 2,
-        },
-        coreBounds.width,
-        coreBounds.height,
-      );
 
       // hide 目標線
       const currentState = this.stateMachine?.getState();
@@ -1095,44 +1060,7 @@ export class SceneManager {
 
     // 根據行為狀態決定角色 Z 深度
     this.currentCharacterZ = this.resolveCharacterZ(this.lastBehaviorOutput);
-    let finalZ = this.currentCharacterZ;
-
-    // sit 狀態：補償 hip 骨骼的 3D 偏移，讓 hips 對齊到 (world.x, world.y, currentCharacterZ)
-    //
-    // 為什麼要補償三軸：某些 sit .vrma 動畫（如 SYS_SIT_01/02）的 hip translation
-    // 包含大幅 Z 位移（例如 +1.25m），且模型 rotation 為 0 時這個位移會直接套到世界 Z，
-    // 把 hips 推到 z=9.75，靠近 camera near plane (9.9)，導致前方部位（胸/頭/手）被切掉。
-    // 補償後 hips 永遠在 currentCharacterZ（預設 8.5），距 camera 1.5m，安全。
-    if (this.stateMachine?.getState() === 'sit') {
-      const hipOffset = this.vrmController.getHipsRelativeOffset();
-      if (hipOffset) {
-        world.x -= hipOffset.x;
-        world.y -= hipOffset.y;
-        finalZ -= hipOffset.z;
-      }
-      // 診斷：捕捉異常座標（NaN/Infinity 或超出 ±100 世界單位）
-      if (
-        !Number.isFinite(world.x) ||
-        !Number.isFinite(world.y) ||
-        !Number.isFinite(finalZ) ||
-        Math.abs(world.y) > 100 ||
-        Math.abs(world.x) > 100
-      ) {
-        console.warn('[SceneManager] sit state abnormal world pos:', {
-          currentPosition: { ...this.currentPosition },
-          characterSize: { ...this.characterSize },
-          cachedModelSize: this.cachedModelSize,
-          bottomY: this.currentPosition.y + this.characterSize.height,
-          worldX: world.x,
-          worldY: world.y,
-          finalZ,
-          hipOffset,
-          pixelToWorld: this.pixelToWorld,
-          attachedHwnd: this.lastBehaviorOutput?.attachedWindowHwnd ?? null,
-          sitPlatformId: this.stateMachine.sitPlatformId,
-        });
-      }
-    }
+    const finalZ = this.currentCharacterZ;
 
     this.vrmController.setWorldPosition(world.x, world.y, finalZ);
   }
@@ -1234,24 +1162,20 @@ export class SceneManager {
 
   /** 角色超出 workArea 的方向（可見部分 < 20% 時回傳方向，否則 null） */
   private getOffScreenDirection(): string | null {
-    if (!this.vrmController) return null;
-    const modelSize = this.cachedModelSize;
-    if (!modelSize) return null;
-
-    const actualW = modelSize.width / this.pixelToWorld;
-    const actualH = modelSize.height / this.pixelToWorld;
-    const charArea = actualW * actualH;
+    const w = this.characterSize.width;
+    const h = this.characterSize.height;
+    const charArea = w * h;
     if (charArea <= 0) return null;
 
-    const cx = this.currentPosition.x + this.characterSize.width / 2;
-    const cy = this.currentPosition.y + this.characterSize.height / 2;
-    const modelLeft = cx - actualW / 2;
-    const modelTop = cy - actualH / 2;
+    const cx = this.currentPosition.x + w / 2;
+    const cy = this.currentPosition.y + h / 2;
+    const left = cx - w / 2;
+    const top = cy - h / 2;
 
     const wa = this.workAreaOrigin;
     const ws = this.workAreaSize;
-    const overlapX = Math.max(0, Math.min(modelLeft + actualW, wa.x + ws.width) - Math.max(modelLeft, wa.x));
-    const overlapY = Math.max(0, Math.min(modelTop + actualH, wa.y + ws.height) - Math.max(modelTop, wa.y));
+    const overlapX = Math.max(0, Math.min(left + w, wa.x + ws.width) - Math.max(left, wa.x));
+    const overlapY = Math.max(0, Math.min(top + h, wa.y + ws.height) - Math.max(top, wa.y));
     if ((overlapX * overlapY) / charArea >= 0.2) return null;
 
     // 用模型中心判斷方向
@@ -1283,60 +1207,48 @@ export class SceneManager {
     return this.cachedOcclusionRatio;
   }
 
-  /** 角色超出螢幕的面積比率（0~1），使用模型實際尺寸（不含邊距） */
+  /** 角色超出螢幕的面積比率（0~1） */
   private computeOffScreenRatio(): number {
-    if (!this.vrmController) return 0;
-    const modelSize = this.cachedModelSize;
-    if (!modelSize) return 0;
-
-    const actualW = modelSize.width / this.pixelToWorld;
-    const actualH = modelSize.height / this.pixelToWorld;
-    const charArea = actualW * actualH;
+    const w = this.characterSize.width;
+    const h = this.characterSize.height;
+    const charArea = w * h;
     if (charArea <= 0) return 0;
 
-    const cx = this.currentPosition.x + this.characterSize.width / 2;
-    const cy = this.currentPosition.y + this.characterSize.height / 2;
-    const modelLeft = cx - actualW / 2;
-    const modelTop = cy - actualH / 2;
+    const cx = this.currentPosition.x + w / 2;
+    const cy = this.currentPosition.y + h / 2;
+    const left = cx - w / 2;
+    const top = cy - h / 2;
 
     const wa = this.workAreaOrigin;
     const ws = this.workAreaSize;
-    const overlapX = Math.max(0, Math.min(modelLeft + actualW, wa.x + ws.width) - Math.max(modelLeft, wa.x));
-    const overlapY = Math.max(0, Math.min(modelTop + actualH, wa.y + ws.height) - Math.max(modelTop, wa.y));
-    const visibleArea = overlapX * overlapY;
-    return 1 - visibleArea / charArea;
+    const overlapX = Math.max(0, Math.min(left + w, wa.x + ws.width) - Math.max(left, wa.x));
+    const overlapY = Math.max(0, Math.min(top + h, wa.y + ws.height) - Math.max(top, wa.y));
+    return 1 - (overlapX * overlapY) / charArea;
   }
 
-  /** 角色螢幕位置被視窗覆蓋的最大比率（0~1），使用模型實際尺寸（不含邊距） */
+  /** 角色螢幕位置被視窗覆蓋的最大比率（0~1） */
   private computeOcclusionRatio(): number {
-    if (!this.vrmController) return 0;
-    const modelSize = this.cachedModelSize;
-    if (!modelSize) return 0;
-
-    // 使用模型實際尺寸（不含 characterSize 的 2.5x/1.3x 邊距）
-    const actualW = modelSize.width / this.pixelToWorld;
-    const actualH = modelSize.height / this.pixelToWorld;
-    const charArea = actualW * actualH;
+    const w = this.characterSize.width;
+    const h = this.characterSize.height;
+    const charArea = w * h;
     if (charArea <= 0) return 0;
 
-    // 模型中心 = characterSize bounding box 的中心
-    const cx = this.currentPosition.x + this.characterSize.width / 2;
-    const cy = this.currentPosition.y + this.characterSize.height / 2;
-    const modelLeft = cx - actualW / 2;
-    const modelTop = cy - actualH / 2;
+    const cx = this.currentPosition.x + w / 2;
+    const cy = this.currentPosition.y + h / 2;
+    const left = cx - w / 2;
+    const top = cy - h / 2;
     const dpr = window.devicePixelRatio || 1;
 
     let maxOverlapArea = 0;
     for (const win of this.cachedWindowRects) {
-      // 只計算 Z 值高於角色的視窗（在角色前面的）
       if (this.windowMeshManager) {
         const winZ = this.windowMeshManager.getWindowZ(win.hwnd);
         if (winZ !== null && winZ <= this.currentCharacterZ) continue;
       }
       const wx = win.x / dpr;
       const wy = win.y / dpr;
-      const overlapX = Math.max(0, Math.min(modelLeft + actualW, wx + win.width / dpr) - Math.max(modelLeft, wx));
-      const overlapY = Math.max(0, Math.min(modelTop + actualH, wy + win.height / dpr) - Math.max(modelTop, wy));
+      const overlapX = Math.max(0, Math.min(left + w, wx + win.width / dpr) - Math.max(left, wx));
+      const overlapY = Math.max(0, Math.min(top + h, wy + win.height / dpr) - Math.max(top, wy));
       maxOverlapArea = Math.max(maxOverlapArea, overlapX * overlapY);
     }
     return maxOverlapArea / charArea;
@@ -1370,21 +1282,15 @@ export class SceneManager {
   private updateCharacterSize(): void {
     if (!this.vrmController) return;
 
-    // 直接呼叫 getModelWorldSize() 取得最新尺寸，不依賴 cachedModelSize。
-    // 原因：updateCharacterSize 通常從 setScale() 觸發（IPC 流入，render loop 之外），
-    // 此時 cachedModelSize 還是上一幀（舊 scale）的值。
+    // 直接呼叫 getCoreWorldSize() 取得最新核心尺寸。
+    // updateCharacterSize 從 setScale() 觸發（IPC 流入，render loop 之外），
     // 直接讀取確保 setScale → updateCharacterSize 後 characterSize 立即反映新 scale。
-    const modelSize = this.vrmController.getModelWorldSize();
-    if (!modelSize) return;
+    const coreSize = this.vrmController.getCoreWorldSize();
+    if (!coreSize) return;
 
-    // 同步更新 cachedModelSize，避免下一幀 render loop 開頭重新讀取前的短暫不一致
-    this.cachedModelSize = modelSize;
-
-    // getModelWorldSize() 已包含 model scale，不需再乘 this.scale
-    // 使用模型實際大小，不加邊距
     this.characterSize = {
-      width: Math.round(modelSize.width / this.pixelToWorld),
-      height: Math.round(modelSize.height / this.pixelToWorld),
+      width: Math.round(coreSize.width / this.pixelToWorld),
+      height: Math.round(coreSize.height / this.pixelToWorld),
     };
   }
 

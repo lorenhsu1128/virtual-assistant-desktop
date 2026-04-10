@@ -25,8 +25,6 @@ export class DebugOverlay {
   private characterBox: HTMLDivElement | null = null;
   /** hide 目標 X 位置指示線（紅色豎線） */
   private hideTargetLine: HTMLDivElement | null = null;
-  /** 角色核心 bounding box（黃色虛線，排除 SpringBone） */
-  private coreBox: HTMLDivElement | null = null;
 
   /** 拖曳狀態 */
   private dragging = false;
@@ -214,18 +212,6 @@ export class DebugOverlay {
     `;
     document.body.appendChild(this.characterBox);
 
-    // 角色核心 bounding box（黃色虛線）
-    this.coreBox = document.createElement('div');
-    this.coreBox.style.cssText = `
-      position: fixed;
-      border: 2px dashed yellow;
-      pointer-events: none;
-      z-index: 9997;
-      display: none;
-      box-sizing: border-box;
-    `;
-    document.body.appendChild(this.coreBox);
-
     // hide 目標 X 指示線
     this.hideTargetLine = document.createElement('div');
     this.hideTargetLine.style.cssText = `
@@ -314,9 +300,6 @@ export class DebugOverlay {
     }
     if (this.characterBox) {
       this.characterBox.style.display = enabled ? 'block' : 'none';
-    }
-    if (this.coreBox) {
-      this.coreBox.style.display = enabled ? 'block' : 'none';
     }
     if (this.hideTargetLine) {
       this.hideTargetLine.style.display = enabled ? 'block' : 'none';
@@ -463,22 +446,6 @@ export class DebugOverlay {
   }
 
   /**
-   * 更新角色核心 bounding box（排除 SpringBone）
-   *
-   * 黃色內框：以 characterBounds 的中心為基準，用 coreSize 計算。
-   * @param center 角色 bounding box 的中心座標（邏輯像素）
-   * @param coreWidth 核心寬度（邏輯像素）
-   * @param coreHeight 核心高度（邏輯像素）
-   */
-  updateCoreCharacterBounds(center: { x: number; y: number }, coreWidth: number, coreHeight: number): void {
-    if (!this.enabled || !this.coreBox) return;
-    this.coreBox.style.left = `${center.x - coreWidth / 2}px`;
-    this.coreBox.style.top = `${center.y - coreHeight / 2}px`;
-    this.coreBox.style.width = `${coreWidth}px`;
-    this.coreBox.style.height = `${coreHeight}px`;
-  }
-
-  /**
    * 更新 hide 目標 X 指示線
    *
    * @param targetX hide 狀態的目標 X 座標（邏輯像素），null 時隱藏
@@ -508,7 +475,6 @@ export class DebugOverlay {
     this.panel?.remove();
     this.border?.remove();
     this.characterBox?.remove();
-    this.coreBox?.remove();
     this.hideTargetLine?.remove();
     this.panel = null;
     this.header = null;
@@ -517,7 +483,6 @@ export class DebugOverlay {
     this.windowsSection = null;
     this.border = null;
     this.characterBox = null;
-    this.coreBox = null;
     this.hideTargetLine = null;
   }
 }
