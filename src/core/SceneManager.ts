@@ -1363,15 +1363,9 @@ export class SceneManager {
     // 清除所有舊的視窗 platform mesh（因為露出區段數量每次都可能改變）
     const newMeshKeys = new Set<string>();
 
-    // sittable 高度門檻：視窗上邊緣若太靠近工作區頂部，
-    // 角色坐上去後身體會超出視野上方 → 不建立 platform
-    const minSittableTop = this.workAreaOrigin.y + this.characterSize.height * 0.5;
-
     for (const lr of logicalRects) {
       // 過濾：視窗太小
       if (lr.width < MIN_PLATFORM_WIDTH) continue;
-      // 過濾：視窗上邊緣太靠近工作區頂部，無法容納角色身體
-      if (lr.top < minSittableTop) continue;
 
       // 計算露出區段：從完整頂部邊緣 [left, right] 扣除更上層視窗的覆蓋
       // 跳過前景視窗作為 occluder：桌寵永遠 always-on-top，
