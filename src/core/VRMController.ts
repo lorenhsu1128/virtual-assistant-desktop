@@ -473,6 +473,17 @@ export class VRMController {
   }
 
   /**
+   * 暫時偏移 VRM scene Y 位置（sit 狀態 hip 錨定用）
+   *
+   * 在 setWorldPosition 之後呼叫，微調模型位置讓臀部對齊平面。
+   */
+  offsetWorldPositionY(dy: number): void {
+    if (this.vrm) {
+      this.vrm.scene.position.y += dy;
+    }
+  }
+
+  /**
    * 取得 hips 骨骼的世界 Y 座標（相對於模型原點）
    *
    * 用於 sit 狀態定位：讓臀部對齊平面。

@@ -719,6 +719,11 @@ export class SceneManager {
 
       this.vrmController.update(deltaTime);
 
+      // Sit hip 錨定（VRM update 之後，hip 位置是當前幀）
+      if (this.lastBehaviorOutput?.currentState === 'sit') {
+        this.applySitHipAnchor();
+      }
+
       // Peek 骨骼錨定（VRM update 之後，手的位置是當前幀）
       if (this.lastBehaviorOutput?.currentState === 'peek' && this.lastBehaviorOutput.peekSide) {
         this.applyPeekBoneAnchor(this.lastBehaviorOutput);
@@ -1082,6 +1087,40 @@ export class SceneManager {
    * 在 VRM update 之後呼叫（手的位置已是當前幀）。
    * 使用 lerp 平滑避免每幀微調導致的抖動。
    */
+  /**
+   * Sit 狀態 hip 錨定：讓 hip bone 的世界 Y 對齊 platform
+   *
+   * 類似 peek 的 applyPeekBoneAnchor 模式：
+   * VRM update 之後讀取 hip 世界位置，計算與 platform 目標的偏移，
+   * 透過 offsetWorldPositionY 微調模型位置。
+   * currentPosition.y + characterSize.height = platform 螢幕 Y。
+   */
+  private applySitHipAnchor(): void {
+    if (!this.vrmController) return;
+
+    // platform 螢幕 Y（bounding box 底邊 = platform 頂部）
+    const platformScreenY = this.currentPosition.y + this.characterSize.height;
+    const cx = this.currentPosition.x + this.characterSize.width / 2;
+
+    // platform 的世界 Y
+    const platformWorld = this.screenToWorld(cx, platformScreenY);
+
+    // hip bone 相對於模型原點的 Y 偏移
+    const hipOffsetY = this.vrmController.getHipOffsetY();
+    if (hipOffsetY === null) return;
+
+    // 當前模型原點世界 Y
+    const modelWorld = this.screenToWorld(cx, this.currentPosition.y + this.characterSize.height);
+
+    // 目標：hip 世界 Y = platform 世界 Y
+    // 目前：hip 世界 Y = modelWorld.y + hipOffsetY
+    // 偏移：platformWorld.y - (modelWorld.y + hipOffsetY)
+    const dy = platformWorld.y - (modelWorld.y + hipOffsetY);
+    if (Math.abs(dy) > 0.001) {
+      this.vrmController.offsetWorldPositionY(dy);
+    }
+  }
+
   private applyPeekBoneAnchor(output: BehaviorOutput): void {
     if (!this.vrmController || !output.peekSide) return;
 
