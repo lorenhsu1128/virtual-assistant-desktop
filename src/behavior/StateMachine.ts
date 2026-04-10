@@ -769,6 +769,7 @@ export class StateMachine {
 
     this.pendingHide = null;
     this.enterState('hide');
+    this.computeHideDuration(input);
   }
 
   /**
@@ -805,6 +806,23 @@ export class StateMachine {
     }
 
     this.enterState('hide');
+    this.computeHideDuration(input);
+  }
+
+  /**
+   * 根據距離和速度動態計算 hide 超時
+   *
+   * 距離 ÷ 預估速度 × 1.5 安全餘量，夾在 5–60 秒之間。
+   * 確保角色一定有足夠時間到達 peek 邊緣。
+   */
+  private computeHideDuration(input: BehaviorInput): void {
+    if (this.hideEdgeTargetX === null) return;
+    const distance = Math.abs(this.hideEdgeTargetX - input.currentPosition.x);
+    // 預估速度：moveSpeed × hideSpeedMultiplier × scale（不含 speedMultiplier，保守估計）
+    const estSpeed = this.config.moveSpeed * this.config.hideSpeedMultiplier * input.scale;
+    if (estSpeed <= 0) return;
+    const estTime = distance / estSpeed;
+    this.stateDuration = Math.max(5, Math.min(60, estTime * 1.5));
   }
 
   /** 找出遮住角色最多面積的視窗 */

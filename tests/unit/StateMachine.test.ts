@@ -249,11 +249,11 @@ describe('StateMachine', () => {
     sm.tick(input);
     expect(sm.getState()).toBe('hide');
 
-    // 模擬 10 秒超時（不觸碰柱子）
+    // 模擬超時（動態計算：距離 500px ÷ 60px/s × 1.5 ≈ 12.5s，用 61s 確保超過）
     const inputTimeout = makeInput({
       currentPosition: { x: -500, y: 500 },
       isOffScreenLeft: true,
-      deltaTime: 11,
+      deltaTime: 61,
     });
     const output = sm.tick(inputTimeout);
     expect(output.currentState).toBe('idle');

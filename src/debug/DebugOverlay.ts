@@ -302,7 +302,9 @@ export class DebugOverlay {
       this.characterBox.style.display = enabled ? 'block' : 'none';
     }
     if (this.hideTargetLine) {
-      this.hideTargetLine.style.display = enabled ? 'block' : 'none';
+      // hideTargetLine 的顯示由 updateHideTarget 控制（傳入 null 時隱藏）
+      // 停用 debug 時強制隱藏；啟用時不自動顯示，等下一幀 updateHideTarget 決定
+      if (!enabled) this.hideTargetLine.style.display = 'none';
     }
   }
 
