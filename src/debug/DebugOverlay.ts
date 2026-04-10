@@ -7,12 +7,17 @@
  */
 
 const STORAGE_KEY = 'debugOverlayPosition';
+const COLLAPSED_KEY = 'debugOverlayCollapsed';
 const DEFAULT_POS = { x: 8, y: 8 };
+/** 滑鼠移動距離低於此值視為點擊，否則視為拖曳 */
+const CLICK_THRESHOLD = 3;
 
 export class DebugOverlay {
   private enabled = false;
+  private collapsed = false;
   private panel: HTMLDivElement | null = null;
   private header: HTMLDivElement | null = null;
+  private body: HTMLDivElement | null = null;
   private stateSection: HTMLDivElement | null = null;
   private windowsSection: HTMLDivElement | null = null;
   private border: HTMLDivElement | null = null;
@@ -21,6 +26,10 @@ export class DebugOverlay {
   private dragging = false;
   private dragOffsetX = 0;
   private dragOffsetY = 0;
+  /** mousedown 起始位置，用於區分點擊與拖曳 */
+  private mouseDownX = 0;
+  private mouseDownY = 0;
+  private didDrag = false;
   private boundOnMouseMove: (e: MouseEvent) => void;
   private boundOnMouseUp: (e: MouseEvent) => void;
 
@@ -30,6 +39,7 @@ export class DebugOverlay {
   constructor() {
     this.boundOnMouseMove = this.onMouseMove.bind(this);
     this.boundOnMouseUp = this.onMouseUp.bind(this);
+    this.collapsed = this.loadCollapsed();
   }
 
   /** 從 localStorage 讀取儲存位置，失敗時回傳預設 */
@@ -53,6 +63,42 @@ export class DebugOverlay {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ x, y }));
     } catch {
       // localStorage 不可用時略過
+    }
+  }
+
+  /** 從 localStorage 讀取收合狀態 */
+  private loadCollapsed(): boolean {
+    try {
+      return localStorage.getItem(COLLAPSED_KEY) === '1';
+    } catch {
+      return false;
+    }
+  }
+
+  /** 儲存收合狀態到 localStorage */
+  private saveCollapsed(collapsed: boolean): void {
+    try {
+      localStorage.setItem(COLLAPSED_KEY, collapsed ? '1' : '0');
+    } catch {
+      // localStorage 不可用時略過
+    }
+  }
+
+  /** 切換收合 / 展開 */
+  private toggleCollapsed(): void {
+    this.collapsed = !this.collapsed;
+    this.saveCollapsed(this.collapsed);
+    this.applyCollapsedState();
+  }
+
+  /** 套用收合狀態到 DOM */
+  private applyCollapsedState(): void {
+    if (this.body) {
+      this.body.style.display = this.collapsed ? 'none' : 'block';
+    }
+    if (this.header) {
+      const arrow = this.collapsed ? '\u25b8' : '\u25be';
+      this.header.textContent = `DEBUG ${arrow} drag to move`;
     }
   }
 
@@ -99,8 +145,8 @@ export class DebugOverlay {
     this.panel.appendChild(this.header);
 
     // body 容器（可捲動）
-    const body = document.createElement('div');
-    body.style.cssText = `
+    this.body = document.createElement('div');
+    this.body.style.cssText = `
       padding: 8px 12px;
       max-height: calc(85vh - 28px);
       overflow-y: auto;
@@ -114,7 +160,7 @@ export class DebugOverlay {
       line-height: 1.5;
       color: #0f0;
     `;
-    body.appendChild(this.stateSection);
+    this.body.appendChild(this.stateSection);
 
     // 視窗清單區段
     this.windowsSection = document.createElement('div');
@@ -127,10 +173,13 @@ export class DebugOverlay {
       padding-top: 8px;
       border-top: 1px dashed rgba(0, 255, 255, 0.3);
     `;
-    body.appendChild(this.windowsSection);
+    this.body.appendChild(this.windowsSection);
 
-    this.panel.appendChild(body);
+    this.panel.appendChild(this.body);
     document.body.appendChild(this.panel);
+
+    // 套用收合狀態（header 文字 + body 顯示）
+    this.applyCollapsedState();
 
     // 紅虛線外框
     this.border = document.createElement('div');
@@ -148,7 +197,7 @@ export class DebugOverlay {
     document.body.appendChild(this.border);
   }
 
-  /** Header mousedown: 啟動拖曳 */
+  /** Header mousedown: 啟動拖曳，同時記錄起始位置以區分點擊 */
   private onHeaderMouseDown = (e: MouseEvent): void => {
     if (!this.panel) return;
     // 避免觸發 DragHandler 拖曳桌寵
@@ -158,6 +207,9 @@ export class DebugOverlay {
     const rect = this.panel.getBoundingClientRect();
     this.dragOffsetX = e.clientX - rect.left;
     this.dragOffsetY = e.clientY - rect.top;
+    this.mouseDownX = e.clientX;
+    this.mouseDownY = e.clientY;
+    this.didDrag = false;
     this.dragging = true;
 
     window.addEventListener('mousemove', this.boundOnMouseMove);
@@ -166,6 +218,13 @@ export class DebugOverlay {
 
   private onMouseMove(e: MouseEvent): void {
     if (!this.dragging || !this.panel) return;
+
+    // 累積距離超過閾值才視為拖曳
+    const dx = e.clientX - this.mouseDownX;
+    const dy = e.clientY - this.mouseDownY;
+    if (!this.didDrag && Math.abs(dx) + Math.abs(dy) >= CLICK_THRESHOLD) {
+      this.didDrag = true;
+    }
 
     const panelWidth = this.panel.offsetWidth;
     const panelHeight = this.panel.offsetHeight;
@@ -185,10 +244,15 @@ export class DebugOverlay {
     window.removeEventListener('mousemove', this.boundOnMouseMove);
     window.removeEventListener('mouseup', this.boundOnMouseUp);
 
-    // 儲存最終位置
-    const x = parseInt(this.panel.style.left, 10) || 0;
-    const y = parseInt(this.panel.style.top, 10) || 0;
-    this.savePosition(x, y);
+    if (this.didDrag) {
+      // 拖曳結束：儲存最終位置
+      const x = parseInt(this.panel.style.left, 10) || 0;
+      const y = parseInt(this.panel.style.top, 10) || 0;
+      this.savePosition(x, y);
+    } else {
+      // 點擊（未移動）：切換收合
+      this.toggleCollapsed();
+    }
   };
 
   /** 啟用/停用 debug overlay */
@@ -334,6 +398,7 @@ export class DebugOverlay {
     this.border?.remove();
     this.panel = null;
     this.header = null;
+    this.body = null;
     this.stateSection = null;
     this.windowsSection = null;
     this.border = null;
