@@ -534,13 +534,16 @@ export class VRMController {
     'rightUpperLeg', 'rightLowerLeg', 'rightFoot',
   ];
 
+  /** 重複使用的 Vector3（方向性擴展用） */
+  private static readonly _tempVec3B = new THREE.Vector3();
+
   /**
-   * 取得排除 SpringBone 的模型核心尺寸
+   * 取得排除 SpringBone 的模型核心尺寸（方向性擴展）
    *
-   * 使用 humanoid 骨骼（頭/手/腳等）的世界座標建構 Box3，
-   * 自然排除所有 SpringBone 驅動的內容（頭髮/飾品/布料）。
-   * 每幀成本低（最多 18 個骨骼的 getWorldPosition），
-   * 且跟隨動畫姿態即時變化。
+   * 1. 用 humanoid 骨骼世界座標建構基礎 Box3（排除 SpringBone）
+   * 2. 頭頂外推：neck→head 向量延伸，補正頭蓋骨
+   * 3. 腳底外推：foot 往下延伸 lowerLeg→foot 距離的 30%
+   * 4. 兩側外推：左右肩寬的 25% 補正軀幹/衣物厚度
    */
   getCoreWorldSize(): { width: number; height: number } | null {
     if (!this.vrm) return null;
@@ -548,15 +551,64 @@ export class VRMController {
     const box = VRMController._coreBox3.makeEmpty();
     const v = VRMController._tempVec3;
 
+    // 收集骨骼世界座標
+    const bonePos = new Map<string, THREE.Vector3>();
     for (const boneName of VRMController.HUMANOID_BONE_NAMES) {
       const node = this.vrm.humanoid.getNormalizedBoneNode(boneName as never);
       if (node) {
+        const pos = new THREE.Vector3();
+        node.getWorldPosition(pos);
+        bonePos.set(boneName, pos);
+        box.expandByPoint(pos);
+      }
+    }
+
+    // 也檢查腳趾（如果模型有的話）
+    for (const toeName of ['leftToes', 'rightToes']) {
+      const node = this.vrm.humanoid.getNormalizedBoneNode(toeName as never);
+      if (node) {
         node.getWorldPosition(v);
+        bonePos.set(toeName, v.clone());
         box.expandByPoint(v);
       }
     }
 
     if (box.isEmpty()) return this.getModelWorldSize();
+
+    // ── 方向性擴展 ──
+
+    const vA = VRMController._tempVec3;
+    const vB = VRMController._tempVec3B;
+
+    // 頭頂外推：neck→head 方向延伸同等距離
+    const neck = bonePos.get('neck');
+    const head = bonePos.get('head');
+    if (neck && head) {
+      vA.copy(head).sub(neck); // neck→head 向量
+      vB.copy(head).add(vA);   // head + 同方向延伸
+      box.expandByPoint(vB);
+    }
+
+    // 腳底外推：lowerLeg→foot 方向延伸 30%
+    for (const side of ['left', 'right'] as const) {
+      const lowerLeg = bonePos.get(`${side}LowerLeg`);
+      const foot = bonePos.get(`${side}Foot`);
+      if (lowerLeg && foot) {
+        vA.copy(foot).sub(lowerLeg); // lowerLeg→foot 向量
+        vB.copy(foot).addScaledVector(vA, 0.3);
+        box.expandByPoint(vB);
+      }
+    }
+
+    // 兩側外推：左右 upperArm 間距的 25% 向外擴展
+    const leftArm = bonePos.get('leftUpperArm');
+    const rightArm = bonePos.get('rightUpperArm');
+    if (leftArm && rightArm) {
+      const shoulderWidth = Math.abs(leftArm.x - rightArm.x);
+      const padding = shoulderWidth * 0.25;
+      box.min.x -= padding;
+      box.max.x += padding;
+    }
 
     return {
       width: box.max.x - box.min.x,
