@@ -115,7 +115,7 @@ export const DEFAULT_BEHAVIOR_CONFIG: BehaviorConfig = {
   sitDurationMax: 30,
   peekDurationMin: 8,
   peekDurationMax: 16,
-  hideSpeedMultiplier: 0.5,
+  hideSpeedMultiplier: 1.0,
   transitionProbabilities: {
     toWalk: 0.6,
     toSit: 0.2,
