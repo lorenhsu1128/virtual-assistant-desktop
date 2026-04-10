@@ -770,6 +770,21 @@ export class SceneManager {
         height: this.characterSize.height,
       });
 
+      // 核心內框（排除 SpringBone）
+      const coreSize = this.vrmController?.getCoreWorldSize();
+      if (coreSize) {
+        const coreW = Math.round(coreSize.width / this.pixelToWorld);
+        const coreH = Math.round(coreSize.height / this.pixelToWorld);
+        this.debugOverlay.updateCoreCharacterBounds(
+          {
+            x: this.currentPosition.x + this.characterSize.width / 2,
+            y: this.currentPosition.y + this.characterSize.height / 2,
+          },
+          coreW,
+          coreH,
+        );
+      }
+
       // hide 目標線
       const currentState = this.stateMachine?.getState();
       const showHideLine = currentState === 'hide' || currentState === 'peek';

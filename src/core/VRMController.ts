@@ -520,6 +520,84 @@ export class VRMController {
     };
   }
 
+  /** 重複使用的 Box3（核心尺寸計算專用） */
+  private static readonly _coreBox3 = new THREE.Box3();
+  /** 重複使用的 Vector3（核心尺寸計算專用） */
+  private static readonly _tempVec3 = new THREE.Vector3();
+
+  /**
+   * 取得排除 SpringBone 子樹後的模型核心尺寸
+   *
+   * 收集 springBoneManager.joints 的 bone Object3D，
+   * 遍歷 vrm.scene 時跳過 spring bone 節點及其子孫，
+   * 對剩餘節點的 geometry 做 Box3 計算。
+   * 共用 SkinnedMesh 中受 spring bone 影響的頂點仍會殘留，
+   * 但獨立的髮片 / 飾品 / 布料 Object3D 會被排除。
+   */
+  getCoreWorldSize(): { width: number; height: number } | null {
+    if (!this.vrm) return null;
+
+    // 收集所有 spring bone 節點
+    const springBones = new Set<THREE.Object3D>();
+    const sbm = this.vrm.springBoneManager;
+    if (sbm) {
+      for (const joint of sbm.joints) {
+        // joint.bone 是 Object3D
+        const bone = (joint as { bone: THREE.Object3D }).bone;
+        if (bone) springBones.add(bone);
+      }
+    }
+
+    // 判定某節點是否為 spring bone 或其子孫
+    const isSpringBoneDescendant = (obj: THREE.Object3D): boolean => {
+      let current: THREE.Object3D | null = obj;
+      while (current) {
+        if (springBones.has(current)) return true;
+        current = current.parent;
+      }
+      return false;
+    };
+
+    const box = VRMController._coreBox3.makeEmpty();
+    const v = VRMController._tempVec3;
+
+    this.vrm.scene.traverse((obj) => {
+      if (isSpringBoneDescendant(obj)) return;
+
+      const mesh = obj as THREE.Mesh;
+      if (!mesh.isMesh || !mesh.geometry) return;
+
+      // 使用 geometry bounding box + world matrix
+      if (!mesh.geometry.boundingBox) {
+        mesh.geometry.computeBoundingBox();
+      }
+      const geoBox = mesh.geometry.boundingBox;
+      if (!geoBox) return;
+
+      // 展開 geometry bounding box 的 8 個角到世界座標
+      for (let ix = 0; ix <= 1; ix++) {
+        for (let iy = 0; iy <= 1; iy++) {
+          for (let iz = 0; iz <= 1; iz++) {
+            v.set(
+              ix === 0 ? geoBox.min.x : geoBox.max.x,
+              iy === 0 ? geoBox.min.y : geoBox.max.y,
+              iz === 0 ? geoBox.min.z : geoBox.max.z,
+            );
+            v.applyMatrix4(mesh.matrixWorld);
+            box.expandByPoint(v);
+          }
+        }
+      }
+    });
+
+    if (box.isEmpty()) return this.getModelWorldSize();
+
+    return {
+      width: box.max.x - box.min.x,
+      height: box.max.y - box.min.y,
+    };
+  }
+
   /**
    * 更新 VRM 內部邏輯（SpringBone 等）
    *
