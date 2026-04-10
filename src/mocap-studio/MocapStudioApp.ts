@@ -33,6 +33,7 @@ import { drawSkeleton } from '../mocap/mediapipe/SkeletonDrawer';
 import type { PoseLandmarks } from '../mocap/mediapipe/types';
 import type { MocapFrame } from '../mocap/types';
 import { HybrikTsEngine } from '../mocap/engines/HybrikTsEngine';
+import { ProgressBar } from './ProgressBar';
 
 const $ = <T extends HTMLElement>(id: string): T => {
   const el = document.getElementById(id);
@@ -78,6 +79,9 @@ export class MocapStudioApp {
   private hybrikEngine: HybrikTsEngine | null = null;
   private convertController: AbortController | null = null;
   private converting = false;
+
+  // Phase 6 polish — 進度條
+  private progressBar: ProgressBar | null = null;
 
   // 通用
   private playbackMode: PlaybackMode = 'none';
@@ -141,6 +145,12 @@ export class MocapStudioApp {
     this.timeline.onOutChange = this.onTimelineOutChange;
     this.timeline.onSeek = this.onTimelineSeek;
 
+    // ── ProgressBar（Phase 6 polish） ──
+    this.progressBar = new ProgressBar({
+      container: $<HTMLDivElement>('mocap-progress-bar'),
+      inner: $<HTMLDivElement>('mocap-progress-bar-inner'),
+    });
+
     // ── TopBar ──
     this.topBar = new TopBar({
       loadVideoBtn: $<HTMLButtonElement>('mocap-load-video-btn'),
@@ -148,6 +158,7 @@ export class MocapStudioApp {
       detectPoseBtn: $<HTMLButtonElement>('mocap-detect-pose-btn'),
       engineSelect: $<HTMLSelectElement>('mocap-engine-select'),
       convertBtn: $<HTMLButtonElement>('mocap-convert-btn'),
+      sampleFpsSelect: $<HTMLSelectElement>('mocap-sample-fps-select'),
     });
     this.topBar.onLoadVideo = this.onLoadVideoClick;
     this.topBar.onLoadFixture = this.onLoadFixtureClick;
@@ -211,15 +222,16 @@ export class MocapStudioApp {
     this.converting = true;
     this.topBar?.setConvertLabel('取消');
     if (this.exportBtn) this.exportBtn.disabled = true;
+    this.progressBar?.show();
 
     try {
       this.setStatus('載入 MediaPipe 模型...（首次可能較慢）');
       await this.hybrikEngine.init();
       if (this.disposed) return;
 
-      const sampleFps = 30;
+      const sampleFps = this.topBar?.getSampleFps() ?? 30;
       this.convertController = new AbortController();
-      this.setStatus(`轉換中 0%（${this.hybrikEngine.getUsedDelegate()}）`);
+      this.setStatus(`轉換中 0%（${this.hybrikEngine.getUsedDelegate()} @ ${sampleFps}fps）`);
       const track = await this.hybrikEngine.solveFromVideo(videoEl, {
         startMs: inSec * 1000,
         endMs: outSec * 1000,
@@ -227,6 +239,7 @@ export class MocapStudioApp {
         signal: this.convertController.signal,
         onProgress: (r) => {
           if (this.disposed) return;
+          this.progressBar?.setRatio(r);
           this.setStatus(`轉換中 ${Math.round(r * 100)}%`);
         },
       });
@@ -248,9 +261,11 @@ export class MocapStudioApp {
       this.updateTimeDisplay(0, durationSec);
       this.applyFixtureFrameAtTime(0);
       if (this.exportBtn) this.exportBtn.disabled = false;
+      this.progressBar?.complete();
       this.setStatus(`HybrIK 解算完成：${track.frameCount} 幀 @ ${track.fps}fps`);
     } catch (e) {
       const err = e as Error;
+      this.progressBar?.hide();
       if (err.name === 'AbortError') {
         this.setStatus('轉換已取消');
       } else {
@@ -717,6 +732,10 @@ export class MocapStudioApp {
     if (this.previewPanel) {
       this.previewPanel.dispose();
       this.previewPanel = null;
+    }
+    if (this.progressBar) {
+      this.progressBar.dispose();
+      this.progressBar = null;
     }
     // 釋放 blob object URL
     if (this.currentVideoObjectUrl) {

@@ -211,7 +211,12 @@ export class PreviewPanel {
     }
   };
 
-  /** 釋放所有資源 */
+  /**
+   * 釋放所有資源（可重複呼叫，idempotent）
+   *
+   * Phase 6 polish：清空 scene children、dispose lights，確保開關 mocap-studio
+   * 視窗 10 次後無 GPU 資源累積。
+   */
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
@@ -222,6 +227,22 @@ export class PreviewPanel {
     window.removeEventListener('resize', this.handleResize);
     document.removeEventListener('visibilitychange', this.handleVisibilityChange);
     this.disposeModel();
+    // 清空 scene 殘留物件（lights 等）
+    while (this.scene.children.length > 0) {
+      const child = this.scene.children[0];
+      this.scene.remove(child);
+      // Light 類別沒有 GPU 資源；Mesh 才需 dispose geometry/material，
+      // 但 Phase 0-5 的 scene 只有 lights，留這個 branch 防未來新增 mesh
+      if ((child as THREE.Mesh).isMesh) {
+        const mesh = child as THREE.Mesh;
+        mesh.geometry?.dispose();
+        if (Array.isArray(mesh.material)) {
+          mesh.material.forEach((m) => m.dispose());
+        } else {
+          mesh.material?.dispose();
+        }
+      }
+    }
     this.renderer.dispose();
   }
 }

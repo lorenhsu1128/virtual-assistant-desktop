@@ -22,6 +22,7 @@ export interface TopBarElements {
   detectPoseBtn: HTMLButtonElement;
   engineSelect: HTMLSelectElement;
   convertBtn: HTMLButtonElement;
+  sampleFpsSelect: HTMLSelectElement;
 }
 
 export class TopBar {
@@ -81,6 +82,17 @@ export class TopBar {
 
   getSelectedEngineId(): string {
     return this.el.engineSelect.value;
+  }
+
+  /**
+   * 取得當前取樣 fps（Phase 6 polish）
+   *
+   * 回傳整數；無效值（空字串、NaN）fallback 到 30。
+   */
+  getSampleFps(): number {
+    const raw = parseInt(this.el.sampleFpsSelect.value, 10);
+    if (!Number.isFinite(raw) || raw <= 0) return 30;
+    return raw;
   }
 
   private readonly onVideoClick = (): void => {

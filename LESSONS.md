@@ -183,6 +183,31 @@
 - **受影響檔案**：`src/animation/AnimationManager.ts` (`startTransition`)
 - **根因記憶**：只要模組用 `mixer.clipAction(clip)` 並且會在 A/B 之間頻繁切換，就要假設「previous action」和「new action」可能是同一個 JS instance。任何「stop previous」、「fade out previous」類型的邏輯都要先檢查是否會誤傷 new action。特別是三連（或多連）轉換時，前一個 transition 的 oldAction 可能就是本次的 newAction
 
+### [2026-04-09] `[跨平台]` — HybrIK-TS swing-only IK 無法決定 bone twist
+
+- **錯誤**：Phase 5b 移植 HybrIK 論文的 analytical IK 時，對每個 joint 用 `swingFromTo(restDir, targetDir)` 單軸 swing 求解，對位置足夠但手掌朝向 / 前臂扭轉會與真實動作有差異（單軸 swing 無法決定繞 bone 軸的旋轉分量）
+- **根因**：完整 HybrIK 需要神經網路預測每段骨骼的 twist 角度；純 TS port 沒有神經網路，退化為 zero-twist — 對「位置」足夠，對「朝向細節」不足
+- **正確做法**：
+  1. 對「多子節點」joint（pelvis, spine3）用 `rotationFromTwoAxes(restA, restB, targetA, targetB)`，從兩組方向對擬合完整 3x3 rotation。pelvis 用 (spine1, leftHip)，spine3 用 (neck, leftCollar) — 這樣軀幹面向正確
+  2. 對「單子節點」joint 維持 swing-only，文件明記 zero-twist 限制
+  3. 單元測試用 FK 位置 round-trip 比對（θ → FK → IK → FK → 位置），**不比對 axis-angle**，因為 zero-twist 下多組 θ 可產生相同位置
+- **受影響檔案**：`src/mocap/hybrik/SolverCore.ts`、`src/mocap/hybrik/TwistSwing.ts`、`src/mocap/hybrik/SmplRestPose.ts`、`tests/unit/hybrikSolver.test.ts`
+- **根因記憶**：任何 IK 演算法，input 若只是「目標位置」而非「目標位置 + 目標朝向」，就有 twist 不定性。要嘛加第二個約束（two-axis fit），要嘛接受細節失真並文件化
+
+### [2026-04-09] `[跨平台]` — MediaPipe VIDEO 模式批次處理用 media 絕對時間戳，scrub 模式用 wall clock
+
+- **錯誤**：Phase 5a「持續偵測」用 `Math.round(performance.now())` 當 MediaPipe 時間戳（scrub 回跳會讓 video.currentTime 倒退，MediaPipe VIDEO mode 拒絕非單調時間戳）。Phase 5d HybrikTsEngine 批次 seek+detect 若沿用同樣策略，會有問題：(1) 批次速度快，`performance.now()` 幀間距可能 < 1ms，MediaPipe 內部濾波假設失效；(2) 與影片 media 時間脫鉤，邏輯上不對應真實內容時間
+- **正確做法**：批次處理改用 `Math.round(timeSec * 1000)`（media 絕對時間）。按 `index * (1000/sampleFps)` 逐幀前進 → 時間戳天然單調遞增且與影片同步。持續偵測模式（scrub 觸發）保留 `performance.now()` 策略因為它需要容忍使用者任意跳轉
+- **受影響檔案**：`src/mocap/engines/HybrikTsEngine.ts`、`src/mocap-studio/MocapStudioApp.ts`（持續偵測路徑不變）
+- **根因記憶**：MediaPipe VIDEO 需單調遞增時間戳，「單調」有兩種實作：(a) wall clock 保單調但與 media 脫鉤；(b) media 絕對時間，只在「批次順序遍歷」時天然單調。選擇取決於使用情境是「隨機 scrub」還是「線性遍歷」
+
+### [2026-04-09] `[跨平台]` — vitest fake timer 下必須先建立 rejection assertion 再推進時間
+
+- **錯誤**：Phase 5d videoFrameSeeker.test.ts 寫 timeout 測試時，先 `await vi.advanceTimersByTimeAsync(...)` 再 `await expect(p).rejects.toThrow()`。vitest 執行通過（343/343）但終端出現 unhandled rejection warning — fake timer 推進時 promise rejection 已發生，但 `.rejects` chain 還沒訂閱該 promise
+- **正確做法**：先 `const assertion = expect(p).rejects.toThrow()`（立即訂閱 rejection），再 `await vi.advanceTimersByTimeAsync(...)`，最後 `await assertion`
+- **受影響檔案**：`tests/unit/videoFrameSeeker.test.ts`
+- **根因記憶**：任何「fake timer 下測試 promise rejection」場景，rejection handler 必須在 rejection 實際發生**之前**訂閱，否則 Node 會標記為 unhandled。`expect(p).rejects.X` 會延遲訂閱到 `.rejects` 被 evaluate 時，所以要提前建立 chain
+
 ### [2026-04-09] `[跨平台]` — 正交相機下 MToon outline screenCoordinates 模式會暴粗
 
 - **錯誤**：某些 VRM 載入到主視窗後出現粗黑邊緣（例如 Wolf_ver1.00），但同一隻模型在 VRM Picker 預覽卻正常。初次誤判為透明 framebuffer 的暗邊 halo，改了 `premultipliedAlpha: true` 無效

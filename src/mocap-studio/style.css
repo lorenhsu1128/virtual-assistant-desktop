@@ -280,6 +280,32 @@ select:disabled {
   opacity: 0.5;
 }
 
+/* ── Progress bar（Phase 6 polish）── */
+/* 絕對定位於 topbar 下緣，不影響 grid 佈局 */
+#mocap-progress-bar {
+  position: absolute;
+  top: 48px;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background-color: rgba(255, 255, 255, 0.06);
+  pointer-events: none;
+  z-index: 10;
+  opacity: 1;
+  transition: opacity 400ms ease-out;
+}
+
+#mocap-progress-bar.hidden {
+  opacity: 0;
+}
+
+#mocap-progress-bar-inner {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #7a9cff, #a78bfa);
+  transition: width 120ms linear;
+}
+
 /* ── Status bar ── */
 #mocap-statusbar {
   display: flex;

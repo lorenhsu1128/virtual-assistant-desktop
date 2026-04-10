@@ -16,6 +16,13 @@
             <span class="mocap-field-label">引擎</span>
             <select id="mocap-engine-select"></select>
           </label>
+          <label class="mocap-field">
+            <span class="mocap-field-label">取樣 fps</span>
+            <select id="mocap-sample-fps-select">
+              <option value="15">15</option>
+              <option value="30" selected>30</option>
+            </select>
+          </label>
           <button id="mocap-load-fixture-btn" type="button" class="mocap-dev-btn">[dev] 載入測試 fixture</button>
           <button id="mocap-detect-pose-btn" type="button" class="mocap-dev-btn" disabled>[dev] 偵測姿態</button>
         </div>
@@ -23,6 +30,9 @@
           <button id="mocap-convert-btn" type="button" disabled>轉換</button>
           <button id="mocap-export-btn" type="button" disabled>匯出 .vrma</button>
         </div>
+      </div>
+      <div id="mocap-progress-bar" class="hidden">
+        <div id="mocap-progress-bar-inner"></div>
       </div>
 
       <!-- 中間主區：左影片 / 右預覽 -->
