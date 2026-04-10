@@ -273,6 +273,8 @@ async function init(): Promise<void> {
 
     animPane.classList.remove('hidden');
     animEmpty.classList.add('hidden');
+    // 動畫窗格顯示後觸發 resize，讓 PreviewScene 重新計算 canvas/camera aspect
+    requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
 
     for (const filePath of files) {
       const fileName = filePath.replace(/\\/g, '/').split('/').pop() ?? filePath;
