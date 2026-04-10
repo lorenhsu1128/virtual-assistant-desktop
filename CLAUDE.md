@@ -5,6 +5,18 @@
 桌面虛擬陪伴軟體（Desktop Mascot），Electron + TypeScript + Three.js。
 目標平台：Windows 10 (1903+) / Windows 11 / macOS。
 
+## 子專案
+
+本 repo 包含一個子專案：
+
+- **`EasyMocap/`** — 多視角 markerless motion capture toolkit（fork 自 zju3dv/EasyMocap，Python + PyTorch）。作為本桌寵專案的動捕資料來源：多視角影片 → SMPL/SMPL-X → `.vrma` / `SmplTrack` → 餵給前端播放。
+
+> ⚠️ **子專案有獨立規範**。當工作目錄在 `EasyMocap/` 下或修改該目錄下的檔案時，**以 `EasyMocap/CLAUDE.md` 為準**，本檔的 Electron / TypeScript / 三層架構規則不適用。EasyMocap 另有自己的 `LESSONS.md`、`.claude/rules/`（conda env、data safety、SMPL 授權、reproducibility）、slash commands 與 skills。
+>
+> **跨專案介面**：EasyMocap 輸出 schema 對應 parent 的 `src/mocap/types.ts` (`SmplTrack` / `MocapFrame` / `VrmHumanBoneName`)。任一邊修改 schema 必須 cross-check，EasyMocap 側提供 `/sync-to-parent` slash command 協助同步。
+>
+> **環境**：EasyMocap 的所有 Python / pytest / pipeline 指令必須在 `aicuda` conda env 執行（見 `EasyMocap/.claude/rules/conda-env.md`）。本 parent 專案的 Node.js / pnpm 指令不受此限制。
+
 ## 技術棧
 
 - 後端：Node.js (Electron main process) — 視窗感知、檔案系統、系統托盤
