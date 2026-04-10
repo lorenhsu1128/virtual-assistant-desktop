@@ -484,6 +484,17 @@ export class VRMController {
   }
 
   /**
+   * 暫時偏移 VRM scene Z 位置（sit 狀態 near plane 保護用）
+   *
+   * 在 setWorldPosition 之後呼叫，抵消動畫 hip Z 偏移避免 near plane 裁切。
+   */
+  offsetWorldPositionZ(dz: number): void {
+    if (this.vrm) {
+      this.vrm.scene.position.z += dz;
+    }
+  }
+
+  /**
    * 取得 hips 骨骼的世界 Y 座標（相對於模型原點）
    *
    * 用於 sit 狀態定位：讓臀部對齊平面。
