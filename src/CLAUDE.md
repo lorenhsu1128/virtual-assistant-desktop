@@ -17,7 +17,7 @@ SceneManager 擁有唯一的 render loop，每幀依以下順序執行：
    b. mixer.update(dt)                → 套用本幀動畫到骨骼 local
    c. applyHipSmoothing(dt)           → hip 跨幀平滑（階段 B）+ SpringBone 過渡保護（Layer 6）
    ※ updateModelWorldPosition 含 resolveCharacterZ（根據行為狀態設定角色 Z 深度）
-   ※ sit 狀態下 finalZ 套用 hip 三軸補償（避免 SYS_SIT_01/02 的 Z 位移把模型推出 near plane）
+   ※ sit 狀態下 applySitHipAnchor 讓 hip Y 對齊 platform（動畫 hip Z 已在載入時歸零）
    ※ Debug overlay：骨骼座標 + 遮擋系統資訊 + 視窗清單
 5. renderer.render(scene, camera)     → 渲染輸出（GPU depth test 自動處理視窗遮擋）
 ```

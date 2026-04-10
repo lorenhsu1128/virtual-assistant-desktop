@@ -14,4 +14,5 @@ Cross-platform rules (Windows + macOS):
 - System API failures (koffi, AppleScript, native modules) MUST degrade gracefully — return default value (null / [] / false) and log warning, NEVER throw
 - IPC handler signatures and return types MUST be identical on both platforms (handle differences inside the handler)
 - New features MUST be testable on both Windows and macOS — commit message should note which platform was tested
-- macOS does NOT support koffi window enumeration / SetWindowRgn — features depending on these must early-return on macOS
+- macOS does NOT support koffi window enumeration — features depending on koffi must early-return on macOS
+- Window occlusion uses 3D depth-only mesh (WindowMeshManager), NOT SetWindowRgn

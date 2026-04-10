@@ -84,7 +84,6 @@ electron/           → Electron 主程序（main process）
   ipcHandlers.ts    → 所有 ipcMain.handle() 註冊
   fileManager.ts    → config.json / animations.json 管理
   windowMonitor.ts  → koffi GetWindow 遍歷視窗列舉（Windows-only）
-  windowRegion.ts   → [已棄用] koffi FFI 視窗裁切（改用 3D depth occlusion）
   systemTray.ts     → 系統托盤選單
   vrmPickerWindow.ts → VRM 模型瀏覽對話框 BrowserWindow 管理
   platform/         → 跨平台抽象層（Windows / macOS 差異集中於此）
@@ -100,7 +99,7 @@ tests/              → Vitest 測試（unit/）
 
 ## 程式碼規範
 
-- TypeScript 嚴格模式，不允許 `any`（electron/windowRegion.ts 因 koffi FFI 除外）
+- TypeScript 嚴格模式，不允許 `any`（electron/windowMonitor.ts 因 koffi FFI 除外）
 - 所有公開介面必須有 JSDoc 註解
 - 模組間通訊只透過定義好的介面，禁止直接存取內部結構
 - VRM 操作只能透過 VRMController

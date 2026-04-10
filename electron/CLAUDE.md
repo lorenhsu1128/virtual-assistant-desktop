@@ -11,8 +11,8 @@
 | ipcHandlers.ts | 所有 ipcMain.handle() 註冊（含 workArea） | ✅ 正常 |
 | fileManager.ts | config.json / animations.json 管理 | ✅ 正常 |
 | windowMonitor.ts | koffi GetWindow 遍歷視窗列舉 + DWM cloaked 過濾（**Windows-only**） | ✅ 正常 |
-| windowRegion.ts | koffi FFI 視窗裁切（SetWindowRgn）（**Windows-only**） | ⚠️ struct 建構有問題，待修正 |
 | systemTray.ts | 系統托盤選單（含重置回正中央） | ✅ 正常 |
+| vrmPickerWindow.ts | VRM 模型瀏覽對話框 BrowserWindow 管理 | ✅ 正常 |
 | platform/index.ts | `isWindows` / `isMac` 旗標 + 統一匯出 | ✅ 正常 |
 | platform/windowConfig.ts | 各平台 BrowserWindow 參數與建立後設定 | ✅ 正常 |
 | platform/protocolHelper.ts | local-file 協定路徑解析（兩平台行為不同） | ✅ 正常 |
@@ -53,7 +53,7 @@ async commandName(arg1: Type1): Promise<ResultType> {
 - ESM 模組中用 `createRequire(import.meta.url)` 載入 koffi
 - 視窗列舉：GetDesktopWindow + GetWindow(GW_CHILD/GW_HWNDNEXT) 遍歷
 - 視窗過濾：IsWindowVisible + IsIconic + WS_EX_TOOLWINDOW + DwmGetWindowAttribute(DWMWA_CLOAKED)
-- SetWindowRgn 做視窗裁切（遮擋效果）
+- 視窗遮擋改用 3D depth-only mesh（前端 WindowMeshManager），不再使用 SetWindowRgn
 
 ## 跨平台守則
 
@@ -61,7 +61,7 @@ async commandName(arg1: Type1): Promise<ResultType> {
 2. **BrowserWindow 建立**：透過 `getWindowOptions(bounds)` + `applyPostCreateSetup(win, bounds)` 取得參數，main.ts 不寫平台分支。
 3. **IPC handler 平台早走**：handler 內若呼叫平台 API，必須有 `if (!isWindows) return defaultValue;`，回傳的型別在兩平台必須一致。
 4. **系統 API 不可 throw**：koffi、AppleScript 等若不支援，回傳 `null` / `[]` / `false` 並 log warning。renderer 端透過 ElectronIPC 已有 try/catch 與快取 fallback，須維持。
-5. **新增模組命名**：若是 Windows-only（如 windowMonitor、windowRegion），檔名加註 / JSDoc 標明；macOS-only 同理。理想狀態是模組本身跨平台、差異透過 platform/ 注入。
+5. **新增模組命名**：若是 Windows-only（如 windowMonitor），檔名加註 / JSDoc 標明；macOS-only 同理。理想狀態是模組本身跨平台、差異透過 platform/ 注入。
 6. **新功能 commit 須註明**：commit 訊息加上「測試於 Windows / macOS」說明，未測試的平台須註記預期行為。
 
 ## 檔案管理
