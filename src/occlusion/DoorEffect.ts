@@ -1,13 +1,9 @@
 /**
  * 門洞效果模組
  *
- * 使用 Three.js stencil buffer 在視窗 depth mesh 上建立「門洞」，
- * 讓角色可以從視窗後面「開門走出」。
- *
- * 原理：
- *   1. 門洞 mesh 寫入 stencil = 1（colorWrite=false, depthWrite=false）
- *   2. 視窗 depth mesh 測試 stencil ≠ 1 → 門洞處不寫 depth
- *   3. 角色在門洞處不被 depth 遮擋 → 可見
+ * 在視窗 depth mesh 前方放置純黑色不透明 mesh，模擬門洞。
+ * 因為桌寵視窗背景是透明黑色，純黑 mesh 視覺上等於「遮住視窗內容」。
+ * 角色在黑色 mesh 前面（Z 更大）時自然可見，形成「從門洞走出」的效果。
  *
  * 門洞形狀隨動畫進度變化：
  *   opening:  從鉸鏈側逐漸展開（矩形寬度 0 → doorWidth）
@@ -65,29 +61,23 @@ export class DoorEffect {
 
     this.doorWorldX = worldCenter.x;
     this.doorWorldY = worldCenter.y;
-    this.doorWorldZ = worldZ + 0.01; // 稍微在視窗 mesh 前面確保 stencil 寫入
+    this.doorWorldZ = worldZ + 0.05; // 稍微在視窗 depth mesh 前面
     this.doorWorldWidth = worldWidth;
     this.doorWorldHeight = worldHeight;
 
-    // 建立 stencil writer 材質
+    // 純黑色不透明 mesh：視覺上等於桌寵透明背景，遮住視窗內容
     this.doorMaterial = new THREE.MeshBasicMaterial({
-      colorWrite: false,
-      depthWrite: false,
-      depthTest: false,
-      stencilWrite: true,
-      stencilRef: 1,
-      stencilFunc: THREE.AlwaysStencilFunc,
-      stencilZPass: THREE.ReplaceStencilOp,
-      stencilFail: THREE.KeepStencilOp,
-      stencilZFail: THREE.KeepStencilOp,
+      color: 0x000000,
+      depthWrite: true,
+      depthTest: true,
       side: THREE.DoubleSide,
     });
 
     // 初始 geometry（1x1 平面，每幀 scale 調整）
     this.doorGeometry = new THREE.PlaneGeometry(1, 1);
     this.doorMesh = new THREE.Mesh(this.doorGeometry, this.doorMaterial);
-    this.doorMesh.name = 'door-effect-stencil';
-    this.doorMesh.renderOrder = -2; // 在視窗 depth mesh (-1) 之前渲染
+    this.doorMesh.name = 'door-effect-black';
+    this.doorMesh.renderOrder = 0; // 與一般物件同級
     this.doorMesh.visible = false; // 初始隱藏，opening 階段才顯示
     this.scene.add(this.doorMesh);
   }

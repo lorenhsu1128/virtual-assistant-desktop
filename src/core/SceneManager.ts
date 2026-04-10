@@ -70,8 +70,6 @@ export class SceneManager {
   private isUserTyping = false;
   /** 門洞效果管理器 */
   private doorEffect: DoorEffect | null = null;
-  /** opendoor 正在作用的視窗 hwnd（用於 stencil test 管理） */
-  private doorEffectHwnd: number | null = null;
 
   /** 角色 bounding box 尺寸（螢幕像素，humanoid 骨骼 + 方向性擴展，排除 SpringBone） */
   private characterSize = { width: 300, height: 500 };
@@ -1176,12 +1174,11 @@ export class SceneManager {
     const windowInfo = this.windowMeshManager.getWindowMeshWorldInfo(hwnd);
     if (!windowInfo) return;
 
-    // 建立 DoorEffect
     if (!this.doorEffect) {
       this.doorEffect = new DoorEffect(this.scene);
     }
 
-    // 門洞大小：角色身寬 × 角色身高（以角色為基準）
+    // 門洞大小：角色身寬 × 角色身高
     const doorWidth = this.characterSize.width * this.pixelToWorld * 1.2;
     const doorHeight = this.characterSize.height * this.pixelToWorld * 1.0;
 
@@ -1192,20 +1189,12 @@ export class SceneManager {
       windowInfo.z,
     );
 
-    // 啟用目標視窗的 stencil test
-    this.windowMeshManager.enableStencilTest(hwnd);
-    this.doorEffectHwnd = hwnd;
   }
 
   /** 停止門洞效果 */
   private stopDoorEffect(): void {
     if (this.doorEffect) {
       this.doorEffect.stop();
-    }
-    // 恢復目標視窗的共用材質
-    if (this.doorEffectHwnd !== null && this.windowMeshManager) {
-      this.windowMeshManager.disableStencilTest(this.doorEffectHwnd);
-      this.doorEffectHwnd = null;
     }
   }
 
