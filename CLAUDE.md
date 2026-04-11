@@ -168,6 +168,7 @@ tests/              → Vitest 測試（unit/）
 - @ARCHITECTURE.md — 程式架構建議書（模組設計、依賴關係）
 - @LESSONS.md — ⚠️ 已知錯誤與教訓（必讀，避免重複犯錯）
 - @animation-guide.md — 系統動畫命名與載入規範（新增 .vrma 檔案前必讀）
+- @docs/vrm-expression-guide.md — VRM 表情跨模型策略（Tier 1/2/3 安全集、case 處理、`pnpm scan:expressions` 工具）
 
 ## 開發紀律
 
