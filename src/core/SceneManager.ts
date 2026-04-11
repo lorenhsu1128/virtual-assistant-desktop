@@ -1246,6 +1246,10 @@ export class SceneManager {
     // opendoor 狀態：根據動畫進度切換 Z 深度
     if (output.currentState === 'opendoor' && output.opendoorTargetHwnd !== null) {
       const animTime = this.animationManager?.getCurrentAnimationTime() ?? 0;
+      // done 階段：門已關閉，角色鎖定在 DEFAULT_Z，不再切回視窗後
+      if (this.doorEffect?.isDone(animTime)) {
+        return DEFAULT_Z;
+      }
       if (this.doorEffect?.isCharacterInFront(animTime)) {
         return DEFAULT_Z; // 角色在視窗前面
       }

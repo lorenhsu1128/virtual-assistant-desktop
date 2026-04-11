@@ -154,6 +154,12 @@ export class DoorEffect {
     return frame >= this.config.zSwitchFrame;
   }
 
+  /** 判定是否已進入 done 階段（門關閉完成後） */
+  isDone(animTime: number): boolean {
+    const frame = animTime * this.config.fps;
+    return frame >= this.config.closeEnd;
+  }
+
   /** 是否正在運行 */
   isActive(): boolean {
     return this.active;
