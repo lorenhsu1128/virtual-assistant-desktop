@@ -54,6 +54,10 @@ export class StateMachine {
   /** opendoor 的目標視窗 hwnd */
   private opendoorTargetHwnd: number | null = null;
 
+  // enterdoor 狀態
+  /** enterdoor 的目標視窗 hwnd */
+  private enterdoorTargetHwnd: number | null = null;
+
   // fall 狀態
   private fallSpeed = 0;
 
@@ -78,8 +82,13 @@ export class StateMachine {
     }
 
     // typing 優先級高：使用者開始/停止打字時切換狀態
-    // opendoor 除外（開門動畫不被 typing 中斷；drag 已在上方 early return）
-    if (input.isUserTyping && this.state !== 'typing' && this.state !== 'opendoor') {
+    // opendoor / enterdoor 除外（開關門動畫不被 typing 中斷；drag 已在上方 early return）
+    if (
+      input.isUserTyping &&
+      this.state !== 'typing' &&
+      this.state !== 'opendoor' &&
+      this.state !== 'enterdoor'
+    ) {
       this.enterState('typing');
     } else if (!input.isUserTyping && this.state === 'typing') {
       this.enterState('idle');
@@ -111,6 +120,9 @@ export class StateMachine {
           break;
         case 'opendoor':
           this.tickOpendoor(input);
+          break;
+        case 'enterdoor':
+          this.tickEnterdoor(input);
           break;
         // typing：無 tick 邏輯，等待 isUserTyping 變 false
       }
@@ -530,6 +542,44 @@ export class StateMachine {
     this.pendingStateChange = true;
   }
 
+  private tickEnterdoor(input: BehaviorInput): void {
+    // 目標視窗消失 → 立即結束（不進 hide，因為沒有可躲的視窗了）
+    if (this.enterdoorTargetHwnd !== null) {
+      const exists = input.windowRects.some((w) => w.hwnd === this.enterdoorTargetHwnd);
+      if (!exists) {
+        this.enterdoorTargetHwnd = null;
+        this.enterState('idle');
+        return;
+      }
+    }
+
+    // 動畫播放完畢 → 轉交給 hide 狀態（設定 peekTargetHwnd 讓 hide tick 接手）
+    if (this.stateTimer >= this.stateDuration) {
+      const hwnd = this.enterdoorTargetHwnd;
+      this.enterdoorTargetHwnd = null;
+      if (hwnd !== null) {
+        // 以隨機 side 進入 hide；之後 hide tick 會自然演化為 peek / opendoor
+        this.peekTargetHwnd = hwnd;
+        this.peekSide = Math.random() < 0.5 ? 'left' : 'right';
+        this.enterState('hide');
+      } else {
+        this.enterState('idle');
+      }
+    }
+  }
+
+  /**
+   * 進入 enterdoor 狀態
+   *
+   * @param hwnd 目標視窗 hwnd
+   */
+  enterEnterdoor(hwnd: number): void {
+    this.enterdoorTargetHwnd = hwnd;
+    this.clearHidePeekState();
+    this.enterState('enterdoor');
+    this.pendingStateChange = true;
+  }
+
   // ── 狀態轉移 ──
 
   private transitionFromIdle(input: BehaviorInput): void {
@@ -697,6 +747,10 @@ export class StateMachine {
         // duration 由 BehaviorAnimationBridge 覆蓋為 clip.duration
         this.stateDuration = 10;
         break;
+      case 'enterdoor':
+        // duration 由 BehaviorAnimationBridge 覆蓋為 clip.duration
+        this.stateDuration = 10;
+        break;
     }
   }
 
@@ -780,6 +834,7 @@ export class StateMachine {
       peekTargetHwnd: this.peekTargetHwnd,
       peekSide: this.peekSide,
       opendoorTargetHwnd: this.opendoorTargetHwnd,
+      enterdoorTargetHwnd: this.enterdoorTargetHwnd,
     };
   }
 

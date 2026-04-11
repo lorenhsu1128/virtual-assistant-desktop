@@ -15,6 +15,7 @@ import { ExpressionManager } from './expression/ExpressionManager';
 import { DebugOverlay } from './debug/DebugOverlay';
 import { analyzeWalkAnimation } from './animation/StepAnalyzer';
 import { mirrorAnimationClip } from './animation/AnimationMirror';
+import { reverseAnimationClipForEnterdoor } from './animation/AnimationReverse';
 import { CharacterContextMenu } from './interaction/CharacterContextMenu';
 import { SYSTEM_ANIMATION_STATES } from './types/animation';
 import {
@@ -514,6 +515,17 @@ async function initializeBehaviorSystem(
         }
         break;
       }
+      case 'test_enterdoor': {
+        // 找第一個可見視窗，強制觸發 enterdoor
+        const bounds = sceneManager.getCharacterBounds();
+        const dpr = window.devicePixelRatio || 1;
+        const windows = sceneManager.getCachedWindowRects();
+        const target = windows.find((w) => w.width / dpr > bounds.width);
+        if (target) {
+          stateMachine.enterEnterdoor(target.hwnd);
+        }
+        break;
+      }
       case 'toggle_pause':
         if (stateMachine.isPaused()) { stateMachine.resume(); } else { stateMachine.pause(); }
         config.autonomousMovementPaused = stateMachine.isPaused();
@@ -717,6 +729,9 @@ async function loadAllSystemAnimations(
 
   // 每個狀態各自載入成池
   for (const state of SYSTEM_ANIMATION_STATES) {
+    // enterdoor 不從檔案載入，由 opendoor pool 運行時反向生成（見下方）
+    if (state === 'enterdoor') continue;
+
     const files = filterFilesByState(allVrma, state);
     if (files.length === 0) {
       console.warn(`[main] no SYS_${state.toUpperCase()}_*.vrma found; '${state}' state has no animation`);
@@ -755,6 +770,23 @@ async function loadAllSystemAnimations(
     } else {
       console.warn('[main] peek mirror skipped: humanoid bone mapping unavailable');
     }
+  }
+
+  // enterdoor 池由 opendoor 池運行時 Y 軸 180° 旋轉生成（不需獨立 .vrma 檔）
+  const opendoorPool = animationManager.getStatePool('opendoor');
+  if (opendoorPool && opendoorPool.length > 0) {
+    const boneMapping = vrmController.getHumanoidBoneMapping();
+    if (boneMapping) {
+      const enterdoorClips: LoadedPoolClip[] = opendoorPool.map(({ fileName, clip }) => ({
+        fileName: fileName.replace(/\.vrma$/i, '_reversed.vrma'),
+        clip: reverseAnimationClipForEnterdoor(clip, boneMapping),
+      }));
+      animationManager.setStatePool('enterdoor', enterdoorClips);
+    } else {
+      console.warn('[main] enterdoor reverse skipped: humanoid bone mapping unavailable');
+    }
+  } else {
+    console.warn('[main] enterdoor pool empty: no opendoor clips to reverse');
   }
 }
 

@@ -31,6 +31,8 @@ export class DoorEffect {
   private doorWorldHeight = 0;
   /** 鉸鏈在左側（門從左向右開）= 'left'，反之 = 'right' */
   private hingeSide: 'left' | 'right' = 'left';
+  /** 反向模式（enterdoor 用）：角色從前方走入視窗後 */
+  private isReverse = false;
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -45,6 +47,7 @@ export class DoorEffect {
    * @param worldZ 門洞的 Z 深度（= 視窗 depth mesh 的 Z）
    * @param hingeSide 鉸鏈側（'left' = 門從左向右開）
    * @param config 幀範圍配置
+   * @param isReverse 反向模式（enterdoor）：角色從前方走入視窗後
    */
   start(
     worldCenter: { x: number; y: number },
@@ -53,11 +56,13 @@ export class DoorEffect {
     worldZ: number,
     hingeSide: 'left' | 'right' = 'left',
     config?: DoorFrameConfig,
+    isReverse = false,
   ): void {
     this.stop();
     this.active = true;
     this.config = config ?? DEFAULT_DOOR_FRAME_CONFIG;
     this.hingeSide = hingeSide;
+    this.isReverse = isReverse;
 
     this.doorWorldX = worldCenter.x;
     this.doorWorldY = worldCenter.y;
@@ -148,9 +153,17 @@ export class DoorEffect {
     return 'done';
   }
 
-  /** 判定角色是否應在視窗前面（Z 深度切換） */
+  /**
+   * 判定角色是否應在視窗前面（Z 深度切換）
+   *
+   * - 正向（opendoor）：frame >= zSwitchFrame 時在前方（走出）
+   * - 反向（enterdoor）：frame < zSwitchFrame 時在前方（尚未走入）
+   */
   isCharacterInFront(animTime: number): boolean {
     const frame = animTime * this.config.fps;
+    if (this.isReverse) {
+      return frame < this.config.zSwitchFrame;
+    }
     return frame >= this.config.zSwitchFrame;
   }
 
@@ -158,6 +171,11 @@ export class DoorEffect {
   isDone(animTime: number): boolean {
     const frame = animTime * this.config.fps;
     return frame >= this.config.closeEnd;
+  }
+
+  /** 回傳當前是否為反向模式 */
+  getIsReverse(): boolean {
+    return this.isReverse;
   }
 
   /** 是否正在運行 */

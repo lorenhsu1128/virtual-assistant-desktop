@@ -1,7 +1,7 @@
 import type { Rect, WindowRect } from './window';
 
 /** 行為狀態 */
-export type BehaviorState = 'idle' | 'walk' | 'sit' | 'hide' | 'peek' | 'fall' | 'drag' | 'typing' | 'opendoor';
+export type BehaviorState = 'idle' | 'walk' | 'sit' | 'hide' | 'peek' | 'fall' | 'drag' | 'typing' | 'opendoor' | 'enterdoor';
 
 /**
  * StateMachine.tick() 的輸出
@@ -30,6 +30,8 @@ export interface BehaviorOutput {
   peekSide: 'left' | 'right' | null;
   /** opendoor 狀態的目標視窗 hwnd */
   opendoorTargetHwnd: number | null;
+  /** enterdoor 狀態的目標視窗 hwnd */
+  enterdoorTargetHwnd: number | null;
 }
 
 /**

@@ -255,6 +255,12 @@ export class SystemTray {
       click: () => this.emitAction('test_opendoor'),
     });
 
+    // 測試進門（開發用）
+    template.push({
+      label: '\u6e2c\u8a66\u9032\u9580',
+      click: () => this.emitAction('test_enterdoor'),
+    });
+
     // Debug 模式
     template.push({
       label: 'Debug \u6a21\u5f0f',

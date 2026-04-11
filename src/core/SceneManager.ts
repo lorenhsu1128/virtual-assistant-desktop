@@ -691,10 +691,16 @@ export class SceneManager {
         this.behaviorBridge.update(output);
       }
 
-      // ── 門洞效果管理 ──
+      // ── 門洞效果管理（opendoor / enterdoor 共用） ──
       if (output.currentState === 'opendoor' && output.stateChanged) {
-        this.startDoorEffect(output.opendoorTargetHwnd);
-      } else if (output.currentState !== 'opendoor' && this.doorEffect?.isActive()) {
+        this.startDoorEffect(output.opendoorTargetHwnd, false);
+      } else if (output.currentState === 'enterdoor' && output.stateChanged) {
+        this.startDoorEffect(output.enterdoorTargetHwnd, true);
+      } else if (
+        output.currentState !== 'opendoor' &&
+        output.currentState !== 'enterdoor' &&
+        this.doorEffect?.isActive()
+      ) {
         this.stopDoorEffect();
       }
     }
@@ -1166,9 +1172,13 @@ export class SceneManager {
   /**
    * 啟動門洞效果
    *
-   * 為目標視窗建立 stencil 門洞，啟用該視窗的 stencil test。
+   * 為目標視窗建立門洞 mesh。opendoor 與 enterdoor 共用同一套機制，
+   * 差異僅在 Z 切換方向（由 DoorEffect.isReverse 處理）。
+   *
+   * @param hwnd 目標視窗
+   * @param isReverse true = enterdoor（走入視窗後），false = opendoor（走出到前方）
    */
-  private startDoorEffect(hwnd: number | null): void {
+  private startDoorEffect(hwnd: number | null, isReverse = false): void {
     if (!hwnd || !this.windowMeshManager) return;
 
     const windowZ = this.windowMeshManager.getWindowZ(hwnd);
@@ -1188,13 +1198,18 @@ export class SceneManager {
     const doorWidth = (coreW?.width ?? this.characterSize.width * this.pixelToWorld) * 1.5;
     const doorHeight = (coreW?.height ?? this.characterSize.height * this.pixelToWorld) * 1.3;
 
+    // enterdoor 的門開關方向與 opendoor 鏡像（左右相反）
+    const hingeSide: 'left' | 'right' = isReverse ? 'right' : 'left';
+
     this.doorEffect.start(
       { x: charWorld.x, y: charWorld.y },
       doorWidth,
       doorHeight,
       windowZ,
+      hingeSide,
+      undefined,
+      isReverse,
     );
-
   }
 
   /** 停止門洞效果 */
@@ -1255,6 +1270,20 @@ export class SceneManager {
       }
       // 角色在目標視窗後面
       const windowZ = this.windowMeshManager?.getWindowZ(output.opendoorTargetHwnd);
+      return windowZ !== null ? windowZ - 0.5 : DEFAULT_Z;
+    }
+    // enterdoor 狀態：Z 深度切換方向與 opendoor 相反
+    // 前半段角色仍在前方（isCharacterInFront reverse 模式下是 frame < zSwitchFrame）
+    // 後半段與 done 階段都鎖定在視窗後方（角色已躲入）
+    if (output.currentState === 'enterdoor' && output.enterdoorTargetHwnd !== null) {
+      const animTime = this.animationManager?.getCurrentAnimationTime() ?? 0;
+      const windowZ = this.windowMeshManager?.getWindowZ(output.enterdoorTargetHwnd);
+      if (this.doorEffect?.isDone(animTime)) {
+        return windowZ !== null ? windowZ - 0.5 : DEFAULT_Z;
+      }
+      if (this.doorEffect?.isCharacterInFront(animTime)) {
+        return DEFAULT_Z;
+      }
       return windowZ !== null ? windowZ - 0.5 : DEFAULT_Z;
     }
 

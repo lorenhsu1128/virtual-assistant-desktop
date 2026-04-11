@@ -71,6 +71,8 @@ assets/system/vrma/
 | `peek` | `PEEK` | 探頭（躲在視窗後面） | LoopOnce + clamp（runtime mirror 左右） |
 | `fall` | `FALL` | 從吸附處墜落 | LoopOnce + clamp |
 | `hide` | `HIDE` | 移動到 peek 的過程 | LoopRepeat，進入狀態時隨機挑一支 |
+| `opendoor` | `OPENDOOR` | 從視窗後開門走出 | LoopOnce + clamp（hip Z 保留） |
+| `enterdoor` | — | 背對鏡頭走進視窗後 | LoopOnce + clamp；**v1 由 opendoor clip 運行時 Y 軸 180° 旋轉生成**，不需獨立 .vrma 檔 |
 
 > 權威來源：`src/types/animation.ts` 中的 `SYSTEM_STATE_FILE_PREFIX` 常數。修改對照表必須同步此檔。
 
@@ -92,6 +94,9 @@ for each state in SYSTEM_ANIMATION_STATES:
   ↓
 peek 池特殊處理：
   └─ mirrorAnimationClip(peekClip, boneMapping) → setPeekLeftClips()
+
+enterdoor 池特殊處理（loop 中 skip 檔案掃描）：
+  └─ reverseAnimationClipForEnterdoor(opendoorClip, boneMapping) → setStatePool('enterdoor', ...)
 ```
 
 每個狀態都有獨立的 `clips[]`，`playStateRandom(state)` 從中隨機挑一支播放。
@@ -111,6 +116,8 @@ peek 池特殊處理：
 | `peek` | `false` | 0.5 | `true` | 由 StateMachine 以 clip duration 決定停留時間 |
 | `fall` | `false` | 0.3 | `true` | 短暫動畫 |
 | `hide` | `true` | 0.3 | — | 與 walk 策略相同（也是移動中） |
+| `opendoor` | `false` | 0.3 | `true` | 開門走出；hip Z 保留 |
+| `enterdoor` | `false` | 0.3 | `true` | 進門躲入；由 opendoor clip 反向生成（見 §6.4） |
 
 ---
 
@@ -159,7 +166,23 @@ StateMachine 下一幀使用新的移動速度
 
 實作位置：`BehaviorAnimationBridge.update`、`main.ts: initializeBehaviorSystem` 內的 callback 注入。
 
-### 6.4 使用者動畫優先級
+### 6.4 enterdoor 由 opendoor 反向生成（runtime Y 軸 180° 旋轉）
+
+`enterdoor` 是 opendoor 的反向動作：opendoor 角色從視窗後開門走出（面向鏡頭），enterdoor 角色背對鏡頭走入視窗後躲藏。
+
+v1 不需要獨立的 `SYS_ENTERDOOR_*.vrma` 檔案。啟動時由 `reverseAnimationClipForEnterdoor` 對 opendoor 池的每支 clip 套用 Y 軸 180° 旋轉生成：
+
+- **Hips position track**：`(x, y, z) → (-x, y, -z)`（Y 旋轉對位置的作用）
+- **Hips quaternion track**：pre-multiply `q_rotY(π)`，Hamilton 公式為 `(x, y, z, w) → (z, w, -x, -y)`
+- **其他骨骼**：不動；父子階層自動跟隨 hip 旋轉
+
+配合 `DoorEffect.isReverse = true` 旗標，Z 深度切換方向反轉：前半段角色仍在前方（DEFAULT_Z），`zSwitchFrame` 之後切到視窗後方（`windowZ - 0.5`）。門洞 mesh 的開關時序與鉸鏈方向**完全不變**。
+
+enterdoor 結束後由 StateMachine 轉交到 `hide`（設定 `peekTargetHwnd` + 隨機 `peekSide`），由既有 hide tick 接手演化為 peek / opendoor，形成完整循環。
+
+實作位置：`src/animation/AnimationReverse.ts`、`src/main.ts: loadAllSystemAnimations` 尾端。
+
+### 6.5 使用者動畫優先級
 
 系統動畫（`assets/system/vrma/`）與使用者動畫（`animations.json`）並存：
 
