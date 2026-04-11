@@ -1193,10 +1193,9 @@ export class SceneManager {
     const cy = this.currentPosition.y + this.characterSize.height / 2;
     const charWorld = this.screenToWorld(cx, cy);
 
-    // 門洞大小：coreSize × 倍率
-    const coreW = this.vrmController?.getCoreWorldSize();
-    const doorWidth = (coreW?.width ?? this.characterSize.width * this.pixelToWorld) * 1.5;
-    const doorHeight = (coreW?.height ?? this.characterSize.height * this.pixelToWorld) * 1.3;
+    // 門洞大小 = 角色 debug 青色框尺寸 1:1（characterSize 已是精確 mesh 掃描結果）
+    const doorWidth = this.characterSize.width * this.pixelToWorld;
+    const doorHeight = this.characterSize.height * this.pixelToWorld;
 
     // enterdoor 的門開關方向與 opendoor 鏡像（左右相反）
     const hingeSide: 'left' | 'right' = isReverse ? 'right' : 'left';
