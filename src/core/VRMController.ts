@@ -45,6 +45,19 @@ export class VRMController {
    */
   private static readonly HIP_LARGE_JUMP = 0.3; // 30 cm
 
+  // ── 頭頂 / 腳底 mesh 頂點掃描結果（bind pose bone-local 座標）──
+  /**
+   * Head bone 本地座標下，最高頂點的位置。
+   * 由 scanHeadFootExtents() 於 loadModel 後寫入。
+   * runtime 呼叫 headBone.localToWorld(clone) 即可取得當前世界位置，
+   * 自動處理 scale、旋轉、位置的複合變換。
+   */
+  private cachedHeadTopLocal: THREE.Vector3 | null = null;
+  /** Foot bone（較低的一隻腳）本地座標下，最低頂點的位置 */
+  private cachedFootBottomLocal: THREE.Vector3 | null = null;
+  /** 對應 cachedFootBottomLocal 的骨骼 reference（左或右腳） */
+  private cachedFootRefBone: THREE.Object3D | null = null;
+
   /** 取得 VRM 實例（供 SceneManager 計算 bounding box） */
   getVRM(): VRM | null {
     return this.vrm;
@@ -117,6 +130,8 @@ export class VRMController {
     this.smoothedHipsValid = false;
     // 套用當前 MToon outline 狀態到新模型
     this.applyMToonOutline();
+    // 掃描頭頂/腳底實際 mesh 頂點範圍（bind pose，一次性）
+    this.scanHeadFootExtents();
   }
 
   /**
@@ -600,11 +615,12 @@ export class VRMController {
   private static readonly _tempVec3B = new THREE.Vector3();
 
   /**
-   * 取得排除 SpringBone 的模型核心尺寸（方向性擴展）
+   * 取得排除 SpringBone 的模型核心尺寸
    *
    * 1. 用 humanoid 骨骼世界座標建構基礎 Box3（排除 SpringBone）
-   * 2. 頭頂外推：neck→head 向量延伸，補正頭蓋骨
-   * 3. 腳底外推：foot 往下延伸 lowerLeg→foot 距離的 30%
+   * 2. 頭頂：優先使用 scanHeadFootExtents() 掃描到的 mesh 頂點（精確），
+   *    fallback 用 neck→head 向量延伸 1.5×
+   * 3. 腳底：優先使用 mesh 頂點掃描，fallback 用 lowerLeg→foot 延伸 50%
    * 4. 兩側外推：左右肩寬的 25% 補正軀幹/衣物厚度
    */
   getCoreWorldSize(): { width: number; height: number } | null {
@@ -642,23 +658,38 @@ export class VRMController {
     const vA = VRMController._tempVec3;
     const vB = VRMController._tempVec3B;
 
-    // 頭頂外推：neck→head 方向延伸同等距離
-    const neck = bonePos.get('neck');
-    const head = bonePos.get('head');
-    if (neck && head) {
-      vA.copy(head).sub(neck); // neck→head 向量
-      vB.copy(head).add(vA);   // head + 同方向延伸
-      box.expandByPoint(vB);
+    // 頭頂外推：優先用 mesh 頂點掃描的 head bone local offset
+    const headBone = this.vrm.humanoid.getNormalizedBoneNode('head');
+    if (this.cachedHeadTopLocal && headBone) {
+      vA.copy(this.cachedHeadTopLocal);
+      headBone.localToWorld(vA);
+      box.expandByPoint(vA);
+    } else {
+      // Fallback：neck→head 方向延伸 1.5×
+      const neck = bonePos.get('neck');
+      const head = bonePos.get('head');
+      if (neck && head) {
+        vA.copy(head).sub(neck); // neck→head 向量
+        vB.copy(head).addScaledVector(vA, 1.5);
+        box.expandByPoint(vB);
+      }
     }
 
-    // 腳底外推：lowerLeg→foot 方向延伸 30%
-    for (const side of ['left', 'right'] as const) {
-      const lowerLeg = bonePos.get(`${side}LowerLeg`);
-      const foot = bonePos.get(`${side}Foot`);
-      if (lowerLeg && foot) {
-        vA.copy(foot).sub(lowerLeg); // lowerLeg→foot 向量
-        vB.copy(foot).addScaledVector(vA, 0.3);
-        box.expandByPoint(vB);
+    // 腳底外推：優先用 mesh 頂點掃描的 foot bone local offset
+    if (this.cachedFootBottomLocal && this.cachedFootRefBone) {
+      vA.copy(this.cachedFootBottomLocal);
+      this.cachedFootRefBone.localToWorld(vA);
+      box.expandByPoint(vA);
+    } else {
+      // Fallback：lowerLeg→foot 方向延伸 50%
+      for (const side of ['left', 'right'] as const) {
+        const lowerLeg = bonePos.get(`${side}LowerLeg`);
+        const foot = bonePos.get(`${side}Foot`);
+        if (lowerLeg && foot) {
+          vA.copy(foot).sub(lowerLeg); // lowerLeg→foot 向量
+          vB.copy(foot).addScaledVector(vA, 0.5);
+          box.expandByPoint(vB);
+        }
       }
     }
 
@@ -676,6 +707,138 @@ export class VRMController {
       width: box.max.x - box.min.x,
       height: box.max.y - box.min.y,
     };
+  }
+
+  /**
+   * 掃描 SkinnedMesh 頂點，計算頭頂與腳底的精確 bind pose 位置
+   *
+   * 演算法（一次性，於 loadModel 結束時呼叫）：
+   * 1. updateMatrixWorld(true) 確保 bind pose matrices
+   * 2. 建立 role 分類表：每個骨骼若為 head（或其後裔）→ 'head'；
+   *    若為 foot/toes（或其後裔）→ 'foot'；其餘 null
+   *    ※ 註：VRM humanoid 骨骼的階層很淺，head 本身不會有後裔是其他 humanoid
+   *       所以實務上就是「骨骼 === head bone」判斷
+   * 3. 遍歷所有 SkinnedMesh 的每個頂點：
+   *    - 找主要權重骨骼（skinWeight.x/y/z/w 的最大值對應的 skinIndex）
+   *    - 查 role：非 head/foot 則 skip（自動排除 SpringBone）
+   *    - 用 mesh.matrixWorld 轉成世界座標
+   *    - 更新 headMaxY / footMinY 對應的世界座標點
+   * 4. 將找到的頂點轉成 head/foot bone 的本地座標存入 cache
+   *    runtime 用 bone.localToWorld 自動跟隨 scale / 旋轉 / 位置變換
+   *
+   * 若任一類別沒有找到有效頂點，對應的 cache 保持 null，
+   * getCoreWorldSize() 會 fallback 到骨骼比例延伸法（Plan A）。
+   */
+  private scanHeadFootExtents(): void {
+    if (!this.vrm) return;
+
+    this.vrm.scene.updateMatrixWorld(true);
+
+    const headBone = this.vrm.humanoid.getNormalizedBoneNode('head');
+    const leftFoot = this.vrm.humanoid.getNormalizedBoneNode('leftFoot');
+    const rightFoot = this.vrm.humanoid.getNormalizedBoneNode('rightFoot');
+    const leftToes = this.vrm.humanoid.getNormalizedBoneNode('leftToes');
+    const rightToes = this.vrm.humanoid.getNormalizedBoneNode('rightToes');
+
+    if (!headBone && !leftFoot && !rightFoot) {
+      console.warn('[VRMController] scanHeadFootExtents: no head/foot bones, using fallback');
+      return;
+    }
+
+    const footBones = new Set<THREE.Object3D>();
+    if (leftFoot) footBones.add(leftFoot);
+    if (rightFoot) footBones.add(rightFoot);
+    if (leftToes) footBones.add(leftToes);
+    if (rightToes) footBones.add(rightToes);
+
+    let headTopWorld: THREE.Vector3 | null = null;
+    let footBottomWorld: THREE.Vector3 | null = null;
+    let headMaxY = -Infinity;
+    let footMinY = Infinity;
+
+    const tempV = new THREE.Vector3();
+
+    this.vrm.scene.traverse((child) => {
+      const mesh = child as THREE.SkinnedMesh;
+      if (!(mesh as THREE.SkinnedMesh).isSkinnedMesh) return;
+
+      const posAttr = mesh.geometry.attributes.position as THREE.BufferAttribute | undefined;
+      const skinIndexAttr = mesh.geometry.attributes.skinIndex as THREE.BufferAttribute | undefined;
+      const skinWeightAttr = mesh.geometry.attributes.skinWeight as THREE.BufferAttribute | undefined;
+      if (!posAttr || !skinIndexAttr || !skinWeightAttr) return;
+
+      const skeleton = mesh.skeleton;
+      if (!skeleton?.bones) return;
+
+      // 建立該 mesh 的 bone index → role 分類表
+      const boneRoles: (null | 'head' | 'foot')[] = skeleton.bones.map((bone) => {
+        if (headBone && bone === headBone) return 'head';
+        if (footBones.has(bone)) return 'foot';
+        return null;
+      });
+
+      const hasAnyTarget = boneRoles.some((r) => r !== null);
+      if (!hasAnyTarget) return;
+
+      for (let i = 0; i < posAttr.count; i++) {
+        // 找主要權重骨骼
+        const wx = skinWeightAttr.getX(i);
+        const wy = skinWeightAttr.getY(i);
+        const wz = skinWeightAttr.getZ(i);
+        const ww = skinWeightAttr.getW(i);
+        let maxW = wx;
+        let maxSlot = 0;
+        if (wy > maxW) { maxW = wy; maxSlot = 1; }
+        if (wz > maxW) { maxW = wz; maxSlot = 2; }
+        if (ww > maxW) { maxW = ww; maxSlot = 3; }
+        if (maxW <= 0) continue;
+
+        let dominantBoneIdx: number;
+        switch (maxSlot) {
+          case 0: dominantBoneIdx = skinIndexAttr.getX(i); break;
+          case 1: dominantBoneIdx = skinIndexAttr.getY(i); break;
+          case 2: dominantBoneIdx = skinIndexAttr.getZ(i); break;
+          default: dominantBoneIdx = skinIndexAttr.getW(i); break;
+        }
+
+        const role = boneRoles[dominantBoneIdx];
+        if (!role) continue;
+
+        tempV.fromBufferAttribute(posAttr, i).applyMatrix4(mesh.matrixWorld);
+
+        if (role === 'head' && tempV.y > headMaxY) {
+          headMaxY = tempV.y;
+          headTopWorld = headTopWorld ?? new THREE.Vector3();
+          headTopWorld.copy(tempV);
+        } else if (role === 'foot' && tempV.y < footMinY) {
+          footMinY = tempV.y;
+          footBottomWorld = footBottomWorld ?? new THREE.Vector3();
+          footBottomWorld.copy(tempV);
+        }
+      }
+    });
+
+    // 轉成 bone-local 並 cache
+    if (headTopWorld && headBone) {
+      this.cachedHeadTopLocal = headBone.worldToLocal((headTopWorld as THREE.Vector3).clone());
+    }
+
+    if (footBottomWorld) {
+      // 選離頂點較近的腳骨作為參考（左/右較低者）
+      const leftY = leftFoot ? leftFoot.getWorldPosition(new THREE.Vector3()).y : Infinity;
+      const rightY = rightFoot ? rightFoot.getWorldPosition(new THREE.Vector3()).y : Infinity;
+      const refFoot = leftY <= rightY ? leftFoot : rightFoot;
+      if (refFoot) {
+        this.cachedFootRefBone = refFoot;
+        this.cachedFootBottomLocal = refFoot.worldToLocal((footBottomWorld as THREE.Vector3).clone());
+      }
+    }
+
+    const headOk = this.cachedHeadTopLocal !== null;
+    const footOk = this.cachedFootBottomLocal !== null;
+    console.log(
+      `[VRMController] scanHeadFootExtents: head=${headOk ? 'ok' : 'fallback'}, foot=${footOk ? 'ok' : 'fallback'}`,
+    );
   }
 
   /**
@@ -803,5 +966,9 @@ export class VRMController {
     }
     // 重置 hip 平滑狀態
     this.smoothedHipsValid = false;
+    // 重置頭頂/腳底掃描 cache
+    this.cachedHeadTopLocal = null;
+    this.cachedFootBottomLocal = null;
+    this.cachedFootRefBone = null;
   }
 }
