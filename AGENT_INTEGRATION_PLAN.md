@@ -8,7 +8,7 @@
 > - **P1.5**（移植 my-agent web chat 元件達到 TUI/web 一致對話流程）— ✅ 完成（commit `1bd4290`）
 > - **P1.5-C**（messageStore + daemonFrameAdapter 單元測試）— ✅ 完成（17 + 18 = 35 tests）
 > - **my-agent 端 source=mascot enum**— ✅ 已合（my-agent commit `1ceda16`）
-> - **P2**（桌寵 MCP server 表演控制）— ⏸️ 待開
+> - **P2**（桌寵 MCP server 表演控制）— ✅ 完成（commit `d81d5fd` + `0cafe57`，含 12 dispatcher tests，端到端驗證 MCP HTTP → IPC → renderer dispatcher → ExpressionManager / AnimationManager）
 > - **P3**（首次啟動引導 + 設定面板）— ⏸️ 待開
 > - 詳細經驗教訓見 `LESSONS.md` § my-agent 整合
 

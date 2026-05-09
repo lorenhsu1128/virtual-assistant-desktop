@@ -230,6 +230,39 @@
 - **受影響檔案**：`electron/agent/AgentSessionClient.ts` (`send()`)
 - **根因記憶**：與 NDJSON / line-delimited JSON 協定（jsonl、ndjson、JSON-RPC over stdio 等）通訊一定要附加終結符。WebSocket 雖然有 message frame 邊界但對端可能仍把 payload 當 stream 處理（my-agent 就是）。寫測試時也要驗 `endsWith('\n')` 防止迴歸
 
+### [2026-05-09] `[跨平台]` — MCP HTTP server 必須走 per-request stateless，不可共用 transport
+
+- **錯誤**：MascotMcpServer 第一版用單一 `McpServer` + 單一 `StreamableHTTPServerTransport`（stateful，sessionIdGenerator: randomUUID）服務所有 HTTP request。第一個 client（例如 cli mcp list 健康檢查）做完 `initialize` 後，第二個 client（例如 daemon MCP loader）連進來會收到 `Invalid Request: Server already initialized`，整個 mascot tool 對 LLM 不可用
+- **同樣錯誤的另一面**：改 stateless（sessionIdGenerator: undefined）共用一個 transport 的話，`initialize` 之後的 `tools/list` 等 follow-up request 全 500（SDK 1.29 內部 state 不對）
+- **正確做法**：per-request 模式 — 每個 HTTP request 起一份新的 `McpServer + StreamableHTTPServerTransport({sessionIdGenerator: undefined})`，response close 時 `transport.close() + mcp.close()`。tool 註冊放進 `buildServer()` helper 確保每份 server 都有同樣 tools。stateless 但 session 隔離
+- **受影響檔案**：`electron/agent/MascotMcpServer.ts` (`start()` / `handleHttpRequest()` / `buildServer()`)
+- **根因記憶**：MCP HTTP transport 的兩個模式（stateful vs stateless）都假設「ONE persistent client」。多 client 場景必須 per-request 隔離。Express 範例（`app.post('/mcp', (req, res) => {...})`）如果直接用就是 per-request 風格 — 那種 pattern 才對
+
+### [2026-05-09] `[跨平台]` — `cli mcp add` 預設 scope=local 對 dotfile 路徑 normalize 失敗
+
+- **錯誤**：第一版 `mcpRegistration.ts` 用 `cli mcp add --transport http mascot <url>`（沒帶 --scope），預設 scope=local。我們的 cwd 是 `~/.virtual-assistant-desktop/agent-workspace`（含 dotfile 父層），結果 mascot 被寫到 `projects["C:/Users/LOREN"]`（home dir）的 mcpServers，不是 workspace。daemon 的 ProjectRuntime 載入時找不到設定，tools 列表是空
+- **根因**：my-agent 的 local scope 用 cwd 找 project key，遇到 dotfile 父層（如 `.virtual-assistant-desktop`）會往上 walk，把 user home 當成 project root
+- **正確做法**：用 `--scope user` 寫到全域 `~/.my-agent/.my-agent.jsonc` 的全域 mcpServers，跨 project 都看得到。桌寵 MCP server 是本機 loopback、自家進程，視為信任來源，user scope 合理
+- **受影響檔案**：`electron/agent/mcpRegistration.ts`
+- **根因記憶**：使用其他工具的「scope/profile/preset」時，要明確指定 scope 不要靠預設。預設值常常與 cwd 解析行為耦合，dotfile 路徑或非標準 project layout 會踩到。idempotent 模式：先 `remove --scope X` 再 `add --scope X`
+
+### [2026-05-09] `[跨平台]` — Electron renderer console.log 不會自動 pipe 到 dev shell
+
+- **錯誤**：P2 端到端 debug 時，加在 MascotActionDispatcher 的 `console.log` 在 dev shell 看不見。誤以為 dispatcher 沒收到 IPC，實際是 log 只去 Chromium DevTools console
+- **正確做法**：dev mode 下用 `webContents.on('console-message', (event) => { ... })` 把指定 prefix 的訊息 forward 到 main process stdout。建議只 forward 自家 prefix（如 `[MascotAction]`）避免被 third-party noise 淹沒
+- **受影響檔案**：`electron/main.ts` (createMainWindow)
+- **根因記憶**：Electron renderer process 的 console output 與 main process stdout 是兩個獨立 stream。dev shell 跑 `bun run dev` 看到的是 main process stdout（含 `[1] [WindowMonitor]` 等），renderer 的 log 要嘛開 DevTools 看，要嘛主動 forward。寫整合測試或 debug script 時要意識到這層分界
+
+### [2026-05-09] `[跨平台]` — daemon orphan 進程 + .daemon.lock 卡死重啟
+
+- **錯誤**：dev 重啟測試時發現桌寵 spawn 新 daemon 失敗：`Daemon session lock held by live pid=N at .daemon.lock`。實際 pid N 是上次 dev session 的 daemon，沒被 `kill-dev.ps1` 殺到（只殺 electron / vite / node，沒殺 cli）
+- **根因**：my-agent daemon 是 standalone bun-compiled binary（process name = `cli.exe`），跟 vite/electron 名字不同。我們的 kill 腳本沒涵蓋。即使 daemon process 被殺掉，`.daemon.lock` 不會自動清理，下次啟動會被卡住
+- **正確做法**：
+  1. `kill-dev.ps1` 加入 `Get-Process cli | Where-Object Path like '*my-agent*' | Stop-Process`
+  2. 完整重啟流程：kill cli → 刪 `~/.my-agent/daemon.pid.json` → 刪 `~/.my-agent/projects/<projectKey>/.daemon.lock` → 清 mcp.json 殘留 entry → 然後才 `bun run dev`
+- **受影響檔案**：`C:\Users\LOREN\AppData\Local\Temp\kill-dev.ps1`（dev 工具腳本，不在 repo）
+- **根因記憶**：spawn 第三方 daemon 的整合，重啟流程必須涵蓋對方的所有「鎖」與 stale state（pid 檔、lock 檔、socket 檔）。建議在 AgentDaemonManager 啟動時主動清理已知的 stale lock — 已驗證安全前可以就先在 dev 工具腳本層級處理
+
 ### [2026-05-09] `[跨平台]` — 別用 vanilla TS 重寫 my-agent 已有的 chat UI
 
 - **錯誤**：P1 用 vanilla TS + 自寫 CSS 做對話氣泡，只解析 Anthropic 標準 `content_block_delta` text。實測發現 my-agent daemon 的 `runnerEvent` 包了一層 `output` wrapper，且 SDK message 的 content 陣列含 `text` / `thinking` / `tool_use` / `tool_result` 多種 block — 我的 parser 全部不認得，氣泡顯示 `(no content, reason=done)` 或原始 `<tool_call>` XML

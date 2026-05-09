@@ -34,7 +34,7 @@
 | v0.2 | ✅ 完成 | 自主移動狀態機 + 拖曳 + 軌道攝影機 + 視窗碰撞/吸附/遮擋（Windows-only） |
 | v0.3 | ✅ 完成 | 表情系統（自動+手動）+ 系統托盤 + Debug overlay |
 | v0.3.x | ✅ 完成 | VRM Picker 預覽對話框 + 動作 / 表情過渡平順化（cubic transition + hip 平滑 + SpringBone 保護） |
-| v0.3.x agent | 🟡 進行中 | my-agent daemon 整合 — P0 lifecycle ✅ / P0.5 graceful shutdown ✅ / P1 ws + 對話氣泡 ✅ / P1.5 React + Tailwind 移植 my-agent web chat 元件 ✅ / P2 MCP server 表演控制（待開）/ P3 引導 + 設定面板（待開） |
+| v0.3.x agent | 🟡 進行中 | my-agent daemon 整合 — P0 lifecycle ✅ / P0.5 graceful shutdown ✅ / P1 ws + 對話氣泡 ✅ / P1.5 React + Tailwind 移植 my-agent web chat 元件 ✅ / P2 MCP server 表演控制 ✅ / P3 引導 + 設定面板（待開） |
 | 平台支援 | 🟡 進行中 | Windows 完整 / macOS 渲染+動畫+表情+自主移動，視窗感知功能停用 |
 | v0.4+ | 未開始 | — |
 
@@ -69,6 +69,7 @@
   - 透過 `ws://127.0.0.1:port/sessions?source=mascot&cwd=<workspace>&token=<token>` 連線
   - 所有對話訊息（NDJSON Anthropic streaming events）透過 `agent_session_frame` IPC 廣播給氣泡視窗
   - 氣泡視窗（src-bubble/）為獨立 BrowserWindow + React app，與主視窗完全隔離；訊息渲染採用移植自 my-agent web 的 chat 元件（MessageItem / ToolCallCard / ThinkingBlock 等），讓對話流程與 my-agent TUI / web 一致
+  - 反向控制：桌寵啟動時起 HTTP MCP server，註冊到 my-agent 為 `mascot` server。LLM 透過 4 個 tool（set_expression / play_animation / say / look_at_screen）控制 VRM 表演。LLM tool call → main process MCP handler → IPC `mascot_action` → renderer MascotActionDispatcher → ExpressionManager / AnimationManager
 - **詳細藍圖**：見 [AGENT_INTEGRATION_PLAN.md](AGENT_INTEGRATION_PLAN.md)
 - **my-agent 端依賴**：need `feat(daemon): support 'mascot' client source` commit（已合）
 - **降級策略**：bun / cli 偵測不到、daemon spawn 失敗時，桌寵以「無 AI 模式」運作，所有 v0.3 既有功能不受影響
@@ -93,7 +94,11 @@ src/                → TypeScript 前端（主視窗 renderer process）
   types/            → 共用型別（animation, behavior, config, door, tray, vrmPicker, window）
   vrm-picker/       → VRM 模型瀏覽對話框（獨立 BrowserWindow renderer）
                       main.ts / PreviewScene.ts / pickerLogic.ts / style.css
-  types/agent.ts    → my-agent daemon 整合共用型別（renderer 端）
+  types/agent.ts    → my-agent daemon 整合共用型別（renderer 端，
+                      含 MascotAction union 給 LLM tool call 派發用）
+  agent/MascotActionDispatcher.ts → 訂閱 mascot_action IPC events，
+                      路由到 ExpressionManager / AnimationManager，
+                      含 case-insensitive 表情匹配 + durationMs 自動回退
 electron/           → Electron 主程序（main process）
   main.ts           → 應用程式入口、BrowserWindow 建立、agent daemon lifecycle hook
   preload.ts        → contextBridge 暴露 IPC API（主視窗 / picker / agent bubble 共用）
@@ -103,11 +108,16 @@ electron/           → Electron 主程序（main process）
   keyboardMonitor.ts → uiohook-napi 全域鍵盤事件（推送 typing 狀態）
   systemTray.ts     → 系統托盤選單
   vrmPickerWindow.ts → VRM 模型瀏覽對話框 BrowserWindow 管理
-  agent/            → my-agent daemon 整合（P0–P1）
+  agent/            → my-agent daemon 整合（P0–P2）
     AgentDaemonManager.ts → daemon 生命週期（auto/external 雙模式 + cli daemon stop graceful）
     AgentSessionClient.ts → ws://127.0.0.1:port/sessions client + NDJSON
     agentBubbleWindow.ts  → 對話氣泡 BrowserWindow（透明，沿用 picker 模板）
     agentIpcHandlers.ts   → agent_* IPC commands + frame 廣播
+    MascotMcpServer.ts    → 桌寵 HTTP MCP server（per-request stateless），
+                            暴露 set_expression / play_animation / say /
+                            look_at_screen 4 個 tool 給 LLM 呼叫
+    mcpRegistration.ts    → 透過 cli mcp add --scope user 把 mascot 註冊
+                            到 my-agent 全域 mcpServers，idempotent
   platform/         → 跨平台抽象層（Windows / macOS 差異集中於此）
     index.ts        → isWindows / isMac 旗標 + 統一匯出
     windowConfig.ts → 各平台 BrowserWindow 參數（主視窗 / picker / agent bubble）
