@@ -23,6 +23,17 @@ export interface AppConfig {
   systemAssetsDir: string;
   /** VRM 模型瀏覽對話框上次使用的資料夾（為空時從 vrmModelPath 推導） */
   vrmPickerFolder?: string;
+  mtoonOutlineEnabled?: boolean;
+  agent?: AgentConfig;
+}
+
+/** my-agent daemon 整合設定（與 src/types/config.ts AgentConfig 同步） */
+export interface AgentConfig {
+  enabled: boolean;
+  daemonMode: 'auto' | 'external';
+  bunBinaryPath: string | null;
+  myAgentCliPath: string | null;
+  workspaceCwd: string | null;
 }
 
 /** Animation entry metadata */
@@ -57,6 +68,14 @@ const DEFAULT_CONFIG: AppConfig = {
   animationSpeed: 1.0,
   moveSpeedMultiplier: 1.0,
   systemAssetsDir: 'assets/system',
+  mtoonOutlineEnabled: false,
+  agent: {
+    enabled: false,
+    daemonMode: 'auto',
+    bunBinaryPath: null,
+    myAgentCliPath: null,
+    workspaceCwd: null,
+  },
 };
 
 /** Get config directory path (~/.virtual-assistant-desktop/) */
@@ -96,7 +115,11 @@ export async function readConfig(): Promise<AppConfig> {
   try {
     const content = await fsp.readFile(configPath, 'utf-8');
     const parsed = JSON.parse(content) as Partial<AppConfig>;
-    return { ...DEFAULT_CONFIG, ...parsed };
+    return {
+      ...DEFAULT_CONFIG,
+      ...parsed,
+      agent: { ...DEFAULT_CONFIG.agent!, ...(parsed.agent ?? {}) },
+    };
   } catch (e) {
     console.warn(`[FileManager] config.json corrupted: ${e}. Backing up and recreating.`);
     const backupPath = path.join(getConfigDir(), 'config.json.bak');

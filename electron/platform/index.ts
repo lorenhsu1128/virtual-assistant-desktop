@@ -14,3 +14,13 @@ export const isMac = process.platform === 'darwin';
 export { getWindowOptions, applyPostCreateSetup, getPickerWindowOptions } from './windowConfig.js';
 export { resolveLocalFilePath } from './protocolHelper.js';
 export { enumerateWindowsMac } from './macWindowMonitor.js';
+export {
+  getAgentHome,
+  getDaemonPidFilePath,
+  getDaemonTokenFilePath,
+  resolveBunBinary,
+  resolveMyAgentCli,
+  getDefaultAgentWorkspace,
+  ensureAgentWorkspace,
+  getAgentDaemonLogPath,
+} from './agentPaths.js';

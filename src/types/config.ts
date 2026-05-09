@@ -44,6 +44,26 @@ export interface AppConfig {
    * 造成角色輪廓出現粗黑邊。預設關閉。
    */
   mtoonOutlineEnabled: boolean;
+  /** my-agent 整合設定 */
+  agent: AgentConfig;
+}
+
+/** my-agent daemon 整合設定 */
+export interface AgentConfig {
+  /** 是否啟用 agent 功能（預設 false，由首次啟動引導開啟） */
+  enabled: boolean;
+  /**
+   * Daemon 生命週期模式：
+   * - `auto`：桌寵自動 spawn / 監看 / 關閉 daemon
+   * - `external`：使用者自己 `./cli daemon start`，桌寵僅連線
+   */
+  daemonMode: 'auto' | 'external';
+  /** Bun runtime 執行檔路徑（null = 自動偵測） */
+  bunBinaryPath: string | null;
+  /** my-agent CLI 入口路徑（null = 自動偵測） */
+  myAgentCliPath: string | null;
+  /** Agent workspace cwd（null = 用預設隔離目錄） */
+  workspaceCwd: string | null;
 }
 
 /** 2D 位置 */
@@ -77,4 +97,11 @@ export const DEFAULT_CONFIG: AppConfig = {
   moveSpeedMultiplier: 1.0,
   systemAssetsDir: 'assets/system',
   mtoonOutlineEnabled: false,
+  agent: {
+    enabled: false,
+    daemonMode: 'auto',
+    bunBinaryPath: null,
+    myAgentCliPath: null,
+    workspaceCwd: null,
+  },
 };

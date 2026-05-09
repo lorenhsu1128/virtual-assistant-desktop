@@ -11,8 +11,9 @@ import * as url from 'node:url';
 import { registerIpcHandlers } from './ipcHandlers.js';
 import { WindowMonitor } from './windowMonitor.js';
 import { SystemTray } from './systemTray.js';
-import { ensureConfigDir } from './fileManager.js';
+import { ensureConfigDir, readConfig } from './fileManager.js';
 import { closePickerWindow } from './vrmPickerWindow.js';
+import { AgentDaemonManager } from './agent/AgentDaemonManager.js';
 import {
   getWindowOptions,
   applyPostCreateSetup,
@@ -31,6 +32,7 @@ const isDev = process.env.NODE_ENV !== 'production' && !app.isPackaged;
 let mainWindow: BrowserWindow | null = null;
 let windowMonitor: WindowMonitor | null = null;
 let systemTray: SystemTray | null = null;
+let agentDaemon: AgentDaemonManager | null = null;
 
 /**
  * Single instance lock.
@@ -134,6 +136,28 @@ app.whenReady().then(async () => {
   // Register IPC handlers
   registerIpcHandlers(mainWindow, windowMonitor);
 
+  // Start my-agent daemon manager（依 config.agent.enabled 決定是否實際啟動）
+  try {
+    const cfg = await readConfig();
+    agentDaemon = new AgentDaemonManager(
+      cfg.agent ?? {
+        enabled: false,
+        daemonMode: 'auto',
+        bunBinaryPath: null,
+        myAgentCliPath: null,
+        workspaceCwd: null,
+      },
+    );
+    agentDaemon.on('status', (info) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('agent_status', info);
+      }
+    });
+    void agentDaemon.start();
+  } catch (e) {
+    console.warn('[Main] AgentDaemonManager init failed:', e);
+  }
+
   // Debug: Ctrl+Arrow keys for manual character movement (global shortcuts)
   const arrows = ['Up', 'Down', 'Left', 'Right'] as const;
   for (const dir of arrows) {
@@ -144,7 +168,7 @@ app.whenReady().then(async () => {
     });
   }
 
-  // Cleanup on window close
+  // Cleanup on window close（agentDaemon 由 before-quit 集中處理，避免雙重呼叫競態）
   mainWindow.on('closed', () => {
     globalShortcut.unregisterAll();
     windowMonitor?.stop();
@@ -152,6 +176,21 @@ app.whenReady().then(async () => {
     closePickerWindow();
     mainWindow = null;
   });
+});
+
+// 多平台 graceful shutdown：app quit 前確保 daemon 收到 SIGTERM
+app.on('before-quit', async (event) => {
+  if (agentDaemon) {
+    const local = agentDaemon;
+    agentDaemon = null;
+    event.preventDefault();
+    try {
+      await local.stop();
+    } catch (e) {
+      console.warn('[Main] agentDaemon.stop() error:', e);
+    }
+    app.quit();
+  }
 });
 
 // Quit when all windows are closed (Windows behavior)
