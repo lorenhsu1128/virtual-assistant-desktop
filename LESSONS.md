@@ -196,6 +196,40 @@
 - **與 bun 無關**：此問題與套件管理員無關，pnpm 環境下若快取狀態相同也會發生。只是遷移後快取若被觸發重抓會重現
 - **根因記憶**：electron-builder 把 `7za` 任何非零 exit 都當失敗，即使解壓檔案實際可用。Windows 的 symlink 預設權限是真正的瓶頸
 
+## my-agent 整合
+
+### [2026-05-09] `[跨平台]` — bun-compiled standalone binary 不可再透過 bun 執行
+
+- **錯誤**：AgentDaemonManager 第一版用 `spawn(bunBinary, [cli, 'daemon', 'start', ...])` 啟動 my-agent CLI。實測 daemon 立刻 exit code=1，agent 日誌顯示 bun 嘗試把 PE 檔（`MZ` header）當 JS 解析：`error: Expected ";" but found " " at C:\...\cli.exe:1:4`
+- **根因**：my-agent 的 `cli` / `cli.exe` 是 `bun build --compile` 產出的 standalone binary，**已內含 bun runtime**。再透過外部 bun 啟動 = bun 試著把可執行檔當原始碼解析
+- **正確做法**：判定 CLI 路徑是 `.exe` 或 Unix 無副檔名 + 有執行權限 → 直接 spawn binary。只有 source script（.ts/.js）才需要透過 bun runtime。AgentDaemonManager 加 `isExecutable()` helper 做雙路徑分派
+- **受影響檔案**：`electron/agent/AgentDaemonManager.ts`
+- **根因記憶**：遇到「`bun build --compile` 產物」時，把它當作普通 binary 處理，不要再包 bun。同樣陷阱適用於 deno compile / node SEA / pkg 產物。判定方法：副檔名 `.exe` / 無副檔名 + 0o111 mode
+
+### [2026-05-09] `[Windows]` — Node.js child.kill('SIGTERM') 在 Windows 是硬殺，daemon 來不及清 pid.json
+
+- **錯誤**：AgentDaemonManager 第一版 stop() 用 `child.kill('SIGTERM')` 通知 my-agent daemon 結束。daemon 進程確實被殺掉，但 `~/.my-agent/daemon.pid.json` 沒被清理（留 orphan 檔案，下次啟動需要 stale heartbeat 偵測才能 recover）
+- **根因**：Windows 沒有真正的 SIGTERM。Node.js 的 `child.kill(signal)` 不論傳什麼 signal，實際都呼叫 `TerminateProcess()` — 等同 SIGKILL。Daemon 註冊的 SIGINT/SIGTERM/SIGBREAK handler 完全不會觸發，自然沒機會 cleanup
+- **正確做法**：改 spawn `cli daemon stop` 子命令通知 daemon 結束。my-agent 自家 stop 命令會 (1) 讀 pid.json 找 pid (2) TerminateProcess (3) **代為 cleanup pid.json**（標準輸出顯示 `force-killed daemon pid=N; cleaning orphan pid.json`）。本地 SIGKILL 留作 fallback timeout 之後才用
+- **受影響檔案**：`electron/agent/AgentDaemonManager.ts` (`stop()` / `tryGracefulStop()`)
+- **根因記憶**：在 Windows 上對外部進程做「graceful shutdown」不能依靠 Node.js child.kill — 必須走目標程式自己的 stop CLI 或 IPC 訊息。同樣思維適用其他原生 daemon（postgres、nginx、my-agent）— 找它們的 admin CLI
+
+### [2026-05-09] `[跨平台]` — Electron mainWindow.on('closed') + before-quit 雙重 stop 競態
+
+- **錯誤**：第一次 graceful shutdown 測試發現 `cli daemon stop` 訊息「sent」但 daemon 早就死了、pid.json 也沒清。日誌顯示 daemon exited 與 stop sent 只差幾百 ms — 兩個 stop() 在賽跑
+- **根因**：使用者按 X 關視窗時：(1) `mainWindow.on('closed')` 觸發 `void agentDaemon?.stop()` 不等待 (2) 接著 `app.on('before-quit')` 觸發第二次 `await agentDaemon.stop()`。兩個 stop 各自 spawn `cli daemon stop` 子進程、各自有自己的 graceful timeout。先到的會把 daemon 殺掉，後到的找不到 daemon 自然 fail
+- **正確做法**：在 `mainWindow.on('closed')` **不要**呼叫 daemon stop。只由 `app.on('before-quit')` 集中處理（preventDefault → await stop → app.quit() → 二次觸發 before-quit 時 agentDaemon 已 null skip）
+- **受影響檔案**：`electron/main.ts`
+- **根因記憶**：Electron 的 quit 流程有多個 cleanup hook（window-all-closed → before-quit → will-quit → quit）。每個資源只能由「一個」hook 負責清理，否則就是賽跑。判定原則：需要 await 的清理必走 before-quit + preventDefault；fire-and-forget 才能放 mainWindow.on('closed')
+
+### [2026-05-09] `[跨平台]` — my-agent daemon 的 ws 是 NDJSON，frame 必須結尾換行
+
+- **錯誤**：AgentSessionClient 第一版 `send()` 用 `ws.send(JSON.stringify(frame))` — 沒結尾 `\n`。手動 ws probe 看到 daemon 收到連線、回 hello，但送 input 後完全沒反應，60s timeout 才斷
+- **根因**：my-agent 的 `directConnectServer.ts:195-235` 用 newline 切 frame：「accumulate 緩衝區直到看到 `\n` 才 JSON.parse」。沒換行就一直 buffer，daemon 沒拿到完整 frame 自然不處理
+- **正確做法**：所有送出 frame 必須 `JSON.stringify(frame) + '\n'`。Probe 加上換行立刻收到 turnStart / runnerEvent stream
+- **受影響檔案**：`electron/agent/AgentSessionClient.ts` (`send()`)
+- **根因記憶**：與 NDJSON / line-delimited JSON 協定（jsonl、ndjson、JSON-RPC over stdio 等）通訊一定要附加終結符。WebSocket 雖然有 message frame 邊界但對端可能仍把 payload 當 stream 處理（my-agent 就是）。寫測試時也要驗 `endsWith('\n')` 防止迴歸
+
 ## 如何新增教訓
 
 當你修正了 Claude Code 的錯誤後，請執行：

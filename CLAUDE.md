@@ -34,12 +34,13 @@
 | v0.2 | ✅ 完成 | 自主移動狀態機 + 拖曳 + 軌道攝影機 + 視窗碰撞/吸附/遮擋（Windows-only） |
 | v0.3 | ✅ 完成 | 表情系統（自動+手動）+ 系統托盤 + Debug overlay |
 | v0.3.x | ✅ 完成 | VRM Picker 預覽對話框 + 動作 / 表情過渡平順化（cubic transition + hip 平滑 + SpringBone 保護） |
+| v0.3.x agent | 🟡 進行中 | my-agent daemon 整合 — P0 lifecycle ✅ / P0.5 graceful shutdown ✅ / P1 ws + 對話氣泡 ✅ / P2 MCP server 表演控制（待開）/ P3 引導 + 設定面板（待開） |
 | 平台支援 | 🟡 進行中 | Windows 完整 / macOS 渲染+動畫+表情+自主移動，視窗感知功能停用 |
 | v0.4+ | 未開始 | — |
 
 ### 系統托盤選單功能（左鍵點擊）
 
-顯示桌寵 | 動畫 ▸ | 表情 ▸ | 縮放 ▸ | 動畫速率 ▸ | 暫停/恢復自主移動 | 暫停/恢復自動表情 | 暫停/恢復動畫循環 | 重置鏡頭角度 | 重置回桌面正中央 | 更換 VRM 模型 | 瀏覽 VRM 模型...（自訂預覽對話框） | 更換動畫資料夾 | Debug 模式 | 設定(TODO) | 結束
+顯示桌寵 | 動畫 ▸ | 表情 ▸ | 縮放 ▸ | 動畫速率 ▸ | 暫停/恢復自主移動 | 暫停/恢復自動表情 | 暫停/恢復動畫循環 | 重置鏡頭角度 | 重置回桌面正中央 | 更換 VRM 模型 | 瀏覽 VRM 模型...（自訂預覽對話框） | 更換動畫資料夾 | Debug 模式 | 設定(TODO) | Agent 對話 | Agent 重新連線 | 結束
 
 ### Debug overlay 功能
 
@@ -59,6 +60,17 @@
 - 視窗遮擋改用 3D depth-only mesh（取代 SetWindowRgn）
 - DwmGetWindowAttribute(DWMWA_CLOAKED) 過濾 Windows 11 系統 UI
 - src-tauri/ 保留作參考，不再編譯
+
+### my-agent daemon 整合（v0.3.x agent，進行中）
+
+- **目標**：把 my-agent（Bun + Claude Code 風格 CLI agent）作為桌寵的 AI 大腦，使用者透過對話氣泡與 agent 對話，未來由 agent 直接呼叫 MCP tool 控制 VRM 表演（P2）
+- **整合層次**：
+  - 桌寵 main process spawn `cli.exe daemon start --port 0`，用 pid.json 取得 port + heartbeat 監看
+  - 透過 `ws://127.0.0.1:port/sessions?source=mascot&cwd=<workspace>&token=<token>` 連線
+  - 所有對話訊息（NDJSON Anthropic streaming events）透過 `agent_session_frame` IPC 廣播給氣泡視窗
+- **詳細藍圖**：見 [AGENT_INTEGRATION_PLAN.md](AGENT_INTEGRATION_PLAN.md)
+- **my-agent 端依賴**：need `feat(daemon): support 'mascot' client source` commit（已合）
+- **降級策略**：bun / cli 偵測不到、daemon spawn 失敗時，桌寵以「無 AI 模式」運作，所有 v0.3 既有功能不受影響
 
 ## 關鍵目錄結構
 
@@ -80,24 +92,34 @@ src/                → TypeScript 前端（主視窗 renderer process）
   types/            → 共用型別（animation, behavior, config, door, tray, vrmPicker, window）
   vrm-picker/       → VRM 模型瀏覽對話框（獨立 BrowserWindow renderer）
                       main.ts / PreviewScene.ts / pickerLogic.ts / style.css
+  types/agent.ts    → my-agent daemon 整合共用型別（renderer 端）
 electron/           → Electron 主程序（main process）
-  main.ts           → 應用程式入口、BrowserWindow 建立
-  preload.ts        → contextBridge 暴露 IPC API（主視窗與 picker 共用）
+  main.ts           → 應用程式入口、BrowserWindow 建立、agent daemon lifecycle hook
+  preload.ts        → contextBridge 暴露 IPC API（主視窗 / picker / agent bubble 共用）
   ipcHandlers.ts    → 所有 ipcMain.handle() 註冊
-  fileManager.ts    → config.json / animations.json 管理
+  fileManager.ts    → config.json / animations.json 管理（含 AgentConfig）
   windowMonitor.ts  → koffi GetWindow 遍歷視窗列舉（Windows-only）
   keyboardMonitor.ts → uiohook-napi 全域鍵盤事件（推送 typing 狀態）
   systemTray.ts     → 系統托盤選單
   vrmPickerWindow.ts → VRM 模型瀏覽對話框 BrowserWindow 管理
+  agent/            → my-agent daemon 整合（P0–P1）
+    AgentDaemonManager.ts → daemon 生命週期（auto/external 雙模式 + cli daemon stop graceful）
+    AgentSessionClient.ts → ws://127.0.0.1:port/sessions client + NDJSON
+    agentBubbleWindow.ts  → 對話氣泡 BrowserWindow（透明，沿用 picker 模板）
+    agentIpcHandlers.ts   → agent_* IPC commands + frame 廣播
   platform/         → 跨平台抽象層（Windows / macOS 差異集中於此）
     index.ts        → isWindows / isMac 旗標 + 統一匯出
-    windowConfig.ts → 各平台 BrowserWindow 參數（含 picker 視窗）
+    windowConfig.ts → 各平台 BrowserWindow 參數（主視窗 / picker / agent bubble）
     protocolHelper.ts → local-file 協定路徑解析
     macWindowMonitor.ts → macOS 側視窗列舉（空實作 / 降級）
+    agentPaths.ts   → bun / my-agent CLI / ~/.my-agent / workspace 跨平台路徑
 src-tauri/          → [已棄用] 舊 Rust 後端（保留作參考）
 src-settings/       → Svelte 設定視窗（尚未實作）
+src-bubble/         → Agent 對話氣泡 renderer（vanilla TS + CSS）
+                      main.ts / BubbleApp.ts / style.css
 index.html          → 主視窗 HTML 入口
 vrm-picker.html     → VRM 模型瀏覽對話框 HTML 入口
+agent-bubble.html   → Agent 對話氣泡 HTML 入口
 tests/              → Vitest 測試（unit/）
 ```
 

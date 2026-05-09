@@ -1,5 +1,15 @@
 # my-agent × virtual-assistant-desktop 整合架構藍圖
 
+> **進度追蹤**（2026-05-09 更新）
+> - **P0**（daemon spawn 與 health probe）— ✅ 完成（commit `d46cc07`）
+> - **P0.5**（graceful shutdown via `cli daemon stop`）— ✅ 完成（同 commit 範圍 + 修正）
+> - **P1**（ws client + 對話氣泡 BrowserWindow）— ✅ 完成（commit `7b86bc6`）
+> - **P1-D**（單元測試）— ✅ 完成（commit `81d7fc9`，AgentSessionClient 17 + AgentDaemonManager 9）
+> - **my-agent 端 source=mascot enum**— ✅ 已合（my-agent commit `1ceda16`）
+> - **P2**（桌寵 MCP server 表演控制）— ⏸️ 待開
+> - **P3**（首次啟動引導 + 設定面板）— ⏸️ 待開
+> - 詳細經驗教訓見 `LESSONS.md` § my-agent 整合
+
 ## Context
 
 現有兩個專案：

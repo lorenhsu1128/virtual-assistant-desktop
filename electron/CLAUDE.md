@@ -13,9 +13,14 @@
 | windowMonitor.ts | koffi GetWindow 遍歷視窗列舉 + DWM cloaked 過濾（**Windows-only**） | ✅ 正常 |
 | systemTray.ts | 系統托盤選單（含重置回正中央） | ✅ 正常 |
 | vrmPickerWindow.ts | VRM 模型瀏覽對話框 BrowserWindow 管理 | ✅ 正常 |
+| agent/AgentDaemonManager.ts | my-agent daemon 生命週期（auto/external 雙模式 + cli daemon stop graceful） | ✅ 正常 |
+| agent/AgentSessionClient.ts | ws://127.0.0.1:port/sessions client + NDJSON | ✅ 正常 |
+| agent/agentBubbleWindow.ts | 對話氣泡 BrowserWindow（透明，沿用 picker 模板） | ✅ 正常 |
+| agent/agentIpcHandlers.ts | agent_* IPC commands + frame 廣播 | ✅ 正常 |
 | platform/index.ts | `isWindows` / `isMac` 旗標 + 統一匯出 | ✅ 正常 |
-| platform/windowConfig.ts | 各平台 BrowserWindow 參數與建立後設定 | ✅ 正常 |
+| platform/windowConfig.ts | 各平台 BrowserWindow 參數與建立後設定（主視窗 / picker / agent bubble） | ✅ 正常 |
 | platform/protocolHelper.ts | local-file 協定路徑解析（兩平台行為不同） | ✅ 正常 |
+| platform/agentPaths.ts | bun / my-agent CLI / ~/.my-agent / workspace 跨平台路徑 | ✅ 正常 |
 
 ## IPC Handler 模板
 
