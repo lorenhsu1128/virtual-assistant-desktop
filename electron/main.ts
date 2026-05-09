@@ -97,6 +97,17 @@ function createMainWindow(): BrowserWindow {
 
   applyPostCreateSetup(win, bounds);
 
+  // 將 renderer 的 console.log 轉到 main process stdout，方便在 dev shell 看到
+  // 渲染端模組的訊息（例：MascotActionDispatcher）
+  if (isDev) {
+    win.webContents.on('console-message', (event) => {
+      const tag = `[renderer:${event.level}]`;
+      if (event.message.startsWith('[MascotAction]')) {
+        console.log(`${tag} ${event.message}`);
+      }
+    });
+  }
+
   // DevTools: auto-open for debugging
   if (isDev) {
     win.webContents.openDevTools({ mode: 'detach' });

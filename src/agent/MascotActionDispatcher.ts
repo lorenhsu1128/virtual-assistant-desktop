@@ -44,6 +44,7 @@ export class MascotActionDispatcher {
 
   /** 純函式：把 action 路由到對應 manager（測試友善） */
   handle(action: MascotAction): void {
+    console.log(`[MascotAction] received ${action.kind}`, action);
     switch (action.kind) {
       case 'set_expression':
         this.handleSetExpression(action.name, action.durationMs);

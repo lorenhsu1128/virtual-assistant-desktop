@@ -30,8 +30,6 @@ const SERVER_NAME = 'mascot';
 const SERVER_VERSION = '0.1.0';
 
 export class MascotMcpServer {
-  private mcp: McpServer;
-  private transport: StreamableHTTPServerTransport | null = null;
   private httpServer: http.Server | null = null;
   /** 啟動後的 URL（包含 port），未啟動則 null */
   private url: string | null = null;
@@ -40,27 +38,29 @@ export class MascotMcpServer {
 
   constructor(getWindows: () => readonly BrowserWindow[]) {
     this.getWindows = getWindows;
-    this.mcp = new McpServer({ name: SERVER_NAME, version: SERVER_VERSION });
-    this.registerTools();
   }
 
-  /** 啟動 HTTP server 並回傳 URL（含 port），失敗回 null */
+  /**
+   * 啟動 HTTP server 並回傳 URL。
+   *
+   * 採 per-request 模式：每個 request 起一份新的 McpServer + transport，
+   * stateless 處理完即釋放。原因：
+   * - 同時會有多個 clients 連進來（cli mcp list health check / daemon MCP
+   *   loader / 未來 LLM tool 呼叫），每個各自做 initialize handshake
+   * - 共用 stateful transport 第二個 client 會收到 "Server already
+   *   initialized" 錯誤
+   * - 共用 stateless transport 在 SDK 1.29 follow-up request 會 500
+   *
+   * 因為每次 request 都重建 server，tool 註冊放進私有 method `buildServer()`。
+   */
   async start(): Promise<string | null> {
-    // Stateful mode：產生 sessionId，client 後續 request 帶 mcp-session-id 回來
-    // 同一個 McpServer + transport instance 維持整個 session
-    this.transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID() });
-    await this.mcp.connect(this.transport);
-
     return new Promise<string | null>((resolve) => {
       const server = http.createServer((req, res) => {
         if (!req.url) {
           res.writeHead(400).end();
           return;
         }
-        // 直接把 req/res 交給 transport — 它內部用 @hono/node-server 把
-        // Node IncomingMessage 轉成 Web Standard Request，會自行讀 body。
-        // 我們**不可**先 consume req body，否則 hono 讀不到（500）。
-        void this.transport?.handleRequest(req, res).catch((e) => {
+        void this.handleHttpRequest(req, res).catch((e) => {
           console.warn('[MascotMcp] handleRequest error:', e);
           if (!res.headersSent) {
             res.writeHead(500, { 'Content-Type': 'text/plain' });
@@ -89,17 +89,37 @@ export class MascotMcpServer {
   }
 
   async stop(): Promise<void> {
-    try {
-      await this.transport?.close();
-    } catch (e) {
-      console.warn('[MascotMcp] transport close error:', e);
-    }
     if (this.httpServer) {
       await new Promise<void>((resolve) => this.httpServer!.close(() => resolve()));
       this.httpServer = null;
     }
-    this.transport = null;
     this.url = null;
+  }
+
+  /** Per-request：建立新 server + stateless transport 處理單一 request */
+  private async handleHttpRequest(
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+  ): Promise<void> {
+    const mcp = this.buildServer();
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: undefined, // stateless：每 request 獨立
+    });
+    await mcp.connect(transport);
+
+    // 確保 request 結束時釋放
+    res.on('close', () => {
+      void transport.close();
+      void mcp.close();
+    });
+
+    await transport.handleRequest(req, res);
+  }
+
+  private buildServer(): McpServer {
+    const mcp = new McpServer({ name: SERVER_NAME, version: SERVER_VERSION });
+    this.registerTools(mcp);
+    return mcp;
   }
 
   getUrl(): string | null {
@@ -108,8 +128,8 @@ export class MascotMcpServer {
 
   // ── tool 定義 ──
 
-  private registerTools(): void {
-    this.mcp.registerTool(
+  private registerTools(mcp: McpServer): void {
+    mcp.registerTool(
       'set_expression',
       {
         title: '設定 VRM 表情',
@@ -141,7 +161,7 @@ export class MascotMcpServer {
       },
     );
 
-    this.mcp.registerTool(
+    mcp.registerTool(
       'play_animation',
       {
         title: '播放 VRM 動畫',
@@ -180,7 +200,7 @@ export class MascotMcpServer {
       },
     );
 
-    this.mcp.registerTool(
+    mcp.registerTool(
       'say',
       {
         title: '在對話氣泡顯示文字',
@@ -206,7 +226,7 @@ export class MascotMcpServer {
       },
     );
 
-    this.mcp.registerTool(
+    mcp.registerTool(
       'look_at_screen',
       {
         title: '把桌寵視線指向螢幕座標',
@@ -227,9 +247,12 @@ export class MascotMcpServer {
   /** 把 action 廣播到所有 BrowserWindow renderer */
   private dispatch(action: MascotAction): void {
     const id = randomUUID();
+    let count = 0;
     for (const win of this.getWindows()) {
       if (win.isDestroyed()) continue;
       win.webContents.send('mascot_action', { id, ...action });
+      count++;
     }
+    console.log(`[MascotMcp] dispatched ${action.kind} → ${count} window(s)`);
   }
 }
