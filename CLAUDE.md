@@ -34,13 +34,13 @@
 | v0.2 | ✅ 完成 | 自主移動狀態機 + 拖曳 + 軌道攝影機 + 視窗碰撞/吸附/遮擋（Windows-only） |
 | v0.3 | ✅ 完成 | 表情系統（自動+手動）+ 系統托盤 + Debug overlay |
 | v0.3.x | ✅ 完成 | VRM Picker 預覽對話框 + 動作 / 表情過渡平順化（cubic transition + hip 平滑 + SpringBone 保護） |
-| v0.3.x agent | 🟡 進行中 | my-agent daemon 整合 — P0 lifecycle ✅ / P0.5 graceful shutdown ✅ / P1 ws + 對話氣泡 ✅ / P1.5 React + Tailwind 移植 my-agent web chat 元件 ✅ / P2 MCP server 表演控制 ✅ / P3 引導 + 設定面板（待開） |
+| v0.3.x agent | ✅ 完成 | my-agent daemon 整合 — P0 lifecycle ✅ / P0.5 graceful shutdown ✅ / P1 ws + 對話氣泡 ✅ / P1.5 React + Tailwind 移植 my-agent web chat 元件 ✅ / P2 MCP server 表演控制 ✅ / P3 設定視窗 ✅（首次啟動引導扣接 v0.4） |
 | 平台支援 | 🟡 進行中 | Windows 完整 / macOS 渲染+動畫+表情+自主移動，視窗感知功能停用 |
 | v0.4+ | 未開始 | — |
 
 ### 系統托盤選單功能（左鍵點擊）
 
-顯示桌寵 | 動畫 ▸ | 表情 ▸ | 縮放 ▸ | 動畫速率 ▸ | 暫停/恢復自主移動 | 暫停/恢復自動表情 | 暫停/恢復動畫循環 | 重置鏡頭角度 | 重置回桌面正中央 | 更換 VRM 模型 | 瀏覽 VRM 模型...（自訂預覽對話框） | 更換動畫資料夾 | Debug 模式 | 設定(TODO) | Agent 對話 | Agent 重新連線 | 結束
+顯示桌寵 | 動畫 ▸ | 表情 ▸ | 縮放 ▸ | 動畫速率 ▸ | 暫停/恢復自主移動 | 暫停/恢復自動表情 | 暫停/恢復動畫循環 | 重置鏡頭角度 | 重置回桌面正中央 | 更換 VRM 模型 | 瀏覽 VRM 模型...（自訂預覽對話框） | 更換動畫資料夾 | Debug 模式 | 設定（開啟設定視窗） | Agent 對話 | Agent 重新連線 | 結束
 
 ### Debug overlay 功能
 
@@ -108,6 +108,8 @@ electron/           → Electron 主程序（main process）
   keyboardMonitor.ts → uiohook-napi 全域鍵盤事件（推送 typing 狀態）
   systemTray.ts     → 系統托盤選單
   vrmPickerWindow.ts → VRM 模型瀏覽對話框 BrowserWindow 管理
+  settingsWindow.ts → 桌寵設定 BrowserWindow（獨立 React app，沿用
+                      vrmPickerWindow 模板；P3）
   agent/            → my-agent daemon 整合（P0–P2）
     AgentDaemonManager.ts → daemon 生命週期（auto/external 雙模式 + cli daemon stop graceful）
     AgentSessionClient.ts → ws://127.0.0.1:port/sessions client + NDJSON
@@ -125,7 +127,13 @@ electron/           → Electron 主程序（main process）
     macWindowMonitor.ts → macOS 側視窗列舉（空實作 / 降級）
     agentPaths.ts   → bun / my-agent CLI / ~/.my-agent / workspace 跨平台路徑
 src-tauri/          → [已棄用] 舊 Rust 後端（保留作參考）
-src-settings/       → Svelte 設定視窗（尚未實作）
+src-settings/       → 桌寵設定視窗 renderer（React + Tailwind + shadcn，
+                      P3 v1 僅 Agent 頁；未來補 Display / Animation /
+                      Performance / Device 等頁）
+  main.tsx          → React createRoot 入口
+  App.tsx           → 設定 root（未來改 left-nav 兩欄式）
+  AgentPage.tsx     → my-agent 整合設定頁
+  ui/               → switch / label / input / button shadcn primitives
 src-bubble/         → Agent 對話氣泡 renderer（React + Tailwind + zustand，
                       移植自 my-agent web/src 的 chat 元件）
   main.tsx          → React createRoot 入口
@@ -141,6 +149,7 @@ src-bubble/         → Agent 對話氣泡 renderer（React + Tailwind + zustand
 index.html          → 主視窗 HTML 入口
 vrm-picker.html     → VRM 模型瀏覽對話框 HTML 入口
 agent-bubble.html   → Agent 對話氣泡 HTML 入口
+settings.html       → 桌寵設定 HTML 入口
 tests/              → Vitest 測試（unit/）
 ```
 

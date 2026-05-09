@@ -9,7 +9,7 @@
 > - **P1.5-C**（messageStore + daemonFrameAdapter 單元測試）— ✅ 完成（17 + 18 = 35 tests）
 > - **my-agent 端 source=mascot enum**— ✅ 已合（my-agent commit `1ceda16`）
 > - **P2**（桌寵 MCP server 表演控制）— ✅ 完成（commit `d81d5fd` + `0cafe57`，含 12 dispatcher tests，端到端驗證 MCP HTTP → IPC → renderer dispatcher → ExpressionManager / AnimationManager）
-> - **P3**（首次啟動引導 + 設定面板）— ⏸️ 待開
+> - **P3**（設定視窗 — Agent 設定頁）— ✅ 完成（commit `1129e60`，沿用 src-bubble React + Tailwind 環境，新增 src-settings/ 與 settingsWindow.ts；首次啟動引導扣到 v0.4）
 > - 詳細經驗教訓見 `LESSONS.md` § my-agent 整合
 
 ## Context

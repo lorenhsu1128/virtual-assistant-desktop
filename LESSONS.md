@@ -253,6 +253,14 @@
 - **受影響檔案**：`electron/main.ts` (createMainWindow)
 - **根因記憶**：Electron renderer process 的 console output 與 main process stdout 是兩個獨立 stream。dev shell 跑 `bun run dev` 看到的是 main process stdout（含 `[1] [WindowMonitor]` 等），renderer 的 log 要嘛開 DevTools 看，要嘛主動 forward。寫整合測試或 debug script 時要意識到這層分界
 
+### [2026-05-09] `[跨平台]` — settings 視窗複用 src-bubble React 環境，不要 Svelte
+
+- **背景**：原 ARCHITECTURE.md 規劃 `src-settings/` 用 Svelte。P3 實際做時發現 src-bubble 已經跑 React + Tailwind + shadcn 一整套基礎設施
+- **正確做法**：直接複用 React stack — 新增 src-settings/ 但 import 同樣依賴（react / tailwindcss / @radix-ui/* / class-variance-authority）。Vite config 把 `react()` plugin include scope 從 `src-bubble/**` 擴成同時包含 `src-settings/**`；tsconfig include / tailwind.config content 同步加 `src-settings/`。新增 entry：`settings.html` + `vite.config.ts rollupOptions.input.settings`。最後做的事是 4 個 shadcn primitives（switch / label / input / button）+ AgentPage.tsx
+- **受影響檔案**：`vite.config.ts`、`tsconfig.json`、`tailwind.config.ts`、`settings.html`、整個 `src-settings/`
+- **沒有踩到的雷**：分屬不同 React app（src-bubble 主要是訊息流 + zustand store；src-settings 是表單）但能共用基礎設施。每個 BrowserWindow 各自跑 React StrictMode 不互相干擾
+- **根因記憶**：規劃文件寫的 stack（如 Svelte）若先有更熟悉的 React 環境（如為了其他 BrowserWindow 引入），就直接複用 React。多個 entry point 共用同一份 React 編譯設定 + 共用 shadcn 元件，比維護兩套 framework 簡單很多。新增獨立 BrowserWindow 的 React app 模板：`<新名>.html` + `src-<名>/main.tsx` + `electron/<名>Window.ts` + tray action / ipc handler
+
 ### [2026-05-09] `[跨平台]` — daemon orphan 進程 + .daemon.lock 卡死重啟
 
 - **錯誤**：dev 重啟測試時發現桌寵 spawn 新 daemon 失敗：`Daemon session lock held by live pid=N at .daemon.lock`。實際 pid N 是上次 dev session 的 daemon，沒被 `kill-dev.ps1` 殺到（只殺 electron / vite / node，沒殺 cli）
