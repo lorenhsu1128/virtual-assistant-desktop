@@ -1,0 +1,78 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * 桌寵 Agent 氣泡專用全域樣式。
+ *
+ * 沿用 my-agent web/src/styles/globals.css 的 dark theme 變數，
+ * 但只啟用 .dark（桌寵預設深色），並讓 background 半透明融入桌面。
+ */
+
+@layer base {
+  :root {
+    --background: oklch(0.1288 0.0406 264.6952);
+    --foreground: oklch(0.9842 0.0034 247.8575);
+    --card: oklch(0.2077 0.0398 265.7549);
+    --card-foreground: oklch(0.9842 0.0034 247.8575);
+    --popover: oklch(0.2077 0.0398 265.7549);
+    --popover-foreground: oklch(0.9842 0.0034 247.8575);
+    --primary: oklch(0.8871 0.2122 128.5041);
+    --primary-foreground: oklch(0 0 0);
+    --secondary: oklch(0.2795 0.0368 260.0310);
+    --secondary-foreground: oklch(0.9842 0.0034 247.8575);
+    --muted: oklch(0.2795 0.0368 260.0310);
+    --muted-foreground: oklch(0.7107 0.0351 256.7878);
+    --accent: oklch(0.3925 0.0896 152.5353);
+    --accent-foreground: oklch(0.8871 0.2122 128.5041);
+    --destructive: oklch(0.4437 0.1613 26.8994);
+    --destructive-foreground: oklch(1 0 0);
+    --border: oklch(0.2795 0.0368 260.0310);
+    --input: oklch(0.2795 0.0368 260.0310);
+    --ring: oklch(0.8871 0.2122 128.5041);
+    --radius: 0.75rem;
+    --font-sans: 'Segoe UI', 'Hiragino Sans', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', Consolas, monospace;
+  }
+
+  * {
+    @apply border-border;
+    box-sizing: border-box;
+  }
+
+  html,
+  body,
+  #bubble-root {
+    @apply h-full w-full;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    @apply text-foreground antialiased;
+    /* 透明 — 桌面背景透出，圓角 chrome 由 .bubble-shell 控制 */
+    background: transparent;
+    font-family: var(--font-sans);
+    font-size: 13px;
+    overflow: hidden;
+  }
+}
+
+/* 視窗外殼：圓角、模糊、可拖曳 header */
+.bubble-shell {
+  @apply h-full w-full overflow-hidden border;
+  background: rgba(20, 20, 32, 0.92);
+  backdrop-filter: blur(12px);
+  border-radius: 12px;
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+}
+
+.bubble-drag {
+  -webkit-app-region: drag;
+}
+.bubble-no-drag {
+  -webkit-app-region: no-drag;
+}

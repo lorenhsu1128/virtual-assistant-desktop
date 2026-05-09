@@ -15,11 +15,12 @@
     "allowImportingTsExtensions": true,
     "noEmit": true,
     "lib": ["ES2021", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
     "baseUrl": ".",
     "paths": {
       "@/*": ["src/*"]
     }
   },
-  "include": ["src/**/*.ts", "src-bubble/**/*.ts"],
+  "include": ["src/**/*.ts", "src-bubble/**/*.ts", "src-bubble/**/*.tsx"],
   "exclude": ["node_modules", "src-tauri", "tests"]
 }

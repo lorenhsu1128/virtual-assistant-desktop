@@ -1,7 +1,9 @@
 import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
 import { resolve } from 'path';
 
 export default defineConfig({
+  plugins: [react({ include: ['src-bubble/**/*.tsx', 'src-bubble/**/*.ts'] })],
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
