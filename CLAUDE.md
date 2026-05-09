@@ -34,7 +34,7 @@
 | v0.2 | ✅ 完成 | 自主移動狀態機 + 拖曳 + 軌道攝影機 + 視窗碰撞/吸附/遮擋（Windows-only） |
 | v0.3 | ✅ 完成 | 表情系統（自動+手動）+ 系統托盤 + Debug overlay |
 | v0.3.x | ✅ 完成 | VRM Picker 預覽對話框 + 動作 / 表情過渡平順化（cubic transition + hip 平滑 + SpringBone 保護） |
-| v0.3.x agent | 🟡 進行中 | my-agent daemon 整合 — P0 lifecycle ✅ / P0.5 graceful shutdown ✅ / P1 ws + 對話氣泡 ✅ / P2 MCP server 表演控制（待開）/ P3 引導 + 設定面板（待開） |
+| v0.3.x agent | 🟡 進行中 | my-agent daemon 整合 — P0 lifecycle ✅ / P0.5 graceful shutdown ✅ / P1 ws + 對話氣泡 ✅ / P1.5 React + Tailwind 移植 my-agent web chat 元件 ✅ / P2 MCP server 表演控制（待開）/ P3 引導 + 設定面板（待開） |
 | 平台支援 | 🟡 進行中 | Windows 完整 / macOS 渲染+動畫+表情+自主移動，視窗感知功能停用 |
 | v0.4+ | 未開始 | — |
 
@@ -68,6 +68,7 @@
   - 桌寵 main process spawn `cli.exe daemon start --port 0`，用 pid.json 取得 port + heartbeat 監看
   - 透過 `ws://127.0.0.1:port/sessions?source=mascot&cwd=<workspace>&token=<token>` 連線
   - 所有對話訊息（NDJSON Anthropic streaming events）透過 `agent_session_frame` IPC 廣播給氣泡視窗
+  - 氣泡視窗（src-bubble/）為獨立 BrowserWindow + React app，與主視窗完全隔離；訊息渲染採用移植自 my-agent web 的 chat 元件（MessageItem / ToolCallCard / ThinkingBlock 等），讓對話流程與 my-agent TUI / web 一致
 - **詳細藍圖**：見 [AGENT_INTEGRATION_PLAN.md](AGENT_INTEGRATION_PLAN.md)
 - **my-agent 端依賴**：need `feat(daemon): support 'mascot' client source` commit（已合）
 - **降級策略**：bun / cli 偵測不到、daemon spawn 失敗時，桌寵以「無 AI 模式」運作，所有 v0.3 既有功能不受影響
@@ -115,8 +116,18 @@ electron/           → Electron 主程序（main process）
     agentPaths.ts   → bun / my-agent CLI / ~/.my-agent / workspace 跨平台路徑
 src-tauri/          → [已棄用] 舊 Rust 後端（保留作參考）
 src-settings/       → Svelte 設定視窗（尚未實作）
-src-bubble/         → Agent 對話氣泡 renderer（vanilla TS + CSS）
-                      main.ts / BubbleApp.ts / style.css
+src-bubble/         → Agent 對話氣泡 renderer（React + Tailwind + zustand，
+                      移植自 my-agent web/src 的 chat 元件）
+  main.tsx          → React createRoot 入口
+  BubbleChat.tsx    → 主 component，訂閱 IPC events 餵 adapter
+  globals.css       → Tailwind base + dark theme 變數
+  store/            → zustand messageStore（UiMessage / ContentBlock）
+  adapter/          → daemon ws frame → store actions 翻譯（沿用
+                      my-agent web/src/hooks/useTurnEvents.ts SDK 解析邏輯）
+  components/       → MessageItem / MessageList / InputBar / Header /
+                      ToolCallCard / ThinkingBlock（移植自 my-agent web）
+  ui/               → shadcn primitives 子集（badge, collapsible）
+  lib/              → cn() helper（clsx + tailwind-merge）
 index.html          → 主視窗 HTML 入口
 vrm-picker.html     → VRM 模型瀏覽對話框 HTML 入口
 agent-bubble.html   → Agent 對話氣泡 HTML 入口

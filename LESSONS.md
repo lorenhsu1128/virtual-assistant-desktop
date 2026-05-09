@@ -230,6 +230,15 @@
 - **受影響檔案**：`electron/agent/AgentSessionClient.ts` (`send()`)
 - **根因記憶**：與 NDJSON / line-delimited JSON 協定（jsonl、ndjson、JSON-RPC over stdio 等）通訊一定要附加終結符。WebSocket 雖然有 message frame 邊界但對端可能仍把 payload 當 stream 處理（my-agent 就是）。寫測試時也要驗 `endsWith('\n')` 防止迴歸
 
+### [2026-05-09] `[跨平台]` — 別用 vanilla TS 重寫 my-agent 已有的 chat UI
+
+- **錯誤**：P1 用 vanilla TS + 自寫 CSS 做對話氣泡，只解析 Anthropic 標準 `content_block_delta` text。實測發現 my-agent daemon 的 `runnerEvent` 包了一層 `output` wrapper，且 SDK message 的 content 陣列含 `text` / `thinking` / `tool_use` / `tool_result` 多種 block — 我的 parser 全部不認得，氣泡顯示 `(no content, reason=done)` 或原始 `<tool_call>` XML
+- **根因**：my-agent 已經有完整的 `web/src/components/chat/`（React + Tailwind + zustand + shadcn/ui），含 MessageItem / ToolCallCard / ThinkingBlock 與 SDK message → UI block 的解析邏輯（`useTurnEvents.ts`）。重寫一份等於放棄現成的測試與長期會跟 my-agent upstream drift
+- **正確做法**：直接移植 my-agent web 的 chat 元件 + parser 到 src-bubble。daemon 線上協定（直連 `/sessions` 的 `runnerEvent`）與 web 內部協定（`turn.event` 包同樣的 RunnerEvent）的 SDK payload 完全相同，只需要寫一個薄 adapter（`daemonFrameAdapter.ts`）把 daemon frame mapping 到同樣的 messageStore actions。React + Tailwind + zustand + radix collapsible + lucide-react 這些依賴都加進來，PostCSS / Vite plugin-react 設定齊全
+- **受影響檔案**：整個 `src-bubble/`（vanilla TS 全刪重寫）、`tailwind.config.ts`、`postcss.config.js`、`vite.config.ts`（加 react plugin）、`tsconfig.json`（加 jsx）
+- **依賴版本提醒**：`@vitejs/plugin-react@5+` 需要 vite 7；專案 vite 6 必須裝 `^4`
+- **根因記憶**：要與其他工具達到「協定一致 + UI 一致」時，永遠先看上游有沒有現成元件可以 fork。my-agent 上下游關係夠近、type 與訊息格式一致，移植成本遠低於重寫成本。預估前先跑 Explore agent 盤點 components / hooks / store / shadcn primitives，逐項列出「複製 / 改編 / 丟棄」清單再動工
+
 ## 如何新增教訓
 
 當你修正了 Claude Code 的錯誤後，請執行：
