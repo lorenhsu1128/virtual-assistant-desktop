@@ -2,6 +2,7 @@ import type { AppConfig } from '../types/config';
 import type { AnimationMeta } from '../types/animation';
 import type { WindowRect, DisplayInfo } from '../types/window';
 import type { TrayMenuData } from '../types/tray';
+import type { AgentDaemonInfo, AgentSessionFrame } from '../types/agent';
 
 /**
  * Electron API interface exposed via preload script (contextBridge).
@@ -39,6 +40,14 @@ interface ElectronAPI {
   onDebugMove(callback: (direction: string) => void): () => void;
   onKeyboardTypingChanged(callback: (isTyping: boolean) => void): () => void;
   convertToAssetUrl(filePath: string): string;
+  agentGetStatus(): Promise<AgentDaemonInfo>;
+  agentSendInput(text: string): Promise<boolean>;
+  agentToggleBubble(): Promise<void>;
+  agentReconnect(): Promise<void>;
+  onAgentStatus(callback: (info: AgentDaemonInfo) => void): () => void;
+  onAgentSessionOpen(callback: () => void): () => void;
+  onAgentSessionClose(callback: (info: { code: number; reason: string }) => void): () => void;
+  onAgentSessionFrame(callback: (frame: AgentSessionFrame) => void): () => void;
 }
 
 declare global {
@@ -426,6 +435,66 @@ class ElectronIPC {
    */
   convertToAssetUrl(filePath: string): string {
     return window.electronAPI.convertToAssetUrl(filePath);
+  }
+
+  // ── Agent ──
+
+  /** Get current agent daemon status (offline-fallback) */
+  async agentGetStatus(): Promise<AgentDaemonInfo> {
+    try {
+      return await window.electronAPI.agentGetStatus();
+    } catch (e) {
+      console.warn('[ElectronIPC] agentGetStatus failed:', e);
+      return { status: 'offline', port: null, token: null, pid: null };
+    }
+  }
+
+  /** Send a user prompt to the agent daemon */
+  async agentSendInput(text: string): Promise<boolean> {
+    try {
+      return await window.electronAPI.agentSendInput(text);
+    } catch (e) {
+      console.warn('[ElectronIPC] agentSendInput failed:', e);
+      return false;
+    }
+  }
+
+  /** Toggle the agent dialog bubble window */
+  async agentToggleBubble(): Promise<void> {
+    try {
+      await window.electronAPI.agentToggleBubble();
+    } catch (e) {
+      console.warn('[ElectronIPC] agentToggleBubble failed:', e);
+    }
+  }
+
+  /** Reconnect to the agent daemon (full stop + start cycle) */
+  async agentReconnect(): Promise<void> {
+    try {
+      await window.electronAPI.agentReconnect();
+    } catch (e) {
+      console.warn('[ElectronIPC] agentReconnect failed:', e);
+    }
+  }
+
+  /** Listen for daemon status changes */
+  onAgentStatus(callback: (info: AgentDaemonInfo) => void): () => void {
+    return window.electronAPI.onAgentStatus(callback);
+  }
+
+  /** Listen for ws session open events */
+  onAgentSessionOpen(callback: () => void): () => void {
+    return window.electronAPI.onAgentSessionOpen(callback);
+  }
+
+  /** Listen for ws session close events */
+  onAgentSessionClose(callback: (info: { code: number; reason: string }) => void): () => void {
+    return window.electronAPI.onAgentSessionClose(callback);
+  }
+
+  /** Listen for daemon-pushed protocol frames */
+  onAgentSessionFrame(callback: (frame: AgentSessionFrame) => void): () => void {
+    return window.electronAPI.onAgentSessionFrame(callback);
   }
 }
 

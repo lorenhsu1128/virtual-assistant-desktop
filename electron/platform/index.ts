@@ -11,7 +11,12 @@ export const isWindows = process.platform === 'win32';
 /** 當前平台是否為 macOS */
 export const isMac = process.platform === 'darwin';
 
-export { getWindowOptions, applyPostCreateSetup, getPickerWindowOptions } from './windowConfig.js';
+export {
+  getWindowOptions,
+  applyPostCreateSetup,
+  getPickerWindowOptions,
+  getAgentBubbleOptions,
+} from './windowConfig.js';
 export { resolveLocalFilePath } from './protocolHelper.js';
 export { enumerateWindowsMac } from './macWindowMonitor.js';
 export {

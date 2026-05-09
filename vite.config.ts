@@ -20,6 +20,7 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, 'index.html'),
         vrmPicker: resolve(__dirname, 'vrm-picker.html'),
+        agentBubble: resolve(__dirname, 'agent-bubble.html'),
       },
     },
   },

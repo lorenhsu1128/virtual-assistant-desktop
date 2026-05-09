@@ -277,6 +277,18 @@ export class SystemTray {
 
     template.push({ type: 'separator' });
 
+    // Agent 對話（my-agent daemon 整合）
+    template.push({
+      label: 'Agent 對話',
+      click: () => this.emitAction('agent_toggle_bubble'),
+    });
+    template.push({
+      label: 'Agent 重新連線',
+      click: () => this.emitAction('agent_reconnect'),
+    });
+
+    template.push({ type: 'separator' });
+
     // 結束
     template.push({
       label: '\u7d50\u675f',

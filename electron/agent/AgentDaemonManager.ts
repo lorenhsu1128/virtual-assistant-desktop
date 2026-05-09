@@ -28,6 +28,7 @@ import {
   resolveMyAgentCli,
 } from '../platform/index.js';
 import type { AgentConfig } from '../fileManager.js';
+import { AgentSessionClient, type InboundFrame } from './AgentSessionClient.js';
 
 /** Daemon pid.json schema（my-agent v1） */
 export interface DaemonPidFile {
@@ -74,14 +75,29 @@ export class AgentDaemonManager extends EventEmitter {
     pid: null,
   };
   private stopping = false;
+  private session: AgentSessionClient | null = null;
+  private connectedKey: string | null = null;
+  private workspaceCwd: string | null = null;
 
   constructor(config: AgentConfig) {
     super();
     this.config = config;
+
+    // status 變化時自動連 / 斷 ws
+    this.on('status', (info: AgentDaemonInfo) => this.syncSession(info));
   }
 
   getInfo(): AgentDaemonInfo {
     return this.currentInfo;
+  }
+
+  /**
+   * 送一條使用者輸入給 daemon。
+   * @returns 是否真的送出（false 表示尚未連線）
+   */
+  sendInput(text: string): boolean {
+    if (!this.session) return false;
+    return this.session.sendInput(text);
   }
 
   /** 啟動管理流程（依模式 spawn 或僅探測） */
@@ -95,6 +111,9 @@ export class AgentDaemonManager extends EventEmitter {
     this.setInfo({ ...this.currentInfo, status: 'starting' });
 
     try {
+      // 預先確保 workspace 存在（auto / external 都需要，因為 ws 連線要傳 cwd）
+      this.workspaceCwd = await ensureAgentWorkspace(this.config.workspaceCwd);
+
       if (this.config.daemonMode === 'auto') {
         await this.spawnDaemon();
       }
@@ -126,6 +145,14 @@ export class AgentDaemonManager extends EventEmitter {
    */
   async stop(): Promise<void> {
     this.stopping = true;
+
+    // 先斷 ws，避免 daemon 收到 stop 時還在處理我們的訊息
+    if (this.session) {
+      this.session.disconnect();
+      this.session.removeAllListeners();
+      this.session = null;
+      this.connectedKey = null;
+    }
 
     if (this.healthTimer) {
       clearInterval(this.healthTimer);
@@ -234,7 +261,8 @@ export class AgentDaemonManager extends EventEmitter {
       args = [cli, 'daemon', 'start', '--port', '0', '--host', '127.0.0.1'];
     }
 
-    const cwd = await ensureAgentWorkspace(this.config.workspaceCwd);
+    const cwd = this.workspaceCwd ?? (await ensureAgentWorkspace(this.config.workspaceCwd));
+    this.workspaceCwd = cwd;
 
     // 預先寫入日誌檔
     const logPath = getAgentDaemonLogPath();
@@ -384,6 +412,60 @@ export class AgentDaemonManager extends EventEmitter {
     ) {
       this.emit('status', next);
     }
+  }
+
+  /**
+   * 依當前 daemon 狀態同步 ws session 連線：
+   * - online + 還沒連 → 建立連線
+   * - online 但 port 變了 → 重連
+   * - 非 online → 斷線
+   */
+  private syncSession(info: AgentDaemonInfo): void {
+    if (this.stopping) return;
+
+    if (info.status !== 'online' || !info.port || !info.token || !this.workspaceCwd) {
+      if (this.session) {
+        this.session.disconnect();
+        this.session.removeAllListeners();
+        this.session = null;
+        this.connectedKey = null;
+      }
+      return;
+    }
+
+    const key = `${info.port}|${info.token}`;
+    if (this.session && this.connectedKey === key) return;
+
+    if (this.session) {
+      this.session.disconnect();
+      this.session.removeAllListeners();
+      this.session = null;
+    }
+
+    const client = new AgentSessionClient();
+    client.on('open', () => {
+      this.emit('session_open');
+    });
+    client.on('frame', (frame: InboundFrame) => {
+      this.emit('session_frame', frame);
+    });
+    client.on('close', (info: { code: number; reason: string }) => {
+      this.emit('session_close', info);
+    });
+    client.on('error', (e: Error) => {
+      // 連線錯誤已由 client 內部 reconnect 機制處理，這裡只 log
+      console.warn('[AgentDaemon] session error:', e.message);
+    });
+
+    client.connect({
+      host: '127.0.0.1',
+      port: info.port,
+      token: info.token,
+      cwd: this.workspaceCwd,
+      source: 'mascot',
+    });
+    this.session = client;
+    this.connectedKey = key;
   }
 }
 

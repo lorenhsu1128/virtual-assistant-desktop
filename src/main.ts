@@ -595,6 +595,12 @@ async function initializeBehaviorSystem(
         // TODO: 開啟設定視窗
         console.log('[main] Settings window not yet implemented');
         break;
+      case 'agent_toggle_bubble':
+        void ipc.agentToggleBubble();
+        break;
+      case 'agent_reconnect':
+        void ipc.agentReconnect();
+        break;
       default:
         // Dynamic action: move speed
         if (actionId.startsWith('move_speed_')) {

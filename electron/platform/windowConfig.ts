@@ -84,6 +84,34 @@ export function getPickerWindowOptions(
   };
 }
 
+/**
+ * 回傳 Agent 對話氣泡視窗的 BrowserWindow 建構參數
+ *
+ * 設計：透明、無邊框、可聚焦（讓 textarea 能輸入）、置頂、不顯示在工作列。
+ * 與 picker 不同處：不需要 frame / shadow，由 HTML/CSS 自繪 chrome。
+ */
+export function getAgentBubbleOptions(
+  parent: BrowserWindow
+): Electron.BrowserWindowConstructorOptions {
+  return {
+    width: 380,
+    height: 520,
+    minWidth: 320,
+    minHeight: 400,
+    parent,
+    transparent: true,
+    frame: false,
+    focusable: true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: true,
+    hasShadow: false,
+    show: false,
+    title: 'Agent 對話',
+    backgroundColor: '#00000000',
+  };
+}
+
 /** 視窗建立後的平台專用設定 */
 export function applyPostCreateSetup(
   win: BrowserWindow,

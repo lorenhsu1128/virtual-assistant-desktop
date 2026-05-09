@@ -55,6 +55,32 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ── App Control ──
   closeWindow: () => ipcRenderer.invoke('close_window'),
 
+  // ── Agent (my-agent daemon bridge) ──
+  agentGetStatus: () => ipcRenderer.invoke('agent_get_status'),
+  agentSendInput: (text: string) => ipcRenderer.invoke('agent_send_input', text),
+  agentToggleBubble: () => ipcRenderer.invoke('agent_toggle_bubble'),
+  agentReconnect: () => ipcRenderer.invoke('agent_reconnect'),
+  onAgentStatus: (callback: (info: unknown) => void) => {
+    const handler = (_event: unknown, info: unknown) => callback(info);
+    ipcRenderer.on('agent_status', handler);
+    return () => ipcRenderer.removeListener('agent_status', handler);
+  },
+  onAgentSessionOpen: (callback: () => void) => {
+    const handler = () => callback();
+    ipcRenderer.on('agent_session_open', handler);
+    return () => ipcRenderer.removeListener('agent_session_open', handler);
+  },
+  onAgentSessionClose: (callback: (info: unknown) => void) => {
+    const handler = (_event: unknown, info: unknown) => callback(info);
+    ipcRenderer.on('agent_session_close', handler);
+    return () => ipcRenderer.removeListener('agent_session_close', handler);
+  },
+  onAgentSessionFrame: (callback: (frame: unknown) => void) => {
+    const handler = (_event: unknown, frame: unknown) => callback(frame);
+    ipcRenderer.on('agent_session_frame', handler);
+    return () => ipcRenderer.removeListener('agent_session_frame', handler);
+  },
+
   // ── Event Listeners ──
   onWindowLayoutChanged: (callback: (rects: unknown) => void) => {
     const handler = (_event: unknown, rects: unknown) => callback(rects);

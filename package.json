@@ -25,7 +25,8 @@
     "@pixiv/three-vrm": "^3.4.0",
     "@pixiv/three-vrm-animation": "^3.4.0",
     "three": "^0.172.0",
-    "uiohook-napi": "^1.5.5"
+    "uiohook-napi": "^1.5.5",
+    "ws": "^8.20.0"
   },
   "trustedDependencies": [
     "electron",
@@ -37,6 +38,7 @@
   "devDependencies": {
     "@types/node": "^25.5.2",
     "@types/three": "^0.172.0",
+    "@types/ws": "^8.18.1",
     "@typescript-eslint/eslint-plugin": "^8.32.0",
     "@typescript-eslint/parser": "^8.32.0",
     "concurrently": "^9.1.2",

@@ -20,6 +20,6 @@
       "@/*": ["src/*"]
     }
   },
-  "include": ["src/**/*.ts"],
+  "include": ["src/**/*.ts", "src-bubble/**/*.ts"],
   "exclude": ["node_modules", "src-tauri", "tests"]
 }

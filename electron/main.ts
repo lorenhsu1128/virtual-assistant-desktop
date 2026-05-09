@@ -14,6 +14,8 @@ import { SystemTray } from './systemTray.js';
 import { ensureConfigDir, readConfig } from './fileManager.js';
 import { closePickerWindow } from './vrmPickerWindow.js';
 import { AgentDaemonManager } from './agent/AgentDaemonManager.js';
+import { registerAgentIpcHandlers } from './agent/agentIpcHandlers.js';
+import { closeAgentBubbleWindow } from './agent/agentBubbleWindow.js';
 import {
   getWindowOptions,
   applyPostCreateSetup,
@@ -148,11 +150,7 @@ app.whenReady().then(async () => {
         workspaceCwd: null,
       },
     );
-    agentDaemon.on('status', (info) => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('agent_status', info);
-      }
-    });
+    registerAgentIpcHandlers(mainWindow, agentDaemon);
     void agentDaemon.start();
   } catch (e) {
     console.warn('[Main] AgentDaemonManager init failed:', e);
@@ -174,6 +172,7 @@ app.whenReady().then(async () => {
     windowMonitor?.stop();
     systemTray?.dispose();
     closePickerWindow();
+    closeAgentBubbleWindow();
     mainWindow = null;
   });
 });
