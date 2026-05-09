@@ -15,7 +15,7 @@
 | Node.js | 20+ | [nodejs.org](https://nodejs.org) |
 | Claude Code | 最新版 | `npm install -g @anthropic-ai/claude-code` |
 | Rust | stable | [rustup.rs](https://rustup.rs) |
-| pnpm | 9+ | `corepack enable && corepack prepare pnpm@latest --activate` |
+| bun | 1.3+ | `powershell -c "irm bun.sh/install.ps1 | iex"`（Windows）/ `curl -fsSL https://bun.sh/install \| bash`（mac/Linux）|
 
 ### 安裝步驟
 
@@ -403,13 +403,13 @@ claude mcp add --transport stdio playwright -- npx @anthropic-ai/mcp-server-play
 **允許的操作：**
 - 讀取所有檔案
 - 編輯 `src/`、`src-tauri/src/`、`src-settings/`、`tests/` 下的檔案
-- 執行 pnpm、cargo、git 的常用命令
+- 執行 bun、cargo、git 的常用命令
 
 **禁止的操作：**
 - 修改 `tauri.conf.json`（避免意外更改 Tauri 設定）
 - 修改 `.env` 檔案（避免洩漏密鑰）
 - 執行 `rm -rf`（避免誤刪）
-- 執行 `pnpm tauri build`（避免意外建置）
+- 執行 `bun run tauri build`（避免意外建置）
 - 執行 `git push/merge/rebase`（避免意外推送）
 
 ### 修改權限

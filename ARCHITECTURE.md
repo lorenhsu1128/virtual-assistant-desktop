@@ -525,7 +525,7 @@ virtual-assistant-desktop/
 ├── package.json
 ├── tsconfig.json
 ├── vite.config.ts
-├── pnpm-lock.yaml
+├── bun.lock
 ├── .eslintrc.json
 ├── .prettierrc
 └── README.md

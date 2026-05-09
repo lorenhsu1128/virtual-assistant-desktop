@@ -23,17 +23,17 @@ description: 執行版本發布流程，包含版本號同步、changelog 生成
 
 ```bash
 # 1. TypeScript 編譯檢查
-pnpm run build
+bun run build
 # 或 npx tsc --noEmit
 
 # 2. ESLint 檢查
-pnpm lint
+bun run lint
 
 # 3. Prettier 格式檢查
-pnpm format:check
+bun run format:check
 
 # 4. 單元測試
-pnpm test
+bun run test
 
 # 5. Rust 編譯
 cargo build --release
@@ -79,7 +79,7 @@ cargo test
 4. 建立 release 分支：`git checkout -b release/vx.y.z`
 5. Commit：`chore(release): vx.y.z`
 6. 建立 Git tag：`git tag vx.y.z`
-7. 執行完整建置：`pnpm tauri build`
+7. 執行完整建置：`bun run package:win` 或 `bun run package:mac`
 8. 驗證安裝包正常運作
 9. 合併回 main 分支
 

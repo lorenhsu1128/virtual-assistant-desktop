@@ -115,7 +115,7 @@ const mockVRM = {
 
 ```bash
 # 執行所有測試
-pnpm test
+bun run test
 
 # 執行特定測試
 npx vitest run tests/unit/StateMachine.test.ts
@@ -132,4 +132,4 @@ npx vitest run --coverage
 - [ ] 所有純邏輯模組（behavior/、expression/）有 > 80% 行覆蓋率
 - [ ] 所有狀態轉移路徑有對應測試
 - [ ] 邊界條件（螢幕邊緣、空陣列、null 值）有測試
-- [ ] `pnpm test` 全部通過
+- [ ] `bun run test` 全部通過

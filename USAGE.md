@@ -9,8 +9,8 @@
 
 | 項目 | 最低版本 | 說明 |
 |------|---------|------|
-| Node.js | 18+ | 建議使用 LTS 版本 |
-| pnpm | 9+ | 透過 Corepack 啟用 |
+| Node.js | 18+ | 建議使用 LTS 版本（Electron 主程序執行） |
+| bun | 1.3+ | 套件管理員與 script runner（取代舊的 pnpm + Corepack）|
 | 作業系統 | Windows 10 (1903+) / macOS | macOS 僅限開發預覽 |
 | 顯示卡 | 支援 WebGL 2.0 | Three.js 渲染需求 |
 
@@ -32,17 +32,19 @@
 ### 2.1 首次安裝
 
 ```bash
-# 啟用 pnpm（如尚未啟用）
-corepack enable
+# 安裝 bun（Windows，PowerShell）
+powershell -c "irm bun.sh/install.ps1 | iex"
+# 或 macOS / Linux：
+# curl -fsSL https://bun.sh/install | bash
 
 # 安裝依賴
-pnpm install
+bun install
 ```
 
 ### 2.2 開發模式
 
 ```bash
-pnpm dev
+bun run dev
 ```
 
 此指令會同時啟動：
@@ -54,7 +56,7 @@ pnpm dev
 ### 2.3 編譯
 
 ```bash
-pnpm build
+bun run build
 ```
 
 執行順序：
@@ -66,11 +68,11 @@ pnpm build
 
 ```bash
 # 自動偵測當前平台打包
-pnpm package
+bun run package
 
 # 指定平台打包
-pnpm package:win    # Windows — 產出 .exe (NSIS)
-pnpm package:mac    # macOS   — 產出 .dmg + .zip
+bun run package:win    # Windows — 產出 .exe (NSIS)
+bun run package:mac    # macOS   — 產出 .dmg + .zip
 ```
 
 產出目錄：`release/`。
@@ -82,12 +84,12 @@ pnpm package:mac    # macOS   — 產出 .dmg + .zip
 
 | 指令 | 說明 |
 |------|------|
-| `pnpm test` | 執行 Vitest 單元測試 |
-| `pnpm test:watch` | Vitest 監視模式 |
-| `pnpm lint` | ESLint 靜態檢查 |
-| `pnpm lint:fix` | ESLint 自動修正 |
-| `pnpm format` | Prettier 格式化 |
-| `pnpm typecheck` | TypeScript 型別檢查（前端 + Electron） |
+| `bun run test` | 執行 Vitest 單元測試 |
+| `bun run test:watch` | Vitest 監視模式 |
+| `bun run lint` | ESLint 靜態檢查 |
+| `bun run lint:fix` | ESLint 自動修正 |
+| `bun run format` | Prettier 格式化 |
+| `bun run typecheck` | TypeScript 型別檢查（前端 + Electron） |
 
 ---
 
@@ -348,7 +350,7 @@ Debug 模式           開啟/關閉 debug overlay
 - 確認 `config.json` 中 `animationFolderPath` 指向正確的資料夾
 - 透過托盤選單「更換動畫資料夾」重新掃描
 
-### Windows 上 `pnpm install` 失敗
+### Windows 上 `bun install` 失敗
 
 - 確認已安裝 **Visual Studio Build Tools**（含 C++ 桌面開發工作負載）
 - koffi 需要原生模組編譯環境

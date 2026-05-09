@@ -17,17 +17,17 @@ npx tsc --noEmit
 
 ### ② ESLint 檢查
 ```bash
-pnpm lint
+bun run lint
 ```
 
 ### ③ Prettier 格式檢查
 ```bash
-pnpm format:check
+bun run format:check
 ```
 
 ### ④ Vitest 單元測試
 ```bash
-pnpm test
+bun run test
 ```
 
 ### ⑤ Rust 編譯（Release）

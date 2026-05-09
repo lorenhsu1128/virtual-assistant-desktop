@@ -13,8 +13,8 @@
 - 視窗列舉：koffi GetWindow 遍歷（無 callback，直接 FFI）
 - 平台抽象：`electron/platform/` 集中所有 Windows / macOS 差異
 - 設定視窗：Svelte（獨立 BrowserWindow，尚未實作）
-- 建置：Vite + pnpm (Corepack) + electron-builder
-- 打包：`pnpm package:win`（NSIS .exe）/ `pnpm package:mac`（.dmg + .zip）
+- 建置：Vite + bun + electron-builder
+- 打包：`bun run package:win`（NSIS .exe）/ `bun run package:mac`（.dmg + .zip）
 - 測試：Vitest
 - Lint：ESLint + Prettier
 
@@ -168,7 +168,7 @@ tests/              → Vitest 測試（unit/）
 - @ARCHITECTURE.md — 程式架構建議書（模組設計、依賴關係）
 - @LESSONS.md — ⚠️ 已知錯誤與教訓（必讀，避免重複犯錯）
 - @animation-guide.md — 系統動畫命名與載入規範（新增 .vrma 檔案前必讀）
-- @docs/vrm-expression-guide.md — VRM 表情跨模型策略（Tier 1/2/3 安全集、case 處理、`pnpm scan:expressions` 工具）
+- @docs/vrm-expression-guide.md — VRM 表情跨模型策略（Tier 1/2/3 安全集、case 處理、`bun run scan:expressions` 工具）
 - @SCENE_PROPS_PLAN.md — 📋 可互動場景道具系統開發計劃（尚未實作，未來開發時的執行藍圖）
 
 ## 開發紀律
