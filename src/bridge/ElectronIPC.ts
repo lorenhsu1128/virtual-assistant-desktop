@@ -2,7 +2,7 @@ import type { AppConfig } from '../types/config';
 import type { AnimationMeta } from '../types/animation';
 import type { WindowRect, DisplayInfo } from '../types/window';
 import type { TrayMenuData } from '../types/tray';
-import type { AgentDaemonInfo, AgentSessionFrame } from '../types/agent';
+import type { AgentDaemonInfo, AgentSessionFrame, MascotAction } from '../types/agent';
 
 /**
  * Electron API interface exposed via preload script (contextBridge).
@@ -48,6 +48,7 @@ interface ElectronAPI {
   onAgentSessionOpen(callback: () => void): () => void;
   onAgentSessionClose(callback: (info: { code: number; reason: string }) => void): () => void;
   onAgentSessionFrame(callback: (frame: AgentSessionFrame) => void): () => void;
+  onMascotAction(callback: (action: MascotAction) => void): () => void;
 }
 
 declare global {
@@ -495,6 +496,11 @@ class ElectronIPC {
   /** Listen for daemon-pushed protocol frames */
   onAgentSessionFrame(callback: (frame: AgentSessionFrame) => void): () => void {
     return window.electronAPI.onAgentSessionFrame(callback);
+  }
+
+  /** Listen for mascot table actions（LLM 透過 MCP 呼叫的工具廣播） */
+  onMascotAction(callback: (action: MascotAction) => void): () => void {
+    return window.electronAPI.onMascotAction(callback);
   }
 }
 

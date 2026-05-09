@@ -45,3 +45,13 @@ export interface RunnerStreamEvent {
   type: string;
   [key: string]: unknown;
 }
+
+/**
+ * 桌寵表演動作 — 由 main process 的 MascotMcpServer 收到 LLM tool call 後
+ * 透過 `mascot_action` IPC 廣播給 renderer。
+ */
+export type MascotAction =
+  | { id: string; kind: 'set_expression'; name: string; durationMs?: number }
+  | { id: string; kind: 'play_animation'; category?: string; name?: string }
+  | { id: string; kind: 'say'; text: string; autoDismissMs?: number }
+  | { id: string; kind: 'look_at_screen'; x: number; y: number };

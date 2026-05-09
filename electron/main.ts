@@ -16,6 +16,13 @@ import { closePickerWindow } from './vrmPickerWindow.js';
 import { AgentDaemonManager } from './agent/AgentDaemonManager.js';
 import { registerAgentIpcHandlers } from './agent/agentIpcHandlers.js';
 import { closeAgentBubbleWindow } from './agent/agentBubbleWindow.js';
+import { MascotMcpServer } from './agent/MascotMcpServer.js';
+import {
+  registerMascotMcp,
+  unregisterMascotMcp,
+} from './agent/mcpRegistration.js';
+import { ensureAgentWorkspace } from './platform/index.js';
+import { BrowserWindow as ElectronBrowserWindow } from 'electron';
 import {
   getWindowOptions,
   applyPostCreateSetup,
@@ -35,6 +42,8 @@ let mainWindow: BrowserWindow | null = null;
 let windowMonitor: WindowMonitor | null = null;
 let systemTray: SystemTray | null = null;
 let agentDaemon: AgentDaemonManager | null = null;
+let mascotMcp: MascotMcpServer | null = null;
+let mascotMcpWorkspace: string | null = null;
 
 /**
  * Single instance lock.
@@ -141,15 +150,34 @@ app.whenReady().then(async () => {
   // Start my-agent daemon manager（依 config.agent.enabled 決定是否實際啟動）
   try {
     const cfg = await readConfig();
-    agentDaemon = new AgentDaemonManager(
-      cfg.agent ?? {
-        enabled: false,
-        daemonMode: 'auto',
-        bunBinaryPath: null,
-        myAgentCliPath: null,
-        workspaceCwd: null,
-      },
-    );
+    const agentCfg = cfg.agent ?? {
+      enabled: false,
+      daemonMode: 'auto' as const,
+      bunBinaryPath: null,
+      myAgentCliPath: null,
+      workspaceCwd: null,
+    };
+
+    // P2：先起 MCP server + 註冊到 my-agent，daemon spawn 時就會看到工具
+    if (agentCfg.enabled) {
+      try {
+        mascotMcpWorkspace = await ensureAgentWorkspace(agentCfg.workspaceCwd);
+        mascotMcp = new MascotMcpServer(() => ElectronBrowserWindow.getAllWindows());
+        const mcpUrl = await mascotMcp.start();
+        if (mcpUrl) {
+          await registerMascotMcp(
+            'mascot',
+            mcpUrl,
+            mascotMcpWorkspace,
+            agentCfg.myAgentCliPath,
+          );
+        }
+      } catch (e) {
+        console.warn('[Main] MascotMcpServer setup failed:', e);
+      }
+    }
+
+    agentDaemon = new AgentDaemonManager(agentCfg);
     registerAgentIpcHandlers(mainWindow, agentDaemon);
     void agentDaemon.start();
   } catch (e) {
@@ -181,12 +209,25 @@ app.whenReady().then(async () => {
 app.on('before-quit', async (event) => {
   if (agentDaemon) {
     const local = agentDaemon;
+    const localMcp = mascotMcp;
+    const cwd = mascotMcpWorkspace;
     agentDaemon = null;
+    mascotMcp = null;
     event.preventDefault();
     try {
+      // 順序：先停 daemon（停止 LLM 呼叫工具）→ 取消 mcp 註冊 → 關 http server
       await local.stop();
     } catch (e) {
       console.warn('[Main] agentDaemon.stop() error:', e);
+    }
+    if (localMcp && cwd) {
+      try {
+        const cfg = await readConfig();
+        await unregisterMascotMcp('mascot', cwd, cfg.agent?.myAgentCliPath ?? null);
+        await localMcp.stop();
+      } catch (e) {
+        console.warn('[Main] mascotMcp cleanup error:', e);
+      }
     }
     app.quit();
   }

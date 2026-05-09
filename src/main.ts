@@ -12,6 +12,7 @@ import { DEFAULT_CONFIG, type AppConfig } from './types/config';
 import type { TrayMenuData } from './types/tray';
 import type { DisplayInfo } from './types/window';
 import { ExpressionManager } from './expression/ExpressionManager';
+import { MascotActionDispatcher } from './agent/MascotActionDispatcher';
 import { DebugOverlay } from './debug/DebugOverlay';
 import { analyzeWalkAnimation } from './animation/StepAnalyzer';
 import { mirrorAnimationClip } from './animation/AnimationMirror';
@@ -390,6 +391,15 @@ async function initializeBehaviorSystem(
     expressionManager.setAllowedAutoExpressions(config.allowedAutoExpressions);
   }
   sceneManager.setExpressionManager(expressionManager);
+
+  // ── P2 Agent 表演控制（LLM tool call → ExpressionManager / AnimationManager） ──
+  if (animationManager) {
+    const mascotDispatcher = new MascotActionDispatcher({
+      expressionManager,
+      animationManager,
+    });
+    mascotDispatcher.start();
+  }
 
   // ── Debug Overlay ──
   const debugOverlay = new DebugOverlay();

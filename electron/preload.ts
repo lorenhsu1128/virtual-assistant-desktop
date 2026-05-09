@@ -80,6 +80,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('agent_session_frame', handler);
     return () => ipcRenderer.removeListener('agent_session_frame', handler);
   },
+  onMascotAction: (callback: (action: unknown) => void) => {
+    const handler = (_event: unknown, action: unknown) => callback(action);
+    ipcRenderer.on('mascot_action', handler);
+    return () => ipcRenderer.removeListener('mascot_action', handler);
+  },
 
   // ── Event Listeners ──
   onWindowLayoutChanged: (callback: (rects: unknown) => void) => {
