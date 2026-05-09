@@ -1,0 +1,55 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * 桌寵設定視窗全域樣式（沿用 src-bubble dark theme，但設定視窗為實心背景，
+ * 不像氣泡那樣半透明）。
+ */
+
+@layer base {
+  :root {
+    --background: oklch(0.1288 0.0406 264.6952);
+    --foreground: oklch(0.9842 0.0034 247.8575);
+    --card: oklch(0.2077 0.0398 265.7549);
+    --card-foreground: oklch(0.9842 0.0034 247.8575);
+    --popover: oklch(0.2077 0.0398 265.7549);
+    --popover-foreground: oklch(0.9842 0.0034 247.8575);
+    --primary: oklch(0.8871 0.2122 128.5041);
+    --primary-foreground: oklch(0 0 0);
+    --secondary: oklch(0.2795 0.0368 260.0310);
+    --secondary-foreground: oklch(0.9842 0.0034 247.8575);
+    --muted: oklch(0.2795 0.0368 260.0310);
+    --muted-foreground: oklch(0.7107 0.0351 256.7878);
+    --accent: oklch(0.3925 0.0896 152.5353);
+    --accent-foreground: oklch(0.8871 0.2122 128.5041);
+    --destructive: oklch(0.4437 0.1613 26.8994);
+    --destructive-foreground: oklch(1 0 0);
+    --border: oklch(0.2795 0.0368 260.0310);
+    --input: oklch(0.2795 0.0368 260.0310);
+    --ring: oklch(0.8871 0.2122 128.5041);
+    --radius: 0.5rem;
+    --font-sans: 'Segoe UI', 'Hiragino Sans', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', Consolas, monospace;
+  }
+
+  * {
+    @apply border-border;
+    box-sizing: border-box;
+  }
+
+  html,
+  body,
+  #settings-root {
+    @apply h-full w-full;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: var(--font-sans);
+    font-size: 13px;
+    overflow: hidden;
+  }
+}

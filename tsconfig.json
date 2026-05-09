@@ -21,6 +21,12 @@
       "@/*": ["src/*"]
     }
   },
-  "include": ["src/**/*.ts", "src-bubble/**/*.ts", "src-bubble/**/*.tsx"],
+  "include": [
+    "src/**/*.ts",
+    "src-bubble/**/*.ts",
+    "src-bubble/**/*.tsx",
+    "src-settings/**/*.ts",
+    "src-settings/**/*.tsx"
+  ],
   "exclude": ["node_modules", "src-tauri", "tests"]
 }

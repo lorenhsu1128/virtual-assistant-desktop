@@ -3,7 +3,16 @@ import react from '@vitejs/plugin-react';
 import { resolve } from 'path';
 
 export default defineConfig({
-  plugins: [react({ include: ['src-bubble/**/*.tsx', 'src-bubble/**/*.ts'] })],
+  plugins: [
+    react({
+      include: [
+        'src-bubble/**/*.tsx',
+        'src-bubble/**/*.ts',
+        'src-settings/**/*.tsx',
+        'src-settings/**/*.ts',
+      ],
+    }),
+  ],
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
@@ -23,6 +32,7 @@ export default defineConfig({
         main: resolve(__dirname, 'index.html'),
         vrmPicker: resolve(__dirname, 'vrm-picker.html'),
         agentBubble: resolve(__dirname, 'agent-bubble.html'),
+        settings: resolve(__dirname, 'settings.html'),
       },
     },
   },

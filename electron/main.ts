@@ -16,6 +16,7 @@ import { closePickerWindow } from './vrmPickerWindow.js';
 import { AgentDaemonManager } from './agent/AgentDaemonManager.js';
 import { registerAgentIpcHandlers } from './agent/agentIpcHandlers.js';
 import { closeAgentBubbleWindow } from './agent/agentBubbleWindow.js';
+import { closeSettingsWindow } from './settingsWindow.js';
 import { MascotMcpServer } from './agent/MascotMcpServer.js';
 import {
   registerMascotMcp,
@@ -212,6 +213,7 @@ app.whenReady().then(async () => {
     systemTray?.dispose();
     closePickerWindow();
     closeAgentBubbleWindow();
+    closeSettingsWindow();
     mainWindow = null;
   });
 });

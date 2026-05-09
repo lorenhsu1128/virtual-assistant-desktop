@@ -85,6 +85,35 @@ export function getPickerWindowOptions(
 }
 
 /**
+ * 回傳設定視窗的 BrowserWindow 建構參數
+ *
+ * 與 picker 類似（有邊框、可縮放、不透明），但較小且帶 modal-like behavior。
+ */
+export function getSettingsWindowOptions(
+  parent: BrowserWindow,
+): Electron.BrowserWindowConstructorOptions {
+  return {
+    width: 720,
+    height: 560,
+    minWidth: 600,
+    minHeight: 400,
+    parent,
+    modal: false,
+    title: '桌寵設定',
+    transparent: false,
+    frame: true,
+    focusable: true,
+    alwaysOnTop: false,
+    skipTaskbar: false,
+    resizable: true,
+    hasShadow: true,
+    show: false,
+    autoHideMenuBar: true,
+    backgroundColor: '#0e1018',
+  };
+}
+
+/**
  * 回傳 Agent 對話氣泡視窗的 BrowserWindow 建構參數
  *
  * 設計：透明、無邊框、可聚焦（讓 textarea 能輸入）、置頂、不顯示在工作列。

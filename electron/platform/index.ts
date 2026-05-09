@@ -16,6 +16,7 @@ export {
   applyPostCreateSetup,
   getPickerWindowOptions,
   getAgentBubbleOptions,
+  getSettingsWindowOptions,
 } from './windowConfig.js';
 export { resolveLocalFilePath } from './protocolHelper.js';
 export { enumerateWindowsMac } from './macWindowMonitor.js';

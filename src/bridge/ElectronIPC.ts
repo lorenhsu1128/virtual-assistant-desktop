@@ -1,4 +1,4 @@
-import type { AppConfig } from '../types/config';
+import type { AppConfig, AgentConfig } from '../types/config';
 import type { AnimationMeta } from '../types/animation';
 import type { WindowRect, DisplayInfo } from '../types/window';
 import type { TrayMenuData } from '../types/tray';
@@ -44,6 +44,8 @@ interface ElectronAPI {
   agentSendInput(text: string): Promise<boolean>;
   agentToggleBubble(): Promise<void>;
   agentReconnect(): Promise<void>;
+  agentApplyConfig(config: AgentConfig): Promise<AgentDaemonInfo>;
+  openSettingsWindow(): Promise<void>;
   onAgentStatus(callback: (info: AgentDaemonInfo) => void): () => void;
   onAgentSessionOpen(callback: () => void): () => void;
   onAgentSessionClose(callback: (info: { code: number; reason: string }) => void): () => void;
@@ -475,6 +477,25 @@ class ElectronIPC {
       await window.electronAPI.agentReconnect();
     } catch (e) {
       console.warn('[ElectronIPC] agentReconnect failed:', e);
+    }
+  }
+
+  /** Apply new agent config (writes config + restarts daemon manager) */
+  async agentApplyConfig(config: AgentConfig): Promise<AgentDaemonInfo | null> {
+    try {
+      return await window.electronAPI.agentApplyConfig(config);
+    } catch (e) {
+      console.warn('[ElectronIPC] agentApplyConfig failed:', e);
+      return null;
+    }
+  }
+
+  /** Open the settings BrowserWindow (no-op if already open) */
+  async openSettingsWindow(): Promise<void> {
+    try {
+      await window.electronAPI.openSettingsWindow();
+    } catch (e) {
+      console.warn('[ElectronIPC] openSettingsWindow failed:', e);
     }
   }
 

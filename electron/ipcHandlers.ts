@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import * as fileManager from './fileManager.js';
 import { WindowMonitor, type WindowRect } from './windowMonitor.js';
 import { openPickerWindow, closePickerWindow } from './vrmPickerWindow.js';
+import { openSettingsWindow } from './settingsWindow.js';
 import { isMac } from './platform/index.js';
 import { KeyboardMonitor } from './keyboardMonitor.js';
 
@@ -107,6 +108,10 @@ export function registerIpcHandlers(
 
   ipcMain.handle('open_vrm_picker', () => {
     openPickerWindow(mainWindow);
+  });
+
+  ipcMain.handle('open_settings_window', () => {
+    openSettingsWindow(mainWindow);
   });
 
   ipcMain.handle('apply_vrm_model', async (_event, vrmPath: string) => {

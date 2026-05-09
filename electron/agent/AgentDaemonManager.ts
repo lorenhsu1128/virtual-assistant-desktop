@@ -92,6 +92,15 @@ export class AgentDaemonManager extends EventEmitter {
   }
 
   /**
+   * 更新 config（不會自動 start/stop；caller 自行決定流程）。
+   * 用於 settings 視窗套用設定後 → stop → updateConfig → start。
+   */
+  updateConfig(next: AgentConfig): void {
+    this.config = next;
+    this.workspaceCwd = null; // 重新解析 workspace
+  }
+
+  /**
    * 送一條使用者輸入給 daemon。
    * @returns 是否真的送出（false 表示尚未連線）
    */

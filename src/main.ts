@@ -602,8 +602,7 @@ async function initializeBehaviorSystem(
       case 'speed_100': if (animationManager) { animationManager.setTimeScale(1.0); config.animationSpeed = 1.0; ipc.writeConfig(config); } break;
       case 'speed_125': if (animationManager) { animationManager.setTimeScale(1.25); config.animationSpeed = 1.25; ipc.writeConfig(config); } break;
       case 'settings':
-        // TODO: 開啟設定視窗
-        console.log('[main] Settings window not yet implemented');
+        void ipc.openSettingsWindow();
         break;
       case 'agent_toggle_bubble':
         void ipc.agentToggleBubble();

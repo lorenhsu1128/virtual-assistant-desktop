@@ -11,6 +11,7 @@ import { BrowserWindow, ipcMain } from 'electron';
 import type { AgentDaemonManager, AgentDaemonInfo } from './AgentDaemonManager.js';
 import type { InboundFrame } from './AgentSessionClient.js';
 import { toggleAgentBubbleWindow } from './agentBubbleWindow.js';
+import { readConfig, writeConfig, type AgentConfig } from '../fileManager.js';
 
 /** 註冊 agent 相關 ipcMain handler，並把 daemon 事件中繼到 renderer */
 export function registerAgentIpcHandlers(
@@ -35,6 +36,20 @@ export function registerAgentIpcHandlers(
   ipcMain.handle('agent_reconnect', async () => {
     await daemon.stop();
     await daemon.start();
+  });
+
+  /**
+   * 套用新的 agent config：寫 config.json，然後重啟 daemon manager
+   * 讓新設定（enabled / paths / mode）生效，不需要 electron 重啟。
+   */
+  ipcMain.handle('agent_apply_config', async (_event, next: AgentConfig) => {
+    const cfg = await readConfig();
+    cfg.agent = next;
+    await writeConfig(cfg);
+    await daemon.stop();
+    daemon.updateConfig(next);
+    await daemon.start();
+    return daemon.getInfo();
   });
 
   // ── Events（main → renderer） ──

@@ -28,6 +28,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openVrmPicker: () => ipcRenderer.invoke('open_vrm_picker'),
   applyVrmModel: (vrmPath: string) => ipcRenderer.invoke('apply_vrm_model', vrmPath),
 
+  // ── Settings Window ──
+  openSettingsWindow: () => ipcRenderer.invoke('open_settings_window'),
+
   // ── Window Monitor ──
   getWindowList: () => ipcRenderer.invoke('get_window_list'),
 
@@ -60,6 +63,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   agentSendInput: (text: string) => ipcRenderer.invoke('agent_send_input', text),
   agentToggleBubble: () => ipcRenderer.invoke('agent_toggle_bubble'),
   agentReconnect: () => ipcRenderer.invoke('agent_reconnect'),
+  agentApplyConfig: (config: unknown) => ipcRenderer.invoke('agent_apply_config', config),
   onAgentStatus: (callback: (info: unknown) => void) => {
     const handler = (_event: unknown, info: unknown) => callback(info);
     ipcRenderer.on('agent_status', handler);

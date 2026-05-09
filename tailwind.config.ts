@@ -7,7 +7,12 @@ import animate from 'tailwindcss-animate';
  */
 export default {
   darkMode: ['class'],
-  content: ['./agent-bubble.html', './src-bubble/**/*.{ts,tsx}'],
+  content: [
+    './agent-bubble.html',
+    './src-bubble/**/*.{ts,tsx}',
+    './settings.html',
+    './src-settings/**/*.{ts,tsx}',
+  ],
   theme: {
     extend: {
       colors: {
