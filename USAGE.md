@@ -1,7 +1,7 @@
 # Virtual Assistant Desktop — 操作手冊
 
-> **版本：** v0.3  
-> **更新日期：** 2026-04-07
+> **版本：** v0.3.x agent  
+> **更新日期：** 2026-05-09
 
 ---
 
@@ -235,17 +235,21 @@ VRM 模型自帶的以下功能會被自動使用：
 
 ### 5.5 系統動畫
 
-專案內建一組系統動畫，位於 `assets/system/vrma/`：
+專案內建一組系統動畫，位於 `assets/system/vrma/`，以 `SYS_{STATE}_NN.vrma` 命名：
 
 ```
-SYS_WALK.vrma                  — 行走
-SYS_SIT_01.vrma ~ SYS_SIT_07.vrma  — 坐下變體（7 種）
-SYS_DRAGGING.vrma              — 拖曳中
-SYS_HIDE_SHOW_LOOP_LEFT.vrma   — 左側躲藏/探頭
-SYS_HIDE_SHOW_LOOP_RIGHT.vrma  — 右側躲藏/探頭
+SYS_IDLE_01 ~ SYS_IDLE_20.vrma     — 待機輪播（20 支）
+SYS_WALK_01 ~ SYS_WALK_06.vrma     — 行走變體（6 支，per-clip 步伐重分析）
+SYS_SIT_01 ~ SYS_SIT_11.vrma       — 坐下變體（11 支）
+SYS_DRAGGING_01 ~ SYS_DRAGGING_02.vrma — 拖曳中（2 支）
+SYS_PEEK_01.vrma                   — 探頭（runtime mirror 左右）
+SYS_HIDE_01.vrma                   — 躲藏移動
+SYS_OPENDOOR_01.vrma               — 從視窗後開門走出
+SYS_RUN_01.vrma                    — 跑步（保留供未來狀態擴充）
+SYS_TYPING_01.vrma                 — 使用者打字時的伴隨動畫
 ```
 
-系統動畫由程式自動載入，不需手動設定，也不會出現在 `animations.json` 中。
+系統動畫由程式於啟動時一次性掃描載入（`src/main.ts: loadAllSystemAnimations`），不需要手動設定也不會出現在 `animations.json` 中。詳細命名規則與載入流程見 [animation-guide.md](./animation-guide.md)。
 
 ### 5.6 Fallback 動畫
 
@@ -279,6 +283,18 @@ SYS_HIDE_SHOW_LOOP_RIGHT.vrma  — 右側躲藏/探頭
 | `micEnabled` | boolean | false | 麥克風開關 |
 | `cameraEnabled` | boolean | false | 攝影機開關 |
 | `systemAssetsDir` | string | "assets/system" | 系統資產目錄 |
+| `mtoonOutlineEnabled` | boolean | false | MToon 描邊（正交相機下會變粗黑邊，預設關） |
+| `agent` | object | 見下表 | my-agent 整合設定（v0.3.x agent） |
+
+#### config.json `agent` 子物件
+
+| 欄位 | 型別 | 預設值 | 說明 |
+|------|------|--------|------|
+| `agent.enabled` | boolean | false | 是否啟用 my-agent 整合 |
+| `agent.daemonMode` | "auto" \| "external" | "auto" | auto = 桌寵自動 spawn / 監看 / 關閉 daemon；external = 使用者自行 `cli daemon start`，桌寵僅連線 |
+| `agent.bunBinaryPath` | string \| null | null | Bun runtime 路徑（null = 自動偵測 `~/.bun/bin/bun.exe` 等常見位置） |
+| `agent.myAgentCliPath` | string \| null | null | my-agent CLI 路徑（null = 自動偵測 `~/Documents/_projects/my-agent/cli.exe` 等） |
+| `agent.workspaceCwd` | string \| null | null | Agent workspace cwd（null = `~/.virtual-assistant-desktop/agent-workspace`） |
 
 ---
 
@@ -292,6 +308,7 @@ SYS_HIDE_SHOW_LOOP_RIGHT.vrma  — 右側躲藏/探頭
 表情 ▸              列出模型所有 BlendShape 表情
 縮放 ▸              50% / 75% / 100% / 125% / 150% / 200%
 動畫速率 ▸          0.5x / 0.75x / 1.0x / 1.25x / 1.5x / 2.0x
+移動速率 ▸          50% / 60% / ... / 150%（每 10% 一檔）
 ─────────
 暫停/恢復自主移動
 暫停/恢復自動表情
@@ -300,10 +317,17 @@ SYS_HIDE_SHOW_LOOP_RIGHT.vrma  — 右側躲藏/探頭
 重置鏡頭角度
 重置回桌面正中央
 更換 VRM 模型
+瀏覽 VRM 模型...     開啟自訂預覽對話框（VRM Picker）
 更換動畫資料夾
+切換 display ▸      多螢幕間切換桌寵所在螢幕
 ─────────
+MToon 描邊           開啟/關閉（正交相機下預設關）
 Debug 模式           開啟/關閉 debug overlay
-設定                 （尚未實作）
+設定                 開啟設定視窗（v0.3.x agent，目前含 Agent 整合頁）
+─────────
+Agent 對話           toggle Agent 對話氣泡視窗（需先在設定中啟用 my-agent 整合）
+Agent 重新連線       手動重啟 daemon 連線
+─────────
 結束
 ```
 
@@ -320,7 +344,54 @@ Debug 模式           開啟/關閉 debug overlay
 
 ---
 
-## 8. 平台差異總結
+## 8. my-agent 整合（v0.3.x agent）
+
+可選功能：把 [my-agent](https://github.com/lorenhsu1128/my-agent)（本機 Claude Code 風格 CLI agent）作為桌寵的 AI 大腦。透過對話氣泡與 LLM 對話，並讓 LLM 透過 MCP tool 直接控制桌寵的表情與動畫。
+
+### 8.1 啟用前需要
+
+- **Bun runtime**（v1.3+）— 若你用 my-agent 自帶的 standalone binary（`cli.exe`）則不需要
+- **my-agent CLI** — 從 my-agent 專案 `bun run build` 取得 `cli.exe`，或 `bun run build:dev`
+- **LLM 設定** — my-agent 端設好 `~/.my-agent/.my-agent.jsonc` 或 `~/.my-agent/llamacpp.jsonc`（Anthropic API key / llama.cpp local server / Bedrock 等）
+
+### 8.2 啟用步驟
+
+1. 在系統托盤點 **設定** → 切到「my-agent 整合」頁
+2. 切換「啟用 my-agent 整合」開關
+3. 視需要填路徑（留空 = 自動偵測常見位置）
+4. 按「套用」— 桌寵會自動 spawn daemon 並註冊 MCP server，狀態 chip 變綠 `ONLINE` 即就緒
+5. 點托盤「Agent 對話」開氣泡視窗，與 LLM 對話
+
+### 8.3 對話氣泡視窗
+
+- 沿用 my-agent web UI 的 React 對話元件，行為與 my-agent TUI / web 一致
+- 支援 streaming text、thinking 段折疊、tool call 卡片
+- 拖曳標題列移動、按 ✕ 隱藏（不退出 daemon）
+- daemon 離線時輸入框 disable
+
+### 8.4 LLM 反向控制桌寵
+
+LLM 可透過 4 個 MCP tool 控制桌寵：
+
+| Tool | 作用 |
+|------|------|
+| `set_expression` | 切換 VRM 表情（含 case-insensitive 匹配 + durationMs 自動回退） |
+| `play_animation` | 依 category（idle/action/sit/...）或檔名播放 |
+| `say` | 推送輔助訊息到對話氣泡（v1 暫只 log，v0.4 補實際渲染） |
+| `look_at_screen` | 指定視線螢幕座標（v1 預留，v0.5 攝影機追蹤實作） |
+
+對 LLM 說「對我笑一下」「揮個手」就會觸發。
+
+### 8.5 限制
+
+- 本地 llama.cpp 模型（如 qwen3.5-9b）會把 mcp tool 包進 my-agent `Skill` meta-tool，**Skill router 不認得 mcp 工具名**而失敗。Anthropic API 模型直接呼叫工具則正常。這是 my-agent 上游 issue
+- macOS 上 my-agent 與 daemon 行為與 Windows 一致（無 koffi 依賴）
+
+詳細整合架構與經驗教訓見 [AGENT_INTEGRATION_PLAN.md](./AGENT_INTEGRATION_PLAN.md) 與 [LESSONS.md](./LESSONS.md)。
+
+---
+
+## 9. 平台差異總結
 
 | 功能 | Windows | macOS |
 |------|---------|-------|
@@ -336,7 +407,7 @@ Debug 模式           開啟/關閉 debug overlay
 
 ---
 
-## 9. 常見問題
+## 10. 常見問題
 
 ### 啟動後看不到角色
 
@@ -359,3 +430,15 @@ Debug 模式           開啟/關閉 debug overlay
 
 - 這是正常現象，koffi 的 Windows API 呼叫在 macOS 上不會執行
 - 不影響 3D 渲染和動畫功能
+
+### Agent 對話氣泡顯示「offline」
+
+- 確認設定視窗「啟用 my-agent 整合」已開
+- 確認 my-agent CLI 路徑正確（看設定視窗下方的 daemon pid / port 是否顯示）
+- 看 dev 視窗 stdout 或 `~/.virtual-assistant-desktop/logs/agent-daemon-YYYY-MM-DD.log` 找錯誤
+- 常見：上次 dev session 留了 orphan daemon 進程 + `.daemon.lock`：見 LESSONS.md「daemon orphan 進程 + .daemon.lock 卡死重啟」清理流程
+
+### LLM 回應「我沒有這種工具」
+
+- 本地 llama.cpp 模型（qwen 等）目前會把 mcp tool 包進 my-agent `Skill` meta-tool 失敗，這是 my-agent 上游 issue
+- 換 Anthropic API（在 my-agent 端設 `ANTHROPIC_API_KEY`）可正常觸發

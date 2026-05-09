@@ -55,6 +55,9 @@ assets/system/vrma/
 ├── SYS_DRAGGING_02.vrma
 ├── SYS_HIDE_01.vrma
 ├── SYS_PEEK_01.vrma        ← 探頭動畫，runtime mirror 左右
+├── SYS_OPENDOOR_01.vrma    ← 從視窗後開門走出（enterdoor 由其反向生成）
+├── SYS_TYPING_01.vrma      ← 使用者打字時的伴隨動畫
+├── SYS_RUN_01.vrma         ← 跑步（保留供未來狀態擴充，目前 BehaviorState 未啟用）
 └── SYS_FALL_01.vrma        ← （目前無檔，空池時不播）
 ```
 
@@ -73,6 +76,7 @@ assets/system/vrma/
 | `hide` | `HIDE` | 移動到 peek 的過程 | LoopRepeat，進入狀態時隨機挑一支 |
 | `opendoor` | `OPENDOOR` | 從視窗後開門走出 | LoopOnce + clamp（hip Z 保留） |
 | `enterdoor` | — | 背對鏡頭走進視窗後 | LoopOnce + clamp；**v1 由 opendoor clip 運行時 Y 軸 180° 旋轉生成**，不需獨立 .vrma 檔 |
+| `typing` | `TYPING` | 使用者打字時的伴隨動畫（鍵盤偵測由 `electron/keyboardMonitor.ts` 透過 uiohook-napi 推送） | LoopRepeat（fadeDuration 0.5s） |
 
 > 權威來源：`src/types/animation.ts` 中的 `SYSTEM_STATE_FILE_PREFIX` 常數。修改對照表必須同步此檔。
 

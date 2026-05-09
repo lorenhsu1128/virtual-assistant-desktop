@@ -40,6 +40,7 @@ SceneManager 擁有唯一的 render loop，每幀依以下順序執行：
 | BehaviorAnimationBridge 做狀態→動畫映射 | StateMachine 不直接呼叫 AnimationManager |
 | WindowMeshManager 管理遮擋 mesh | 由 IPC 事件驅動 syncWindows，不在 render loop 中更新 |
 | ElectronIPC 獨佔 IPC | 其他模組不得直接使用 window.electronAPI |
+| MascotActionDispatcher 獨佔 mascot_action 派發 | 其他模組不得直接訂閱 mascot_action IPC；要新增由 agent 觸發的行為，加 case 到 `MascotActionDispatcher.handle()` 並走 ExpressionManager / AnimationManager 公開 API |
 
 ## 錯誤處理策略
 

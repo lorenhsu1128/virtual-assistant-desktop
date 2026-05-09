@@ -1,8 +1,8 @@
 # virtual-assistant-desktop — 軟體規格書
 
 > **目標平台：** Windows 10 / 11、macOS 11+  
-> **版本：** v0.1 Draft  
-> **更新日期：** 2026-04-07
+> **版本：** v0.3.x agent（含 my-agent 整合）  
+> **更新日期：** 2026-05-09
 
 ---
 
@@ -26,8 +26,9 @@
 - **v0.1：** 透明視窗 + VRM 模型載入與渲染 + .vrma 動畫系統（資料夾掃描、分類、播放）
 - **v0.2：** 視窗互動系統（碰撞、吸附、遮擋） + 自主移動行為狀態機 + 拖曳移動
 - **v0.3：** 表情系統（自動+手動） + 系統托盤
-- **v0.4：** 麥克風唇形同步 (Lip-sync) + SpringBone 物理運算
-- **v0.5：** 攝影機臉部追蹤 + 進階設定介面 + 自動更新
+- **v0.3.x agent：** my-agent 整合（daemon 生命週期、ws 對話氣泡、MCP server 表演控制、設定視窗），讓桌寵能與本機 LLM 對話並由 LLM 直接控制表情/動畫
+- **v0.4：** 麥克風唇形同步 (Lip-sync) + SpringBone 物理運算 + 首次啟動引導（含 my-agent 偵測引導）
+- **v0.5：** 攝影機臉部追蹤 + 完整設定面板（多頁面） + 自動更新
 
 ---
 
@@ -177,6 +178,35 @@
 - **活動範圍：** 限定在角色當前所在的單一螢幕內，不會自主跨螢幕移動。
 - **移動頻率：** idle 停留 5–20 秒後，有 60% 機率進入 walk，20% 機率進入 sit，10% 機率進入 peek，10% 機率繼續 idle。
 - **暫停機制：** 使用者可透過右鍵選單暫停/恢復自主移動。
+
+### 2.8 my-agent 整合（v0.3.x agent，可選）
+
+桌寵可選擇連接本機 my-agent daemon（Bun + Claude Code 風格 CLI agent）作為 AI 大腦。實作詳見 [AGENT_INTEGRATION_PLAN.md](./AGENT_INTEGRATION_PLAN.md)。
+
+#### 2.8.1 整合層次
+
+- **Daemon 生命週期**：桌寵 main process spawn `cli daemon start`，輪詢 `~/.my-agent/daemon.pid.json`、heartbeat 監看；app 退出時透過 `cli daemon stop` 子命令觸發 daemon 自帶的 orphan cleanup
+- **對話通道**：透過 `ws://127.0.0.1:port/sessions?source=mascot&cwd=<workspace>&token=<token>` 連線，NDJSON 訊息格式（與 my-agent web client 共用協定）
+- **對話氣泡 UI**：獨立 BrowserWindow，採 React + Tailwind，移植 my-agent web 的 `MessageItem` / `ToolCallCard` / `ThinkingBlock` 元件，達到與 TUI / web 一致的對話體驗
+- **反向控制**：桌寵啟動時起 HTTP MCP server（per-request stateless），透過 `cli mcp add --scope user` 註冊到 my-agent；LLM 透過 4 個 tool 控制 VRM 表演
+
+#### 2.8.2 MCP tools（LLM 可呼叫）
+
+| Tool | 用途 |
+|------|------|
+| `set_expression` | 切換 VRM 表情；含 case-insensitive 名稱比對與 `durationMs` 自動回退到自動模式 |
+| `play_animation` | 依 `category`（idle/action/sit/fall/collide/peek）或檔名 `name` 播放 |
+| `say` | 推送輔助訊息到對話氣泡（v1 暫只 log，v0.4 補實際渲染） |
+| `look_at_screen` | 預留 v0.5 攝影機追蹤接口 |
+
+#### 2.8.3 設定視窗
+
+獨立 BrowserWindow（React），目前含「my-agent 整合」頁：enable 開關、auto/external daemon mode、bun / cli / workspace 路徑覆寫、daemon 狀態 chip（即時更新）、套用、重新連線。詳見 [src-settings/CLAUDE.md](./src-settings/CLAUDE.md)。
+
+#### 2.8.4 降級策略
+
+- bun / cli 偵測不到、daemon spawn 失敗、ws 連線失敗 → 桌寵以「無 AI 模式」運作，所有 v0.3 既有功能不受影響
+- 設定中關閉 `agent.enabled` 時 daemon 不啟動
 
 ---
 

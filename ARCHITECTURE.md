@@ -1,8 +1,8 @@
 # virtual-assistant-desktop — 程式架構建議書
 
-> **對應規格書版本：** v0.1 Draft  
+> **對應規格書版本：** v0.3.x agent  
 > **目標平台：** Windows 10/11 + macOS 11+  
-> **更新日期：** 2026-04-07
+> **更新日期：** 2026-05-09
 
 ---
 
@@ -44,14 +44,30 @@
 
 ```
 src/
-├── core/            # 渲染核心
-├── animation/       # 動畫系統
-├── expression/      # 表情系統
-├── behavior/        # 行為與碰撞
-├── interaction/     # 使用者互動
-├── bridge/          # IPC 封裝
+├── core/            # 渲染核心（SceneManager, VRMController）
+├── animation/       # 動畫系統（AnimationManager + 系統動畫工具：
+│                    #   systemAnimationMatcher / StepAnalyzer /
+│                    #   AnimationMirror / AnimationReverse / FallbackAnimation）
+├── expression/      # 表情系統（ExpressionManager）
+├── behavior/        # 行為狀態機 + 動畫橋接
+├── occlusion/       # 3D 深度遮擋（WindowMeshManager + DoorEffect）
+├── interaction/     # 使用者互動（DragHandler / HitTestManager / CharacterContextMenu）
+├── bridge/          # IPC 封裝（ElectronIPC）
+├── debug/           # Debug overlay（v0.3）
+├── agent/           # my-agent 整合 renderer 端（v0.3.x agent）
+│   └── MascotActionDispatcher.ts  # mascot_action IPC → ExpressionManager / AnimationManager
+├── vrm-picker/      # VRM 模型瀏覽對話框 renderer
 └── types/           # 共用型別
 ```
+
+### 2.1.x 額外的獨立 React app（多 BrowserWindow 入口）
+
+```
+src-bubble/   # Agent 對話氣泡（移植自 my-agent web 的 chat 元件）
+src-settings/ # 設定視窗（v0.3.x agent，目前含 Agent 頁）
+```
+
+兩者各自獨立 React StrictMode root，共用同一份 Tailwind / shadcn 基礎設施（vite multi-entry + react plugin include scope）。
 
 ### 2.2 各模組職責
 
@@ -351,17 +367,28 @@ interface AppConfig {
 
 ```
 electron/
-├── main.ts                  # 進入點、BrowserWindow 建立、protocol 註冊
+├── main.ts                  # 進入點、BrowserWindow 建立、protocol 註冊、agent lifecycle hook
 ├── preload.ts               # contextBridge 暴露 IPC API
 ├── ipcHandlers.ts           # 所有 ipcMain.handle() 註冊
-├── fileManager.ts           # config.json / animations.json 管理
+├── fileManager.ts           # config.json / animations.json 管理（含 AgentConfig）
 ├── windowMonitor.ts         # koffi GetWindow 視窗列舉（Windows-only）
-├── windowRegion.ts          # [已棄用] koffi SetWindowRgn
+├── keyboardMonitor.ts       # uiohook-napi 全域鍵盤事件（推送 typing 狀態）
 ├── systemTray.ts            # 系統托盤選單
+├── vrmPickerWindow.ts       # VRM 模型瀏覽 BrowserWindow
+├── settingsWindow.ts        # 設定 BrowserWindow（v0.3.x agent）
+├── agent/                   # my-agent 整合（v0.3.x agent）
+│   ├── AgentDaemonManager.ts    # daemon 生命週期（auto/external 雙模式 + cli daemon stop graceful）
+│   ├── AgentSessionClient.ts    # ws://127.0.0.1:port/sessions client + NDJSON
+│   ├── agentBubbleWindow.ts     # 對話氣泡 BrowserWindow
+│   ├── agentIpcHandlers.ts      # agent_* IPC commands + frame 廣播
+│   ├── MascotMcpServer.ts       # 桌寵 HTTP MCP server（per-request stateless）
+│   └── mcpRegistration.ts       # cli mcp add --scope user idempotent 註冊
 └── platform/                # 跨平台抽象層
     ├── index.ts             # isWindows / isMac 旗標 + 統一匯出
-    ├── windowConfig.ts      # 各平台 BrowserWindow 參數與建立後設定
-    └── protocolHelper.ts    # local-file 協定路徑解析（兩平台行為不同）
+    ├── windowConfig.ts      # 各平台 BrowserWindow 參數（main / picker / agent bubble / settings）
+    ├── protocolHelper.ts    # local-file 協定路徑解析
+    ├── macWindowMonitor.ts  # macOS 視窗列舉（空實作 / 降級）
+    └── agentPaths.ts        # bun / my-agent CLI / ~/.my-agent / workspace 跨平台路徑
 ```
 
 ### 3.2 各模組職責
@@ -388,9 +415,20 @@ electron/
 
 #### platform/
 
-- `index.ts` — 匯出 `isWindows`、`isMac` 旗標。其他模組需要平台判斷時透過此處取用，禁止散落 `process.platform` 判斷。
-- `windowConfig.ts` — `getWindowOptions(bounds)` 與 `applyPostCreateSetup(win, bounds)`，封裝兩平台 BrowserWindow 的差異（macOS 需要 `setIgnoreMouseEvents(true, { forward: true })`）。
+- `index.ts` — 匯出 `isWindows`、`isMac` 旗標 + 統一匯出。其他模組需要平台判斷時透過此處取用，禁止散落 `process.platform` 判斷。
+- `windowConfig.ts` — `getWindowOptions(bounds)` 與 `applyPostCreateSetup(win, bounds)`、`getPickerWindowOptions(parent)`、`getAgentBubbleOptions(parent)`、`getSettingsWindowOptions(parent)`。封裝兩平台 BrowserWindow 的差異（macOS 需要 `setIgnoreMouseEvents(true, { forward: true })`）。
 - `protocolHelper.ts` — `resolveLocalFilePath(url)`，處理 local-file 協定在兩平台不同的根目錄格式。
+- `macWindowMonitor.ts` — macOS 視窗列舉（目前空實作，視窗感知功能在 macOS 降級）。
+- `agentPaths.ts` — bun runtime / my-agent CLI / `~/.my-agent` / agent workspace 等路徑解析；自動偵測常見位置（如 `~/.bun/bin/bun.exe`），亦接受 config 的明確覆寫。
+
+#### agent/（v0.3.x agent）
+
+- `AgentDaemonManager.ts` — my-agent daemon 生命週期。`mode='auto'` 時 spawn `cli daemon start --port 0`，輪詢 `~/.my-agent/daemon.pid.json` 取得 port，heartbeat 監看；`stop()` 透過 `cli daemon stop` 子命令觸發 graceful（Windows 上 Node `child.kill('SIGTERM')` 等同 TerminateProcess，my-agent 自帶 orphan pid.json cleanup）。
+- `AgentSessionClient.ts` — `ws://127.0.0.1:port/sessions` client，NDJSON frame 解析（**送出端必須結尾 `\n`**），重連 backoff，source=mascot 握手。
+- `agentBubbleWindow.ts` — 對話氣泡 BrowserWindow（透明、無邊框、自繪 chrome）。
+- `agentIpcHandlers.ts` — `agent_get_status` / `agent_send_input` / `agent_toggle_bubble` / `agent_reconnect` / `agent_apply_config`，並 broadcast `agent_status` / `agent_session_open|close|frame` 給所有 BrowserWindow。
+- `MascotMcpServer.ts` — 桌寵 HTTP MCP server（@modelcontextprotocol/sdk）。**per-request stateless 模式**：每個 HTTP request 起新的 McpServer + transport，response close 釋放（共用 stateful 第二個 client 拿 "Server already initialized"，共用 stateless follow-up 500）。tool 廣播 `mascot_action` IPC 給所有 BrowserWindow。
+- `mcpRegistration.ts` — 透過 `cli mcp add --scope user --transport http <name> <url>` idempotent 註冊（先 remove 再 add）。`--scope user` 寫到全域 `~/.my-agent/.my-agent.jsonc`，避免 dotfile 路徑（如 `.virtual-assistant-desktop`）的 project key normalize 失敗。
 
 ---
 
@@ -466,6 +504,40 @@ function loop(now: number) {
 5. **新功能 PR 須註明測試平台**：commit 訊息或 PR 描述須說明在哪個平台驗證過、預期在另一平台的行為。
 6. **macOS 已知功能限制**：視窗碰撞 / 吸附 / 遮擋 / Peek 等 koffi 依賴功能在 macOS 停用，渲染、動畫、表情、自主移動正常運作。
 
+### 4.7 my-agent 整合架構（v0.3.x agent）
+
+雙通道整合：
+
+1. **上行**（使用者 → LLM）：對話氣泡 → IPC → AgentSessionClient → ws → daemon → QueryEngine
+2. **下行**（LLM → 表演）：LLM tool call → daemon → HTTP POST → MascotMcpServer → IPC `mascot_action` → MascotActionDispatcher → ExpressionManager / AnimationManager
+
+```
+┌─ Electron main process ────────────────────────────────┐
+│                                                         │
+│  AgentDaemonManager ─────spawn─────► my-agent daemon    │
+│         │                                ws (NDJSON)    │
+│         ├─ AgentSessionClient ─────────────►            │
+│         │                                               │
+│  MascotMcpServer (HTTP, per-request) ◄──tool call──     │
+│         │                                               │
+│         IPC (agent_session_frame / mascot_action)       │
+│         ▼                                               │
+└─────────┼───────────────────────────────────────────────┘
+          │
+          ▼
+   Renderer windows:
+   - 主視窗 (src/agent/MascotActionDispatcher → managers)
+   - 對話氣泡 (src-bubble/, daemonFrameAdapter → store → UI)
+   - 設定視窗 (src-settings/, agentApplyConfig → restart daemon)
+```
+
+**設計理由**：
+- 不分叉 my-agent — 只在 my-agent 端加 `'mascot'` 到 ClientSource enum（已合並，my-agent commit `1ceda16`）
+- 重用 my-agent web 的 chat 元件 — `src-bubble/` 移植 `MessageItem` / `ToolCallCard` / `ThinkingBlock`，daemon NDJSON frame 透過 `daemonFrameAdapter` 翻譯到 messageStore（與 my-agent web `useTurnEvents.ts` 解析邏輯共用 SDK 解析）
+- LLM tool call 走 MCP 而非文字 NLP heuristic — 工程上穩定、可測
+
+**降級策略**：bun / cli 偵測不到、daemon spawn 失敗、ws 連線失敗 → 桌寵以「無 AI 模式」運作，所有 v0.3 既有功能不受影響。
+
 ---
 
 ## 5. 專案目錄結構
@@ -482,52 +554,87 @@ virtual-assistant-desktop/
 │   │   └── VRMController.ts
 │   ├── animation/
 │   │   ├── AnimationManager.ts
-│   │   └── FallbackAnimation.ts
+│   │   ├── AnimationMirror.ts
+│   │   ├── AnimationReverse.ts
+│   │   ├── FallbackAnimation.ts
+│   │   ├── StepAnalyzer.ts
+│   │   └── systemAnimationMatcher.ts
 │   ├── expression/
 │   │   └── ExpressionManager.ts
 │   ├── behavior/
 │   │   ├── StateMachine.ts
-│   │   ├── CollisionSystem.ts
 │   │   └── BehaviorAnimationBridge.ts
+│   ├── occlusion/
+│   │   ├── WindowMeshManager.ts
+│   │   └── DoorEffect.ts
 │   ├── interaction/
 │   │   ├── DragHandler.ts
-│   │   └── ContextMenu.ts
+│   │   ├── HitTestManager.ts
+│   │   └── CharacterContextMenu.ts
 │   ├── bridge/
 │   │   └── ElectronIPC.ts
+│   ├── debug/
+│   │   └── DebugOverlay.ts
+│   ├── agent/                       # v0.3.x agent
+│   │   └── MascotActionDispatcher.ts
+│   ├── vrm-picker/                  # VRM picker renderer
+│   │   ├── main.ts
+│   │   ├── PreviewScene.ts
+│   │   ├── pickerLogic.ts
+│   │   └── style.css
 │   ├── types/
 │   │   ├── config.ts
 │   │   ├── animation.ts
-│   │   └── window.ts
-│   ├── main.ts
-│   └── index.html
-│
-├── src-settings/                 # 設定視窗（獨立 Svelte app）
-│   ├── App.svelte
-│   ├── pages/
-│   │   ├── ModelPage.svelte
-│   │   ├── AnimationPage.svelte
-│   │   ├── ExpressionPage.svelte
-│   │   ├── DisplayPage.svelte
-│   │   ├── PerformancePage.svelte
-│   │   ├── DevicePage.svelte
-│   │   └── AboutPage.svelte
+│   │   ├── behavior.ts
+│   │   ├── door.ts
+│   │   ├── tray.ts
+│   │   ├── vrmPicker.ts
+│   │   ├── window.ts
+│   │   └── agent.ts                 # v0.3.x agent
 │   └── main.ts
 │
-├── tests/                        # Vitest 測試
-│   ├── unit/
-│   │   ├── StateMachine.test.ts
-│   │   ├── CollisionSystem.test.ts
-│   │   ├── ExpressionManager.test.ts
-│   │   └── AnimationManager.test.ts
-│   └── integration/
-│       └── ElectronIPC.test.ts
+├── src-bubble/                      # Agent 對話氣泡 React app（v0.3.x agent）
+│   ├── main.tsx
+│   ├── BubbleChat.tsx
+│   ├── globals.css
+│   ├── store/messageStore.ts
+│   ├── adapter/daemonFrameAdapter.ts
+│   ├── components/{MessageItem,MessageList,InputBar,Header,ToolCallCard,ThinkingBlock}.tsx
+│   ├── ui/{badge,collapsible}.tsx
+│   └── lib/utils.ts
 │
+├── src-settings/                    # 桌寵設定 React app（v0.3.x agent，原規劃 Svelte 已棄用）
+│   ├── main.tsx
+│   ├── App.tsx
+│   ├── AgentPage.tsx
+│   ├── globals.css
+│   ├── ui/{switch,label,input,button}.tsx
+│   └── lib/utils.ts
+│
+├── tests/                           # Vitest 測試（unit/）
+│   └── unit/
+│       ├── StateMachine.test.ts
+│       ├── ExpressionManager.test.ts
+│       ├── AnimationManager.test.ts
+│       ├── AnimationMirror.test.ts
+│       ├── AnimationReverse.test.ts
+│       ├── BehaviorAnimationBridge.test.ts
+│       ├── CharacterContextMenu.test.ts
+│       ├── systemAnimationMatcher.test.ts
+│       ├── VrmPickerLogic.test.ts
+│       ├── AgentSessionClient.test.ts
+│       ├── AgentDaemonManager.test.ts
+│       ├── bubbleMessageStore.test.ts
+│       ├── daemonFrameAdapter.test.ts
+│       └── MascotActionDispatcher.test.ts
+│
+├── index.html / vrm-picker.html / agent-bubble.html / settings.html  # 4 個 vite 入口
 ├── package.json
-├── tsconfig.json
-├── vite.config.ts
+├── tsconfig.json / tsconfig.electron.json
+├── vite.config.ts / vitest.config.ts
+├── tailwind.config.ts / postcss.config.js
 ├── bun.lock
-├── .eslintrc.json
-├── .prettierrc
+├── .eslintrc.json / .prettierrc
 └── README.md
 ```
 
@@ -606,11 +713,23 @@ virtual-assistant-desktop/
 2. `systemTray.ts` — 系統托盤
 3. 設定視窗（`src-settings/`）基礎框架
 
-### v0.4（Lip-sync + SpringBone）
+### v0.3.x agent（my-agent 整合）
+
+1. `electron/agent/AgentDaemonManager.ts` — daemon 生命週期（auto/external + cli daemon stop graceful）
+2. `electron/agent/AgentSessionClient.ts` — ws client + NDJSON
+3. `src-bubble/` — React 對話氣泡，移植自 my-agent web chat 元件
+4. `electron/agent/MascotMcpServer.ts` — HTTP MCP server（per-request stateless）
+5. `electron/agent/mcpRegistration.ts` — `cli mcp add --scope user` 註冊
+6. `src/agent/MascotActionDispatcher.ts` — IPC `mascot_action` → ExpressionManager / AnimationManager
+7. `src-settings/` + `electron/settingsWindow.ts` — Agent 設定頁
+8. my-agent 端：`'mascot'` ClientSource enum（已合並上游）
+
+### v0.4（Lip-sync + SpringBone + 首次引導）
 
 1. 麥克風擷取模組（Electron 主程序）
 2. Lip-sync 前端邏輯
 3. SpringBone 啟用與效能調優
+4. 首次啟動引導（含 my-agent 偵測引導）
 
 ### v0.5（攝影機 + 進階設定 + 自動更新）
 
