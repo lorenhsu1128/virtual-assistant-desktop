@@ -277,7 +277,7 @@ Three.js 在長時間運行後可能遇到 WebGL context lost 事件。程式須
 ### 6.4 開發工具鏈
 
 - **Vite：** 前端建置與開發伺服器。
-- **pnpm：** 透過 Corepack 啟用的高效能套件管理員。
+- **bun：** 套件管理員與 script runner（取代舊的 pnpm + Corepack 流程）。
 - **ESLint + Prettier：** 程式碼品質與排版風格維護。
 - **Vitest：** 單元測試框架，與 Vite 生態系原生整合。
 

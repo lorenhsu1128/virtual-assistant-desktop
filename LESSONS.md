@@ -141,7 +141,7 @@
 ### [2026-04-07] `[跨平台]` — electron 主程序變更需完全重啟（非 HMR）
 
 - **錯誤**：新增 IPC handler 並 commit 後，dev 中的 picker 仍出現 `Error: No handler registered for 'scan_vrma_files'`，因為 vite HMR 重新載入了 renderer 但 electron 主程序仍使用啟動時載入的舊 `dist-electron/ipcHandlers.js`，導致前端呼叫新 IPC 找不到 handler；錯誤被 ElectronIPC wrapper catch 後回傳 `[]`，PreviewScene 走 fallback，使用者看到「T-pose」（FallbackAnimation 振幅僅 0.015 弧度，肉眼幾乎無感）
-- **正確做法**：每次修改 `electron/` 下任何檔案後，必須執行「完全重啟」流程：(1) `pnpm build:electron`（編譯到 dist-electron）(2) `Stop-Process electron -Force` 結束所有 electron 進程 (3) `pnpm dev` 重啟。Vite HMR 只覆蓋 renderer，不會觸發 electron 重啟。
+- **正確做法**：每次修改 `electron/` 下任何檔案後，必須執行「完全重啟」流程：(1) `bun run build:electron`（編譯到 dist-electron）(2) `Stop-Process electron -Force` 結束所有 electron 進程 (3) `bun run dev` 重啟。Vite HMR 只覆蓋 renderer，不會觸發 electron 重啟。
 - **受影響檔案**：electron/ipcHandlers.ts, electron/preload.ts, electron/main.ts, electron/vrmPickerWindow.ts 等所有 electron/ 下的檔案
 - **根因**：Electron 主程序與 preload script 在進程啟動時載入一次，無 HMR 機制；vite dev server 只負責 renderer (chromium) 的程式碼，主程序的 dist-electron 是 tsc 預編譯的
 
@@ -172,6 +172,29 @@
 - **根因記憶**：MToon outline 是「依賴 camera projection 數學」的 shader feature，跟 camera 類型強耦合。新增類似「shader-level 視覺差異」功能前，先檢查是否依賴透視投影。此外，「兩個 scene 同一隻模型不同表現」排除模型作者設計，線索應該優先查 camera / projection / framebuffer 差異
 
 ---
+
+### [2026-05-09] `[跨平台]` — 套件管理員從 pnpm 遷移到 bun
+
+- **背景**：原使用 pnpm（透過 Corepack）+ `pnpm.onlyBuiltDependencies` 控制 native module rebuild。改為 bun 1.3+ 作為唯一套件管理員與 script runner
+- **必改之處**：
+  1. `package.json`：移除 `"pnpm": { "onlyBuiltDependencies": [...] }`，改為頂層 `"trustedDependencies": ["electron", "electron-winstaller", "esbuild", "koffi", "uiohook-napi"]`（bun 用 `trustedDependencies` 控制 postinstall 白名單）
+  2. `package.json` scripts：所有 `pnpm build`、`pnpm package*` 等內嵌 script 改為 `bun run build` 等
+  3. 刪除 `pnpm-workspace.yaml`、`pnpm-lock.yaml`，產生 `bun.lock`
+  4. `.claude/settings*.json`、文件全面更新指令前綴
+- **驗證重點**：bun install 後 koffi/uiohook-napi/electron 三個 native 依賴在 dev mode 都能正常載入（`[WindowMonitor] koffi loaded OK` / `[KeyboardMonitor] uiohook-napi started`）
+- **不影響**：Vite、Vitest、ESLint、TypeScript、electron-builder 與 IPC 三層架構
+- **根因記憶**：bun 不認識 pnpm-only 的 `pnpm.onlyBuiltDependencies` 欄位；遷移時若忘了改 `trustedDependencies`，native module 的 postinstall（如 koffi rebuild）會被靜默跳過，runtime 才出錯
+
+### [2026-05-09] `[Windows]` — electron-builder winCodeSign 解壓 symlink 失敗
+
+- **錯誤**：`bun run package:win` 執行時，electron-builder 下載 `winCodeSign-2.6.0.7z` 後 `7za` 解壓 exit code 2，錯誤訊息 `Cannot create symbolic link`，指向 `darwin/10.12/lib/libcrypto.dylib` / `libssl.dylib`
+- **根因**：winCodeSign 壓縮檔內含 macOS 共享函式庫的 symlink，在 Windows 沒開啟「開發人員模式」也沒以管理員權限執行時，`CreateSymbolicLinkW` 會被系統拒絕。雖然 `7za -snld` 旗標會把 symlink 改存為普通檔（電子builder 在 Windows 不需要這些 dylib），但 7za 本身仍以 exit 2 結束，electron-builder 視為失敗，不會把 temp 目錄重新命名為 `winCodeSign-2.6.0`
+- **正確做法（任選一）**：
+  1. 開啟 Windows 設定 → 「**開發人員模式**」（`ms-settings:developers`），讓非管理員可建立 symlink
+  2. 以管理員身分執行 PowerShell 後跑 `bun run package:win`
+  3. 手動修復快取：將 `%LOCALAPPDATA%\electron-builder\Cache\winCodeSign\<numericId>` 重新命名為 `winCodeSign-2.6.0`，再清除其他殘留 temp 目錄與 `.7z`
+- **與 bun 無關**：此問題與套件管理員無關，pnpm 環境下若快取狀態相同也會發生。只是遷移後快取若被觸發重抓會重現
+- **根因記憶**：electron-builder 把 `7za` 任何非零 exit 都當失敗，即使解壓檔案實際可用。Windows 的 symlink 預設權限是真正的瓶頸
 
 ## 如何新增教訓
 

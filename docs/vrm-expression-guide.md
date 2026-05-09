@@ -1,7 +1,7 @@
 # VRM 表情實務指南
 
 > **對應模組**：`src/expression/ExpressionManager.ts`
-> **工具**：`pnpm scan:expressions`（`scripts/scan-vrm-expressions.mjs`）
+> **工具**：`bun run scan:expressions`（`scripts/scan-vrm-expressions.mjs`）
 > **最後更新**：2026-04-11（基於 74 個 VRM 模型的掃描結果）
 
 ---
@@ -17,7 +17,7 @@
 
 ## 2. 掃描結果彙整（v1 — 74 模型）
 
-使用 `pnpm scan:expressions` 對 `vrmodels/` 下 74 個有表情的 VRM 0.x 模型進行掃描（11 個無表情模型已於 2026-04-11 清除）。
+使用 `bun run scan:expressions` 對 `vrmodels/` 下 74 個有表情的 VRM 0.x 模型進行掃描（11 個無表情模型已於 2026-04-11 清除）。
 
 ### 2.1 跨模型交集（**100% 通用**）
 
@@ -169,13 +169,13 @@ function computeDefaultAutoExpressionAllowlist(
 
 ## 5. 如何重跑分析
 
-專案內建工具 `pnpm scan:expressions`：
+專案內建工具 `bun run scan:expressions`：
 
 ```bash
-pnpm scan:expressions                    # 完整報告（預設 vrmodels/）
-pnpm scan:expressions -- --duplicates    # 只顯示重複表情排行
-pnpm scan:expressions -- --json          # JSON 輸出（供腳本處理）
-pnpm scan:expressions -- custom/folder   # 指定其他目錄
+bun run scan:expressions                    # 完整報告（預設 vrmodels/）
+bun run scan:expressions -- --duplicates    # 只顯示重複表情排行
+bun run scan:expressions -- --json          # JSON 輸出（供腳本處理）
+bun run scan:expressions -- custom/folder   # 指定其他目錄
 ```
 
 掃描結果可用於：
@@ -233,4 +233,4 @@ ToggleWP     @ Luna.vrm            ← 服裝切換
 
 ---
 
-_本文件基於實測資料產生，當模型集合變動（新增/刪除模型）時應重跑 `pnpm scan:expressions` 更新統計數據。_
+_本文件基於實測資料產生，當模型集合變動（新增/刪除模型）時應重跑 `bun run scan:expressions` 更新統計數據。_

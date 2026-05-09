@@ -132,7 +132,7 @@ user-invocable: true
 
 ### 3.1 單元測試
 ```bash
-pnpm test
+bun run test
 ```
 如果測試失敗，自動修正後重跑（最多嘗試 3 次）。
 
@@ -144,9 +144,9 @@ npx tsc --noEmit
 
 ### 3.3 ESLint
 ```bash
-pnpm lint
+bun run lint
 ```
-如果有 lint 錯誤，自動修正（`pnpm lint --fix`）。
+如果有 lint 錯誤，自動修正（`bun run lint:fix`）。
 
 ### 3.4 Rust Clippy（如果有修改 .rs）
 ```bash

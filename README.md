@@ -14,8 +14,8 @@
 ## 快速啟動
 
 ```bash
-pnpm install
-pnpm dev
+bun install
+bun run dev
 ```
 
 開發模式同時啟動 Vite 與 Electron。
@@ -24,11 +24,11 @@ pnpm dev
 
 ```bash
 # 自動偵測當前平台打包
-pnpm package
+bun run package
 
 # 指定平台打包
-pnpm package:win    # Windows  → .exe (NSIS)
-pnpm package:mac    # macOS    → .dmg + .zip
+bun run package:win    # Windows  → .exe (NSIS)
+bun run package:mac    # macOS    → .dmg + .zip
 ```
 
 ## 文件索引

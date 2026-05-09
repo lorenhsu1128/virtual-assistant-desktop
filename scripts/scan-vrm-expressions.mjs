@@ -8,9 +8,9 @@
  *   node scripts/scan-vrm-expressions.mjs --json        # 輸出 JSON 格式
  *   node scripts/scan-vrm-expressions.mjs --duplicates  # 只顯示重複表情排行
  *
- * 或透過 pnpm：
- *   pnpm scan:vrm-expressions
- *   pnpm scan:vrm-expressions -- --json
+ * 或透過 bun：
+ *   bun run scan:expressions
+ *   bun run scan:expressions -- --json
  *
  * 支援 VRM 0.x (VRM.blendShapeMaster) 與 VRM 1.0 (VRMC_vrm.expressions)。
  * 解析 GLB header 讀取 JSON chunk，不載入 BIN chunk，速度快且記憶體低。

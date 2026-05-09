@@ -186,8 +186,8 @@ export class PropManager {
 - 手動編輯 `scene-props.json` 放入 1-2 個 instance，重啟後 prop 應出現在指定螢幕座標
 - console 確認 bounding box 計算正確
 - 縮放角色/切換模型後 prop 不受影響
-- `pnpm test` 仍 184/184（Phase 1 無單元測試新增；PropManager 整合測試難）
-- `npx tsc --noEmit` / `pnpm lint` 清潔
+- `bun run test` 仍 184/184（Phase 1 無單元測試新增；PropManager 整合測試難）
+- `npx tsc --noEmit` / `bun run lint` 清潔
 - 無記憶體洩漏：反覆載入卸載 prop
 
 ### Phase 1 commit
@@ -362,7 +362,7 @@ StateMachine.tick(input) 前：
 ## 相關教訓（LESSONS.md）
 
 - **[2026-04-03] Electron IPC 三層同步**：Phase 1 新增 IPC 必須同時改 ipcHandlers、preload、ElectronIPC
-- **[2026-04-03] 電子主程序重新編譯**：改 electron/ 後必須 `pnpm build:electron` + 重啟
+- **[2026-04-03] 電子主程序重新編譯**：改 electron/ 後必須 `bun run build:electron` + 重啟
 - **[2026-04-07] Render loop cache 不可在同步呼叫立刻使用**：PropManager 的 instance 狀態切勿在 IPC handler 立刻讀，要走 source-of-truth getter
 - **[2026-04-03] 架構違規**：PropManager 可依賴 Three.js；但 StateMachine 依然不能 import prop 或 three
 - **[2026-04-09] AnimationAction instance reuse**：不相關（props 不使用 AnimationMixer）
@@ -373,7 +373,7 @@ StateMachine.tick(input) 前：
 ### Phase 1
 
 - 手動編輯 `scene-props.json` 放入 1 個 instance，重啟後 prop 出現
-- `npx tsc --noEmit` / `pnpm test` / `pnpm lint` 清潔
+- `npx tsc --noEmit` / `bun run test` / `bun run lint` 清潔
 - console 無 GLTFLoader 錯誤
 - 切換 VRM 模型後 prop 不受影響
 - 角色穿過 prop 無反應（因 Phase 1 無互動）
