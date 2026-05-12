@@ -56,6 +56,8 @@ export class HeadTrackingController {
   private targetProvider: (() => THREE.Vector3 | null) | null = null;
   /** VRM lookAt 用的 target Object3D */
   private readonly lookAtTarget: THREE.Object3D;
+  /** 眼球 saccade 快速平滑目標（內部 Vector3，per-frame 高速 lerp 到 raw desired） */
+  private readonly lookAtTargetEye = new THREE.Object3D();
   /** 上一幀套用的 local quaternion（用於 disable 時平滑歸位） */
   private lastAppliedQuaternions = new Map<string, THREE.Quaternion>();
   /** 預留：未來如要在 cursor 平滑之外再加 per-bone 時間平滑，狀態存這裡 */
@@ -167,8 +169,11 @@ export class HeadTrackingController {
 
     const smoothed = this.cursorTracker.update(desired, deltaTime);
 
-    // 更新 vrm.lookAt target（VRM 內部處理眼球範圍）
-    this.lookAtTarget.position.copy(smoothed);
+    // 眼球用「快速平滑」的目標（人類 saccade 反應 ~50ms），頭/頸/上身用慢的
+    // 同一份 desired 但以高得多的速率收斂到位
+    const eyeFactor = 1 - Math.exp(-25 * deltaTime); // ~25/sec rate
+    this.lookAtTargetEye.position.lerp(desired, eyeFactor);
+    this.lookAtTarget.position.copy(this.lookAtTargetEye.position);
 
     // 取得模型根節點的 world forward 當靜態參考軸
     // 用模型 root（含 rotation.y = π 翻轉）的 world forward，不會被

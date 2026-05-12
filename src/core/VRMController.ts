@@ -156,6 +156,43 @@ export class VRMController {
       // VRM lookAt 對眼球做球面 clamp，把同一個 Object3D 當 target
       if (vrm.lookAt) {
         vrm.lookAt.target = target;
+        // 許多 VRM 模型作者把 rangeMap.outputScale 設成很小（如 2-3°），
+        // 導致眼球幾乎不動。覆寫成合理值（眼球最大 ±15° 是人類舒適範圍）。
+        // 對 bone-based applier 才適用（outputScale 單位是角度），expression-based
+        // 是 0..1 權重就保持原值。
+        const applier = vrm.lookAt.applier as {
+          constructor: { type?: string };
+          rangeMapHorizontalInner?: { inputMaxValue: number; outputScale: number };
+          rangeMapHorizontalOuter?: { inputMaxValue: number; outputScale: number };
+          rangeMapVerticalDown?: { inputMaxValue: number; outputScale: number };
+          rangeMapVerticalUp?: { inputMaxValue: number; outputScale: number };
+        };
+        if ((applier.constructor as { type?: string }).type === 'bone') {
+          // 我們的 lookAt 輸入角度範圍約 ±30°（cursor 平常掃動範圍）。
+          // 將 inputMaxValue 從預設 90° 降到 30°，讓「輸入 30° = 眼球 max」
+          // outputScale 給人類舒適範圍：水平 25°、垂直 18°
+          for (const rm of [applier.rangeMapHorizontalInner, applier.rangeMapHorizontalOuter]) {
+            if (rm) {
+              rm.inputMaxValue = 30;
+              rm.outputScale = 12;
+            }
+          }
+          for (const rm of [applier.rangeMapVerticalDown, applier.rangeMapVerticalUp]) {
+            if (rm) {
+              rm.inputMaxValue = 30;
+              rm.outputScale = 9;
+            }
+          }
+        }
+        const lEye2 = vrm.humanoid?.getNormalizedBoneNode('leftEye');
+        const rEye2 = vrm.humanoid?.getNormalizedBoneNode('rightEye');
+        console.log(
+          `[headtracking] vrm.lookAt OK — type=${(applier.constructor as { type?: string }).type ?? 'unknown'}, ` +
+            `eyeBones=${lEye2 && rEye2 ? 'both' : lEye2 ? 'L only' : rEye2 ? 'R only' : 'none'}, ` +
+            `rangeMap overridden to ±15°/±12°`,
+        );
+      } else {
+        console.warn('[headtracking] vrm.lookAt is null — model has no lookAt setup');
       }
       this.headTrackingController.rebuildChain();
     }
@@ -912,6 +949,12 @@ export class VRMController {
     if (this.headTrackingController) {
       this.headTrackingController.applyPerFrame(deltaTime);
     }
+    // 眼球 lookAt 需在 mixer 之後執行 — 否則動畫若含 eye 軌道會覆寫
+    // vrm.lookAt 的結果。手動再跑一次 lookAt update。
+    if (this.vrm?.lookAt) {
+      this.vrm.lookAt.update(deltaTime);
+    }
+
     this.applyHipSmoothing(deltaTime);
   }
 
