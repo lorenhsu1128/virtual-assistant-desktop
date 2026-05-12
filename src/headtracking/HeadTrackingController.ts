@@ -159,10 +159,15 @@ export class HeadTrackingController {
     // disable fade-out
     if (this.disablingFade && weight === 0) {
       this.fadeOutToAnimation(deltaTime);
+      this.fadeEyeTargetToForward(deltaTime);
       return;
     }
 
-    if (weight === 0) return;
+    if (weight === 0) {
+      // 持續維持眼睛朝前（避免狀態 override 期間眼球凍結在上次位置）
+      this.snapEyeTargetToForward();
+      return;
+    }
 
     const desired = this.targetProvider?.();
     if (!desired) return;
@@ -258,6 +263,37 @@ export class HeadTrackingController {
       }
       stored.copy(finalLocal);
     }
+  }
+
+  /** 計算「頭部正前方」的世界座標（讓 vrm.lookAt 解出 yaw/pitch ≈ 0） */
+  private computeForwardEyeTarget(out: THREE.Vector3): THREE.Vector3 | null {
+    const headNode = this.vrmController.getBoneNode('head');
+    const modelRoot = this.vrmController.getModelRoot();
+    if (!headNode || !modelRoot) return null;
+    modelRoot.updateWorldMatrix(true, false);
+    const modelQuat = new THREE.Quaternion();
+    modelRoot.getWorldQuaternion(modelQuat);
+    const forward = this._tmpV3a.set(0, 0, -1).applyQuaternion(modelQuat).normalize();
+    const headWorld = headNode.getWorldPosition(this._tmpV3b);
+    out.copy(headWorld).addScaledVector(forward, 5);
+    return out;
+  }
+
+  /** 停用後即時把眼睛 target 拉回頭前方（無動畫，避免凍結在上次滑鼠位置） */
+  private snapEyeTargetToForward(): void {
+    const forward = this.computeForwardEyeTarget(this._tmpV3c);
+    if (!forward) return;
+    this.lookAtTargetEye.position.copy(forward);
+    this.lookAtTarget.position.copy(forward);
+  }
+
+  /** Fade 中：眼睛 target 用 saccade 速率收斂回頭前方 */
+  private fadeEyeTargetToForward(deltaTime: number): void {
+    const forward = this.computeForwardEyeTarget(this._tmpV3c);
+    if (!forward) return;
+    const eyeFactor = 1 - Math.exp(-25 * deltaTime);
+    this.lookAtTargetEye.position.lerp(forward, eyeFactor);
+    this.lookAtTarget.position.copy(this.lookAtTargetEye.position);
   }
 
   /** 停用過程：把套用的旋轉慢慢淡回 mixer 寫入的（動畫）旋轉 */
