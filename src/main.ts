@@ -218,6 +218,13 @@ async function initializeApp(config: AppConfig, appPath: string): Promise<void> 
   // 套用 MToon outline 開關（預設關閉，因正交相機下 MToon outline 會暴粗）
   vrmController.setMToonOutlineEnabled(config.mtoonOutlineEnabled);
 
+  // 套用滑鼠頭部追蹤設定（weight / smoothingRate 暫時用模組內 hardcoded 預設值，
+  // 避免使用者舊 config 殘留 stale 值；只尊重 enabled 開關）
+  const headTracking = sceneManager.getHeadTrackingController();
+  if (headTracking && config.headTracking) {
+    headTracking.setEnabled(config.headTracking.enabled);
+  }
+
   // 計算角色在 viewport 中的比例
   sceneManager.computeCharacterViewportRatio();
 
@@ -490,6 +497,7 @@ async function initializeBehaviorSystem(
         label: `Display ${i + 1} (${d.width}x${d.height})`,
       })),
       isMToonOutlineEnabled: config.mtoonOutlineEnabled,
+      isHeadTrackingEnabled: config.headTracking?.enabled ?? true,
     };
     ipc.sendMenuData(menuData);
   };
@@ -560,6 +568,18 @@ async function initializeBehaviorSystem(
         const v = !config.mtoonOutlineEnabled;
         vrmController.setMToonOutlineEnabled(v);
         config.mtoonOutlineEnabled = v;
+        ipc.writeConfig(config);
+        pushTrayMenuData();
+        break;
+      }
+      case 'toggle_head_tracking': {
+        const ctrl = sceneManager.getHeadTrackingController();
+        const v = !(config.headTracking?.enabled ?? true);
+        ctrl?.setEnabled(v);
+        config.headTracking = {
+          ...config.headTracking,
+          enabled: v,
+        };
         ipc.writeConfig(config);
         pushTrayMenuData();
         break;

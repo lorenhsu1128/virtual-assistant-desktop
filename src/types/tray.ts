@@ -29,4 +29,6 @@ export interface TrayMenuData {
   displays: { index: number; label: string }[];
   /** MToon 描邊是否啟用 */
   isMToonOutlineEnabled: boolean;
+  /** 滑鼠頭部追蹤是否啟用 */
+  isHeadTrackingEnabled: boolean;
 }

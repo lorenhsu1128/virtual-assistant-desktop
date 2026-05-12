@@ -46,6 +46,18 @@ export interface AppConfig {
   mtoonOutlineEnabled: boolean;
   /** my-agent 整合設定 */
   agent: AgentConfig;
+  /** 滑鼠頭部追蹤設定 */
+  headTracking: HeadTrackingConfig;
+}
+
+/** 滑鼠頭部追蹤設定（眼睛 + 頭 + 上身連動） */
+export interface HeadTrackingConfig {
+  /** 主開關 */
+  enabled: boolean;
+  /** 與動畫頭部 quaternion 的混合權重（0..1，預設 0.7） */
+  weight: number;
+  /** 目標座標平滑速率 per second（預設 12） */
+  smoothingRate: number;
 }
 
 /** my-agent daemon 整合設定 */
@@ -103,5 +115,10 @@ export const DEFAULT_CONFIG: AppConfig = {
     bunBinaryPath: null,
     myAgentCliPath: null,
     workspaceCwd: null,
+  },
+  headTracking: {
+    enabled: true,
+    weight: 0.7,
+    smoothingRate: 2.5,
   },
 };

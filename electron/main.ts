@@ -24,6 +24,7 @@ import {
 } from './agent/mcpRegistration.js';
 import { ensureAgentWorkspace } from './platform/index.js';
 import { BrowserWindow as ElectronBrowserWindow } from 'electron';
+import { startCursorTracker, stopCursorTracker } from './cursorTracker.js';
 import {
   getWindowOptions,
   applyPostCreateSetup,
@@ -103,7 +104,10 @@ function createMainWindow(): BrowserWindow {
   if (isDev) {
     win.webContents.on('console-message', (event) => {
       const tag = `[renderer:${event.level}]`;
-      if (event.message.startsWith('[MascotAction]')) {
+      if (
+        event.message.startsWith('[MascotAction]') ||
+        event.message.startsWith('[headtracking]')
+      ) {
         console.log(`${tag} ${event.message}`);
       }
     });
@@ -159,6 +163,9 @@ app.whenReady().then(async () => {
   // Register IPC handlers
   registerIpcHandlers(mainWindow, windowMonitor);
 
+  // 啟動全螢幕游標輪詢（給 HeadTrackingController 使用）
+  startCursorTracker(() => ElectronBrowserWindow.getAllWindows());
+
   // Start my-agent daemon manager（依 config.agent.enabled 決定是否實際啟動）
   try {
     const cfg = await readConfig();
@@ -209,6 +216,7 @@ app.whenReady().then(async () => {
   // Cleanup on window close（agentDaemon 由 before-quit 集中處理，避免雙重呼叫競態）
   mainWindow.on('closed', () => {
     globalShortcut.unregisterAll();
+    stopCursorTracker();
     windowMonitor?.stop();
     systemTray?.dispose();
     closePickerWindow();

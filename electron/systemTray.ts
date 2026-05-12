@@ -47,6 +47,7 @@ interface TrayMenuData {
   currentExpression: string | null;
   displays: { index: number; label: string }[];
   isMToonOutlineEnabled: boolean;
+  isHeadTrackingEnabled: boolean;
 }
 
 /**
@@ -247,6 +248,14 @@ export class SystemTray {
       type: 'checkbox',
       checked: data?.isMToonOutlineEnabled ?? false,
       click: () => this.emitAction('toggle_mtoon_outline'),
+    });
+
+    // \u6ed1\u9f20\u982d\u90e8\u8ffd\u8e64\u958b\u95dc
+    template.push({
+      label: '\u6ed1\u9f20\u8ffd\u8e64',
+      type: 'checkbox',
+      checked: data?.isHeadTrackingEnabled ?? true,
+      click: () => this.emitAction('toggle_head_tracking'),
     });
 
     // 測試開門（開發用）

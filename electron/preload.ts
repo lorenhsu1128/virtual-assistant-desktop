@@ -125,6 +125,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('debug_move', handler);
   },
 
+  onCursorPosition: (callback: (pos: { x: number; y: number }) => void) => {
+    const handler = (_event: unknown, pos: { x: number; y: number }) => callback(pos);
+    ipcRenderer.on('cursor_position', handler);
+    return () => ipcRenderer.removeListener('cursor_position', handler);
+  },
+
   // ── Asset URL Conversion ──
   // 將本地檔案路徑轉為 local-file:// protocol URL
   // Windows: C:/path → local-file:///C:/path

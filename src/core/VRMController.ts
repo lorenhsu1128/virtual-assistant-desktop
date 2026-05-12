@@ -3,6 +3,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { VRMLoaderPlugin, VRM } from '@pixiv/three-vrm';
 import { VRMAnimationLoaderPlugin, VRMAnimation, createVRMAnimationClip } from '@pixiv/three-vrm-animation';
 import type { BoneMapping } from '../animation/AnimationMirror';
+import type { HeadTrackingController } from '../headtracking/HeadTrackingController';
 
 /**
  * VRM 模型控制器
@@ -58,9 +59,22 @@ export class VRMController {
   /** 對應 cachedFootBottomLocal 的骨骼 reference（左或右腳） */
   private cachedFootRefBone: THREE.Object3D | null = null;
 
+  /** 滑鼠頭部追蹤控制器（在 mixer.update 後、applyHipSmoothing 前套用） */
+  private headTrackingController: HeadTrackingController | null = null;
+
   /** 取得 VRM 實例（供 SceneManager 計算 bounding box） */
   getVRM(): VRM | null {
     return this.vrm;
+  }
+
+  /**
+   * 取得 VRM scene 的根 Object3D（含 vrm.scene.rotation.y = π 的模型 root transform）
+   *
+   * 供 HeadTrackingController 將 world 座標轉成 model-local 座標，
+   * 以靜態的 rest forward (+Z) 當追蹤參考軸，避免回授迴圈。
+   */
+  getModelRoot(): THREE.Object3D | null {
+    return this.vrm?.scene ?? null;
   }
 
   /**
@@ -132,6 +146,37 @@ export class VRMController {
     this.applyMToonOutline();
     // 掃描頭頂/腳底實際 mesh 頂點範圍（bind pose，一次性）
     this.scanHeadFootExtents();
+
+    // 接上滑鼠頭部追蹤
+    if (this.headTrackingController) {
+      const target = this.headTrackingController.getLookAtTarget();
+      if (target.parent !== this.scene) {
+        this.scene.add(target);
+      }
+      // VRM lookAt 對眼球做球面 clamp，把同一個 Object3D 當 target
+      if (vrm.lookAt) {
+        vrm.lookAt.target = target;
+      }
+      this.headTrackingController.rebuildChain();
+    }
+  }
+
+  /**
+   * 注入 HeadTrackingController（由 SceneManager 在建構時呼叫一次）。
+   *
+   * 之後每次 loadModel 完成時 VRMController 會自動呼叫 rebuildChain。
+   */
+  setHeadTrackingController(ctrl: HeadTrackingController): void {
+    this.headTrackingController = ctrl;
+    if (ctrl.getLookAtTarget().parent !== this.scene) {
+      this.scene.add(ctrl.getLookAtTarget());
+    }
+    if (this.vrm) {
+      if (this.vrm.lookAt) {
+        this.vrm.lookAt.target = ctrl.getLookAtTarget();
+      }
+      ctrl.rebuildChain();
+    }
   }
 
   /**
@@ -862,6 +907,11 @@ export class VRMController {
     if (this.mixer) {
       this.mixer.update(deltaTime);
     }
+    // 滑鼠頭部追蹤：在 mixer 寫入骨骼後、hip 平滑前覆寫頭/頸/上身旋轉
+    // 內部會與 mixer 寫入的 quaternion 做加權混合
+    if (this.headTrackingController) {
+      this.headTrackingController.applyPerFrame(deltaTime);
+    }
     this.applyHipSmoothing(deltaTime);
   }
 
@@ -944,6 +994,10 @@ export class VRMController {
    * 移除模型並釋放資源
    */
   dispose(): void {
+    if (this.vrm?.lookAt && this.headTrackingController) {
+      // 解除引用，避免 lookAt 持有 disposed Object3D
+      this.vrm.lookAt.target = null;
+    }
     if (this.vrm) {
       // 遍歷所有子 mesh，釋放 geometry 和 material（防止 GPU 記憶體洩漏）
       this.vrm.scene.traverse((child) => {

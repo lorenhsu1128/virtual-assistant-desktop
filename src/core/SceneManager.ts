@@ -10,6 +10,8 @@ import type { BehaviorOutput, Platform } from '../types/behavior';
 import type { DebugOverlay } from '../debug/DebugOverlay';
 import type { WindowMeshManager } from '../occlusion/WindowMeshManager';
 import { DoorEffect } from '../occlusion/DoorEffect';
+import { MouseCursorTracker } from '../headtracking/MouseCursorTracker';
+import { HeadTrackingController } from '../headtracking/HeadTrackingController';
 
 /** 幀率模式 */
 type FpsMode = 'foreground' | 'background' | 'powerSave';
@@ -46,6 +48,11 @@ export class SceneManager {
 
   // v0.3 模組
   private expressionManager: ExpressionManager | null = null;
+
+  // v0.3.x — 滑鼠頭部追蹤
+  private cursorTracker: MouseCursorTracker | null = null;
+  private headTracking: HeadTrackingController | null = null;
+  private static readonly _headTargetTmp = new THREE.Vector3();
   // lastAppliedExpression removed: ExpressionManager 現在自己追蹤 current/previous 過渡狀態
 
   // Debug
@@ -220,6 +227,51 @@ export class SceneManager {
   /** 設定 VRMController */
   setVRMController(controller: VRMController): void {
     this.vrmController = controller;
+    // 同時建立並注入 HeadTracking。VRMController 在 loadModel 後會自動 rebuildChain
+    this.cursorTracker = new MouseCursorTracker(4);
+    this.headTracking = new HeadTrackingController(controller, this.cursorTracker);
+    this.headTracking.setTargetProvider(() => this.computeHeadTrackingTarget());
+    controller.setHeadTrackingController(this.headTracking);
+  }
+
+  /** 提供 HeadTrackingController（給外部讀取以便 config 套用） */
+  getHeadTrackingController(): HeadTrackingController | null {
+    return this.headTracking;
+  }
+
+  /**
+   * 計算「滑鼠 → 角色相對位置 → 世界座標」的 head tracking target。
+   *
+   * 角色面向攝影機（vrm.scene.rotation.y = π，head forward 在世界為 -Z），
+   * 因此 target 放在角色 head 世界座標 + 攝影機方向偏移；XY 由滑鼠相對於
+   * 角色螢幕中心算出。
+   */
+  private computeHeadTrackingTarget(): THREE.Vector3 | null {
+    if (!this.vrmController || !this.cursorTracker?.isReady()) return null;
+    const head = this.vrmController.getBoneWorldPosition('head');
+    if (!head) return null;
+
+    // 角色 head 在螢幕上的中心
+    const headScreen = this.worldToScreen(head.x, head.y);
+    const cursor = this.cursorTracker.getRawScreen();
+
+    const dxScreen = cursor.x - headScreen.x;
+    const dyScreen = cursor.y - headScreen.y;
+    const worldOffsetX = dxScreen * this.pixelToWorld;
+    // 螢幕 Y 向下增加，世界 Y 向上 → 取負號
+    const worldOffsetY = -dyScreen * this.pixelToWorld;
+    // 把 look target 放在 head 前方 LOOK_DEPTH 公尺處
+    // 太遠（如 10m）→ 滑鼠在螢幕邊緣時向量角度只有 ~17°，視覺上看不到頭轉
+    // 太近（< 1m）→ 角度過於敏感，滑鼠輕微抖動就大幅轉頭
+    // 2.5m 對應 OrthographicCamera + PIXEL_TO_WORLD 0.003126 下：
+    //   滑鼠移動半個螢幕（~3 世界單位）→ 約 50° 角度，配合 weight + clamp 後頭轉約 35–40°
+    const LOOK_DEPTH = 2.5;
+
+    return SceneManager._headTargetTmp.set(
+      head.x + worldOffsetX,
+      head.y + worldOffsetY,
+      head.z + LOOK_DEPTH,
+    );
   }
 
   /** 設定 AnimationManager */
@@ -562,6 +614,8 @@ export class SceneManager {
   /** 銷毀場景並釋放資源 */
   dispose(): void {
     this.stop();
+    this.cursorTracker?.dispose();
+    this.headTracking?.dispose();
     this.windowMeshManager?.dispose();
     // 釋放共用 geometry/material
     this.windowPlatformGeo?.dispose();
@@ -677,6 +731,9 @@ export class SceneManager {
       });
 
       this.lastBehaviorOutput = output;
+
+      // 同步 behavior state 給 HeadTrackingController（決定當幀混合權重）
+      this.headTracking?.setStateOverride(output.currentState);
 
       // 套用目標位置（hide 狀態不 clamp，允許完全超出螢幕）
       if (output.targetPosition) {

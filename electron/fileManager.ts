@@ -25,6 +25,14 @@ export interface AppConfig {
   vrmPickerFolder?: string;
   mtoonOutlineEnabled?: boolean;
   agent?: AgentConfig;
+  headTracking?: HeadTrackingConfig;
+}
+
+/** 滑鼠頭部追蹤設定（與 src/types/config.ts HeadTrackingConfig 同步） */
+export interface HeadTrackingConfig {
+  enabled: boolean;
+  weight: number;
+  smoothingRate: number;
 }
 
 /** my-agent daemon 整合設定（與 src/types/config.ts AgentConfig 同步） */
@@ -76,6 +84,11 @@ const DEFAULT_CONFIG: AppConfig = {
     myAgentCliPath: null,
     workspaceCwd: null,
   },
+  headTracking: {
+    enabled: true,
+    weight: 0.7,
+    smoothingRate: 4,
+  },
 };
 
 /** Get config directory path (~/.virtual-assistant-desktop/) */
@@ -119,6 +132,7 @@ export async function readConfig(): Promise<AppConfig> {
       ...DEFAULT_CONFIG,
       ...parsed,
       agent: { ...DEFAULT_CONFIG.agent!, ...(parsed.agent ?? {}) },
+      headTracking: { ...DEFAULT_CONFIG.headTracking!, ...(parsed.headTracking ?? {}) },
     };
   } catch (e) {
     console.warn(`[FileManager] config.json corrupted: ${e}. Backing up and recreating.`);

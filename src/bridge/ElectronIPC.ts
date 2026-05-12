@@ -39,6 +39,7 @@ interface ElectronAPI {
   sendMenuData(data: TrayMenuData): void;
   onDebugMove(callback: (direction: string) => void): () => void;
   onKeyboardTypingChanged(callback: (isTyping: boolean) => void): () => void;
+  onCursorPosition(callback: (pos: { x: number; y: number }) => void): () => void;
   convertToAssetUrl(filePath: string): string;
   agentGetStatus(): Promise<AgentDaemonInfo>;
   agentSendInput(text: string): Promise<boolean>;
@@ -428,6 +429,11 @@ class ElectronIPC {
   /** Listen for keyboard typing state changes */
   async onKeyboardTypingChanged(callback: (isTyping: boolean) => void): Promise<() => void> {
     return window.electronAPI.onKeyboardTypingChanged(callback);
+  }
+
+  /** Listen for global cursor position updates (~60Hz from main process) */
+  onCursorPosition(callback: (pos: { x: number; y: number }) => void): () => void {
+    return window.electronAPI.onCursorPosition(callback);
   }
 
   /**
