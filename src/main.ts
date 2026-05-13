@@ -230,6 +230,10 @@ async function initializeApp(config: AppConfig, appPath: string): Promise<void> 
 
   // 設定縮放（全螢幕模式不需 setWindowSize）
   sceneManager.setScale(config.scale);
+  // 啟動時恢復工作列模式（會強制 scale=0.5 並 snap）
+  if (config.taskbarMode) {
+    sceneManager.setTaskbarMode(true);
+  }
 
   // 初始化 FallbackAnimation
   const fallbackAnimation = new FallbackAnimation(vrmController);
@@ -443,6 +447,22 @@ async function initializeBehaviorSystem(
     onDragEnd: (position, mouseScreen) => {
       sceneManager.setCurrentPosition(position);
 
+      // 工作列模式：拖到副螢幕時刷新 workArea 並 snap 到該螢幕工作列
+      if (sceneManager.isTaskbarMode()) {
+        const cb = sceneManager.getCharacterBounds();
+        void ipc
+          .getDisplayForPoint(cb.x + cb.width / 2, cb.y + cb.height / 2)
+          .then((info) => {
+            if (info) {
+              const wa = info.workArea ?? info;
+              sceneManager.setWorkArea(wa.x, wa.y, wa.width, wa.height);
+            }
+            sceneManager.snapToTaskbar();
+          });
+        stateMachine.forceState('idle');
+        return;
+      }
+
       // 拖曳吸附：滑鼠指標 Y 在 platform ± 30px 內且 X 重疊 → sit
       const mouseY = mouseScreen.y;
       const mouseX = mouseScreen.x;
@@ -498,6 +518,7 @@ async function initializeBehaviorSystem(
       })),
       isMToonOutlineEnabled: config.mtoonOutlineEnabled,
       isHeadTrackingEnabled: config.headTracking?.enabled ?? true,
+      isTaskbarModeEnabled: config.taskbarMode ?? false,
     };
     ipc.sendMenuData(menuData);
   };
@@ -549,6 +570,33 @@ async function initializeBehaviorSystem(
         config.autonomousMovementPaused = stateMachine.isPaused();
         ipc.writeConfig(config);
         break;
+      case 'toggle_taskbar_mode': {
+        const enable = !sceneManager.isTaskbarMode();
+        // 進入時：先抓角色所在螢幕的 workArea，再切換模式（snap 才會用到正確的 taskbar 位置）
+        if (enable) {
+          (async () => {
+            const cb = sceneManager.getCharacterBounds();
+            const info = await ipc.getDisplayForPoint(
+              cb.x + cb.width / 2,
+              cb.y + cb.height / 2,
+            );
+            if (info) {
+              const wa = info.workArea ?? info;
+              sceneManager.setWorkArea(wa.x, wa.y, wa.width, wa.height);
+            }
+            sceneManager.setTaskbarMode(true);
+            config.taskbarMode = true;
+            await ipc.writeConfig(config);
+            pushTrayMenuData();
+          })();
+        } else {
+          sceneManager.setTaskbarMode(false);
+          config.taskbarMode = false;
+          ipc.writeConfig(config);
+          pushTrayMenuData();
+        }
+        break;
+      }
       case 'toggle_auto_expr': {
         const newVal = !expressionManager.isAutoEnabled();
         expressionManager.setAutoEnabled(newVal);
@@ -588,16 +636,32 @@ async function initializeBehaviorSystem(
         sceneManager.resetCamera();
         break;
       case 'reset_position':
-        ipc.getDisplayInfo().then((displays) => {
-          cachedDisplays = displays;
-          const idx = sceneManager.getCurrentDisplayIndex();
-          const d = displays[idx] ?? displays[0] ?? { x: 0, y: 0, width: screen.width, height: screen.height };
-          const wb = d.workArea ?? d;
-          const cb = sceneManager.getCharacterBounds();
-          const cx = wb.x + (wb.width - cb.width) / 2;
-          const cy = wb.y + (wb.height - cb.height) / 2;
-          sceneManager.setCurrentPosition({ x: cx, y: cy });
-        });
+        if (sceneManager.isTaskbarMode()) {
+          // 工作列模式：先確保 workArea 是角色當前所在螢幕的，再 reset 到工作列中央
+          (async () => {
+            const cb = sceneManager.getCharacterBounds();
+            const info = await ipc.getDisplayForPoint(
+              cb.x + cb.width / 2,
+              cb.y + cb.height / 2,
+            );
+            if (info) {
+              const wa = info.workArea ?? info;
+              sceneManager.setWorkArea(wa.x, wa.y, wa.width, wa.height);
+            }
+            sceneManager.resetToTaskbarCenter();
+          })();
+        } else {
+          ipc.getDisplayInfo().then((displays) => {
+            cachedDisplays = displays;
+            const idx = sceneManager.getCurrentDisplayIndex();
+            const d = displays[idx] ?? displays[0] ?? { x: 0, y: 0, width: screen.width, height: screen.height };
+            const wb = d.workArea ?? d;
+            const cb = sceneManager.getCharacterBounds();
+            const cx = wb.x + (wb.width - cb.width) / 2;
+            const cy = wb.y + (wb.height - cb.height) / 2;
+            sceneManager.setCurrentPosition({ x: cx, y: cy });
+          });
+        }
         break;
       case 'browse_models':
         ipc.openVrmPicker();

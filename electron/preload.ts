@@ -38,6 +38,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // ── Display Info ──
   getDisplayInfo: () => ipcRenderer.invoke('get_display_info'),
+  getDisplayForPoint: (x: number, y: number) =>
+    ipcRenderer.invoke('get_display_for_point', x, y),
 
   // ── Window Position / Size ──
   setWindowPosition: (x: number, y: number) => ipcRenderer.invoke('set_window_position', x, y),

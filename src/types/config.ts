@@ -20,6 +20,11 @@ export interface AppConfig {
   powerSaveMode: boolean;
   /** 自主移動暫停 */
   autonomousMovementPaused: boolean;
+  /**
+   * 工作列移動模式：角色固定縮成 0.5×、Y 鎖定在工作列上緣、
+   * 自主移動限制在 workArea X 範圍。離開模式後恢復原 scale。
+   */
+  taskbarMode: boolean;
   /** 動畫循環開關 */
   animationLoopEnabled: boolean;
   /** 自動表情開關 */
@@ -102,6 +107,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   targetFps: 30,
   powerSaveMode: false,
   autonomousMovementPaused: false,
+  taskbarMode: false,
   animationLoopEnabled: true,
   autoExpressionEnabled: true,
   allowedAutoExpressions: [],

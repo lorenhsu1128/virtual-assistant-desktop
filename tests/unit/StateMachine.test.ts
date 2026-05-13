@@ -90,6 +90,81 @@ describe('StateMachine', () => {
     vi.restoreAllMocks();
   });
 
+  describe('taskbar mode', () => {
+    function taskbarInput(overrides?: Partial<BehaviorInput>): BehaviorInput {
+      return makeInput({
+        currentPosition: { x: 800, y: 1000 },
+        characterBounds: { x: 800, y: 1000, width: 150, height: 200 },
+        screenBounds: { x: 0, y: 0, width: 1920, height: 1080 },
+        platforms: [
+          {
+            id: 'ground',
+            screenY: 1040,
+            screenXMin: 0,
+            screenXMax: 1920,
+            sitTargetY: 1040,
+          },
+        ],
+        taskbarMode: true,
+        ...overrides,
+      });
+    }
+
+    it('pickWalkTarget locks Y to currentPosition.y in taskbar mode', () => {
+      const tbSm = new StateMachine();
+      const input = taskbarInput();
+      // 直接呼叫 private 方法（測試需要）
+      (tbSm as unknown as { pickWalkTarget: (i: BehaviorInput) => void })
+        .pickWalkTarget(input);
+      const wt = (tbSm as unknown as { walkTarget: { x: number; y: number } | null })
+        .walkTarget;
+      expect(wt).not.toBeNull();
+      expect(wt!.y).toBe(input.currentPosition.y);
+    });
+
+    it('pickWalkTarget X stays within ground platform bounds in taskbar mode', () => {
+      const tbSm = new StateMachine();
+      // 多次抽樣確認永遠在範圍內
+      for (let i = 0; i < 50; i++) {
+        const input = taskbarInput();
+        (tbSm as unknown as { pickWalkTarget: (i: BehaviorInput) => void })
+          .pickWalkTarget(input);
+        const wt = (tbSm as unknown as { walkTarget: { x: number; y: number } | null })
+          .walkTarget;
+        expect(wt!.x).toBeGreaterThanOrEqual(0);
+        // ground.screenXMax(1920) - charW(150) = 1770
+        expect(wt!.x).toBeLessThanOrEqual(1770);
+      }
+    });
+
+    it('pickWalkTarget can choose both directions in taskbar mode', () => {
+      const tbSm = new StateMachine();
+      const directions = new Set<'left' | 'right'>();
+      for (let i = 0; i < 100; i++) {
+        const input = taskbarInput();
+        (tbSm as unknown as { pickWalkTarget: (i: BehaviorInput) => void })
+          .pickWalkTarget(input);
+        const wt = (tbSm as unknown as { walkTarget: { x: number; y: number } | null })
+          .walkTarget;
+        if (wt!.x < input.currentPosition.x) directions.add('left');
+        if (wt!.x > input.currentPosition.x) directions.add('right');
+      }
+      expect(directions.has('left')).toBe(true);
+      expect(directions.has('right')).toBe(true);
+    });
+
+    it('falls back to screenBounds when ground platform missing', () => {
+      const tbSm = new StateMachine();
+      const input = taskbarInput({ platforms: [] });
+      (tbSm as unknown as { pickWalkTarget: (i: BehaviorInput) => void })
+        .pickWalkTarget(input);
+      const wt = (tbSm as unknown as { walkTarget: { x: number; y: number } | null })
+        .walkTarget;
+      expect(wt).not.toBeNull();
+      expect(wt!.y).toBe(input.currentPosition.y);
+    });
+  });
+
   it('should walk to target and return to idle', () => {
     const walkSm = new StateMachine({
       idleDurationMin: 0.001,

@@ -90,6 +90,10 @@ export class SceneManager {
   private currentDisplayIndex = 0;
   /** 3D 平面清單（用於角色坐下） */
   private platforms: Platform[] = [];
+  /** 工作列移動模式：true 時 scale 強制 0.5、Y 鎖工作列、X 限 workArea */
+  private taskbarMode = false;
+  /** 使用者偏好 scale（不受 taskbarMode 影響的長期紀錄） */
+  private configScale = 1.0;
   /** 工作列平面 3D Mesh（debug 可見） */
   private taskbarPlatformMesh: THREE.Mesh | null = null;
   /** 地面觸發平面 3D Mesh（debug 可見，canvas 最底部） */
@@ -555,17 +559,76 @@ export class SceneManager {
 
   // setScreenHeight / HEIGHT_PADDING removed: fullscreen mode handles sizing differently
 
-  /** 設定角色縮放（0.5–2.0），實際套用 baseScale * userScale */
+  /**
+   * 設定使用者縮放偏好（0.5–2.0）。
+   *
+   * - 一般模式：立即套用 baseScale * scale
+   * - 工作列模式：僅紀錄 configScale，不覆寫實際 scale（固定 0.5）
+   *   離開工作列模式後恢復此 scale
+   */
   setScale(scale: number): void {
-    this.scale = Math.max(0.5, Math.min(2.0, scale));
+    this.configScale = Math.max(0.5, Math.min(2.0, scale));
+    if (this.taskbarMode) {
+      // 工作列模式下不變更實際縮放
+      return;
+    }
+    this.applyScale(this.configScale);
+  }
 
-    // 全螢幕模式：只調整模型 scale，不改視窗大小
+  /** 內部 scale 套用（共用於 setScale 與 setTaskbarMode） */
+  private applyScale(scale: number): void {
+    this.scale = Math.max(0.5, Math.min(2.0, scale));
     if (this.vrmController) {
       this.vrmController.setModelScale(this.baseScale * this.scale);
     }
-
-    // 更新 characterSize（基於模型世界尺寸和 pixelToWorld）
     this.updateCharacterSize();
+  }
+
+  /**
+   * 切換工作列移動模式。
+   *
+   * - 進入時：強制 scale = 0.5、把角色 snap 到工作列上、之後 walk 限制在 workArea X
+   * - 離開時：恢復使用者偏好 scale，Y 鎖解除
+   */
+  setTaskbarMode(enabled: boolean): void {
+    if (enabled === this.taskbarMode) return;
+    this.taskbarMode = enabled;
+    const effective = enabled ? 0.5 : this.configScale;
+    this.applyScale(effective);
+    if (enabled) {
+      this.snapToTaskbar();
+    }
+  }
+
+  /** 取得是否處於工作列模式 */
+  isTaskbarMode(): boolean {
+    return this.taskbarMode;
+  }
+
+  /** 把角色 snap 到工作列上緣（保留當前 X，clamp 到 workArea 範圍） */
+  snapToTaskbar(): void {
+    const taskbarTopY = this.workAreaOrigin.y + this.workAreaSize.height;
+    const charH = this.characterSize.height;
+    const charW = this.characterSize.width;
+    const minX = this.workAreaOrigin.x;
+    const maxX = this.workAreaOrigin.x + this.workAreaSize.width - charW;
+    this.currentPosition = {
+      x: Math.max(minX, Math.min(maxX, this.currentPosition.x)),
+      y: taskbarTopY - charH,
+    };
+    this.previousPosition = { ...this.currentPosition };
+  }
+
+  /** 重置到當前 workArea 工作列水平中央 */
+  resetToTaskbarCenter(): void {
+    const taskbarTopY = this.workAreaOrigin.y + this.workAreaSize.height;
+    const charH = this.characterSize.height;
+    const charW = this.characterSize.width;
+    this.currentPosition = {
+      x: this.workAreaOrigin.x + (this.workAreaSize.width - charW) / 2,
+      y: taskbarTopY - charH,
+    };
+    this.previousPosition = { ...this.currentPosition };
   }
 
   /** 取得角色縮放 */
@@ -728,6 +791,7 @@ export class SceneManager {
         isOffScreenLeft,
         isOffScreenRight,
         isUserTyping: this.isUserTyping,
+        taskbarMode: this.taskbarMode,
       });
 
       this.lastBehaviorOutput = output;
@@ -741,6 +805,17 @@ export class SceneManager {
         this.currentPosition = skipClamp
           ? output.targetPosition
           : this.clampToScreen(output.targetPosition);
+      }
+
+      // 工作列模式：Y 鎖在工作列上緣，X clamp 到 workArea
+      if (this.taskbarMode) {
+        const taskbarTopY = this.workAreaOrigin.y + this.workAreaSize.height;
+        const charH = this.characterSize.height;
+        const charW = this.characterSize.width;
+        const minX = this.workAreaOrigin.x;
+        const maxX = this.workAreaOrigin.x + this.workAreaSize.width - charW;
+        this.currentPosition.y = taskbarTopY - charH;
+        this.currentPosition.x = Math.max(minX, Math.min(maxX, this.currentPosition.x));
       }
 
       // BehaviorAnimationBridge 更新

@@ -169,6 +169,35 @@ export function registerIpcHandlers(
     });
   });
 
+  ipcMain.handle(
+    'get_display_for_point',
+    (_event, x: number, y: number): DisplayInfo | null => {
+      try {
+        const display = screen.getDisplayNearestPoint({
+          x: Math.round(x),
+          y: Math.round(y),
+        });
+        if (!display) return null;
+        return {
+          x: display.bounds.x,
+          y: display.bounds.y,
+          width: display.bounds.width,
+          height: display.bounds.height,
+          scaleFactor: display.scaleFactor,
+          workArea: {
+            x: display.workArea.x,
+            y: display.workArea.y,
+            width: display.workArea.width,
+            height: display.workArea.height,
+          },
+        };
+      } catch (e) {
+        console.warn('[ipcHandlers] get_display_for_point failed:', e);
+        return null;
+      }
+    },
+  );
+
   // ── Window Position / Size ──
 
   ipcMain.handle('set_window_position', (_event, x: number, y: number) => {

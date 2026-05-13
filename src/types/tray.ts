@@ -31,4 +31,6 @@ export interface TrayMenuData {
   isMToonOutlineEnabled: boolean;
   /** 滑鼠頭部追蹤是否啟用 */
   isHeadTrackingEnabled: boolean;
+  /** 工作列移動模式是否啟用 */
+  isTaskbarModeEnabled: boolean;
 }

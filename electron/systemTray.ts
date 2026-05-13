@@ -48,6 +48,7 @@ interface TrayMenuData {
   displays: { index: number; label: string }[];
   isMToonOutlineEnabled: boolean;
   isHeadTrackingEnabled: boolean;
+  isTaskbarModeEnabled: boolean;
 }
 
 /**
@@ -188,6 +189,14 @@ export class SystemTray {
       click: () => this.emitAction('toggle_pause'),
     });
 
+    // \u5de5\u4f5c\u5217\u79fb\u52d5\u6a21\u5f0f\uff08\u7e2e\u6210 0.5\u00d7\u3001\u8d70\u5728\u5de5\u4f5c\u5217\u4e0a\uff09
+    template.push({
+      label: '\u5de5\u4f5c\u5217\u79fb\u52d5\u6a21\u5f0f',
+      type: 'checkbox',
+      checked: data?.isTaskbarModeEnabled ?? false,
+      click: () => this.emitAction('toggle_taskbar_mode'),
+    });
+
     // 暫停/恢復自動表情
     template.push({
       label: data?.isAutoExpressionEnabled ? '\u66ab\u505c\u81ea\u52d5\u8868\u60c5' : '\u6062\u5fa9\u81ea\u52d5\u8868\u60c5',
@@ -210,7 +219,9 @@ export class SystemTray {
 
     // 重置回桌面正中央
     template.push({
-      label: '\u91cd\u7f6e\u56de\u684c\u9762\u6b63\u4e2d\u592e',
+      label: data?.isTaskbarModeEnabled
+        ? '\u91cd\u7f6e\u5230\u5de5\u4f5c\u5217\u4e2d\u592e'
+        : '\u91cd\u7f6e\u56de\u684c\u9762\u6b63\u4e2d\u592e',
       click: () => this.emitAction('reset_position'),
     });
 

@@ -645,6 +645,25 @@ export class StateMachine {
     const sb = input.screenBounds;
     const pos = input.currentPosition;
 
+    // 工作列模式：Y 鎖定當前位置，僅沿 X 軸隨機左右行走
+    if (input.taskbarMode) {
+      const ground = input.platforms.find((p) => p.id === 'ground');
+      const tbMinX = ground ? ground.screenXMin : sb.x;
+      const tbMaxX = (ground ? ground.screenXMax : sb.x + sb.width) - charW;
+      const dir = Math.random() < 0.5 ? -1 : 1;
+      const distance = 200 + Math.random() * 400;
+      const rawX = pos.x + dir * distance;
+      // 撞到邊界時反向
+      let targetX = rawX;
+      if (targetX < tbMinX) targetX = Math.min(tbMaxX, pos.x + distance);
+      if (targetX > tbMaxX) targetX = Math.max(tbMinX, pos.x - distance);
+      this.walkTarget = {
+        x: Math.max(tbMinX, Math.min(tbMaxX, targetX)),
+        y: pos.y,
+      };
+      return;
+    }
+
     // 螢幕活動範圍
     const minX = sb.x;
     const maxX = sb.x + sb.width - charW;

@@ -82,6 +82,12 @@ export interface BehaviorInput {
   isOffScreenRight: boolean;
   /** 使用者是否正在打字（5 秒內有鍵盤按鍵） */
   isUserTyping: boolean;
+  /**
+   * 工作列移動模式：
+   * - true 時 walk target 僅沿 X 軸隨機，Y 鎖定當前位置（=工作列上緣）
+   * - X 範圍取自 platforms 中 id='ground' 的 screenXMin/screenXMax
+   */
+  taskbarMode?: boolean;
 }
 
 /**

@@ -25,6 +25,7 @@ interface ElectronAPI {
   applyVrmModel(vrmPath: string): Promise<boolean>;
   getWindowList(): Promise<WindowRect[]>;
   getDisplayInfo(): Promise<DisplayInfo[]>;
+  getDisplayForPoint(x: number, y: number): Promise<DisplayInfo | null>;
   setWindowPosition(x: number, y: number): Promise<void>;
   getWindowPosition(): Promise<{ x: number; y: number }>;
   setWindowSize(width: number, height: number): Promise<void>;
@@ -298,6 +299,19 @@ class ElectronIPC {
     } catch (e) {
       console.warn('[ElectronIPC] getDisplayInfo failed:', e);
       return [];
+    }
+  }
+
+  /**
+   * 取得指定螢幕座標所在的 display 資訊（含 workArea）
+   * 用於 taskbar mode 下多螢幕切換工作列。
+   */
+  async getDisplayForPoint(x: number, y: number): Promise<DisplayInfo | null> {
+    try {
+      return await window.electronAPI.getDisplayForPoint(x, y);
+    } catch (e) {
+      console.warn('[ElectronIPC] getDisplayForPoint failed:', e);
+      return null;
     }
   }
 
