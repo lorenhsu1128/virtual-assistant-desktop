@@ -113,10 +113,7 @@ function createMainWindow(): BrowserWindow {
     });
   }
 
-  // DevTools: auto-open for debugging
-  if (isDev) {
-    win.webContents.openDevTools({ mode: 'detach' });
-  }
+  // DevTools: F12 toggle（不再 dev 啟動時自動開，避免 detached 視窗的原生標題列）
   win.webContents.on('before-input-event', (_event, input) => {
     if (input.key === 'F12' && input.type === 'keyDown') {
       if (win.webContents.isDevToolsOpened()) {
