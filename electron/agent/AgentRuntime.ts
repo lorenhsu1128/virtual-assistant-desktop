@@ -22,7 +22,10 @@
 import { app, BrowserWindow } from 'electron';
 import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
+import * as os from 'node:os';
 import * as path from 'node:path';
+
+void app; // 預留：未來如需 app.getPath('userData') 路徑覆寫
 import {
   AgentEmbedded,
   type AgentSession,
@@ -177,7 +180,14 @@ export class AgentRuntime extends EventEmitter {
       });
 
       const workspaceCwd = await ensureAgentWorkspace(config.workspaceCwd);
-      const configDir = path.join(app.getPath('userData'), 'agent-config');
+      // configDir 解析優先序：
+      //   1. AgentConfig.configDirOverride（dev / 進階使用者）
+      //   2. CLAUDE_CONFIG_DIR env var（與 my-agent CLI 對齊）
+      //   3. ~/.my-agent（使用者既有 llamacpp.jsonc 所在 — Phase 6 預設）
+      // 之所以不用 app.getPath('userData')：使用者已有完整 llamacpp.jsonc
+      // 在 ~/.my-agent，與 my-agent CLI 共用同一份設定避免兩端不同步
+      const configDir =
+        process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.my-agent');
 
       // mascot tools — call 時透過此 callback 廣播 mascot_action IPC
       const mascotTools = buildMascotTools((action: MascotAction) => {
