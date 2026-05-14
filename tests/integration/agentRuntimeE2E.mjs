@@ -43,11 +43,8 @@ if (!existsSync(MODEL_ABS)) {
 const TEMP_CONFIG_DIR = join(tmpdir(), `vad-e2e-${process.pid}-${Date.now()}`)
 mkdirSync(TEMP_CONFIG_DIR, { recursive: true })
 process.env.CLAUDE_CONFIG_DIR = TEMP_CONFIG_DIR
-// 走 fetch adapter（連外部 buun-llama-cpp llama-server.exe），不走 embedded
-// （embedded 模式需要 node-llama-tcq 編譯 CUDA binding，這是大工程）
-// 桌寵 production 情境也走 fetch — installer 內 bundle llama-server.exe 由
-// 桌寵 spawn 來達成「使用者無感」單一進程的等價效果
-delete process.env.MY_AGENT_LLAMACPP_EMBEDDED
+// 走 embedded adapter（in-process node-llama-tcq + CUDA binding），不需外部 llama-server
+process.env.MY_AGENT_LLAMACPP_EMBEDDED = '1'
 
 const llamacppJsonc = `{
   "baseUrl": "http://127.0.0.1:8081/v1",
@@ -73,7 +70,7 @@ const llamacppJsonc = `{
 `
 writeFileSync(join(TEMP_CONFIG_DIR, 'llamacpp.jsonc'), llamacppJsonc, 'utf-8')
 
-console.log(`[e2e] mode=embedded (in-process node-llama-tcq, 不需 llama-server)`)
+console.log(`[e2e] mode=embedded (in-process node-llama-tcq CUDA binding, 不需 llama-server)`)
 console.log(`[e2e] CLAUDE_CONFIG_DIR=${TEMP_CONFIG_DIR}`)
 console.log(`[e2e] modelPath=${MODEL_ABS}`)
 console.log(`[e2e] PROMPT=${PROMPT}`)
@@ -152,7 +149,7 @@ session.on('frame', (f) => {
         const preview = typeof c === 'string'
           ? c.slice(0, 80)
           : Array.isArray(c)
-            ? c.map(b => b.type === 'text' ? `[text]${(b.text || '').slice(0, 50)}` : `[${b.type}${b.name ? ':' + b.name : ''}]`).join(' ')
+            ? c.map(b => b.type === 'text' ? `[text]${b.text || ''}` : `[${b.type}${b.name ? ':' + b.name : ''}${b.input ? ' input='+JSON.stringify(b.input).slice(0,80) : ''}]`).join(' ')
             : ''
         console.log(`  runnerEvent.assistant: ${preview}`)
       } else if (p?.type === 'result') {
