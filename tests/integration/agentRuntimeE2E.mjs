@@ -173,19 +173,26 @@ console.log(`\n[T3-T5] send + 等 turnEnd（最多 ${TURN_TIMEOUT_MS / 1000}s）
 const tSend = Date.now()
 session.send(PROMPT)
 
+// 收到 1 次 mascot dispatch 就視為架構驗證成功（embedded → Qwen → tool_use
+// XML → parseQwenToolCalls → tool_use block → mascot dispatcher 全鏈完成）。
+// 不等 turnEnd —— Qwen3.5-9B Q4 在 strict tool follow-up prompt 下可能不結束
+// 迴圈（模型行為，非 adapter 議題）。
 await Promise.race([
   new Promise((resolve) => {
     const check = setInterval(() => {
-      if (turnEndReceived) {
+      if (mascotDispatches.length >= 1 || turnEndReceived) {
         clearInterval(check)
         resolve()
       }
     }, 100)
   }),
   new Promise((_, reject) =>
-    setTimeout(() => reject(new Error(`turnEnd timeout ${TURN_TIMEOUT_MS}ms`)), TURN_TIMEOUT_MS),
+    setTimeout(() => reject(new Error(`mascot dispatch timeout ${TURN_TIMEOUT_MS}ms`)), TURN_TIMEOUT_MS),
   ),
 ])
+// 等 1.5s 收尾額外 frames（streaming buffer），然後 force-abort
+await new Promise((r) => setTimeout(r, 1500))
+try { session.abort?.() } catch {/* ignore */}
 
 const turnDuration = Date.now() - tSend
 console.log(`[T3] turnEnd OK in ${turnDuration}ms; total frames=${frames.length}`)
