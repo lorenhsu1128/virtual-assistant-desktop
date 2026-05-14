@@ -163,6 +163,14 @@ app.whenReady().then(async () => {
     agentRuntime = new AgentRuntime();
     registerAgentIpcHandlers(mainWindow, agentRuntime);
 
+    // Phase 5b：把 AgentRuntime status 推給 tray 更新 menu 狀態文字
+    if (systemTray) {
+      const local = systemTray;
+      agentRuntime.on('status', (s) => local.setAgentStatus(s));
+      // 初始狀態同步一次（disabled）
+      local.setAgentStatus(agentRuntime.getStatus());
+    }
+
     const cfg = await readConfig();
     const agentCfg = cfg.agent;
     if (

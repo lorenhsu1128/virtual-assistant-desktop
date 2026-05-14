@@ -48,6 +48,7 @@ interface ElectronAPI {
   agentReconnect(): Promise<void>;
   agentApplyConfig(config: AgentConfig): Promise<AgentDaemonInfo>;
   // M-MASCOT-EMBED Phase 5 新增 — master toggle + 精確 state machine
+  llmPickModelFile(): Promise<string | null>;
   agentEnable(): Promise<unknown>;
   agentDisable(): Promise<unknown>;
   agentReloadLlm(): Promise<unknown>;
@@ -518,6 +519,16 @@ class ElectronIPC {
   }
 
   // ── M-MASCOT-EMBED Phase 5 新增 ──────────────────────────────────────
+
+  /** 開啟 GGUF 模型檔案選擇器；canceled / 失敗回 null */
+  async llmPickModelFile(): Promise<string | null> {
+    try {
+      return await window.electronAPI.llmPickModelFile();
+    } catch (e) {
+      console.warn('[ElectronIPC] llmPickModelFile failed:', e);
+      return null;
+    }
+  }
 
   /** Master toggle ON — 載入 LLM 並進入 standby */
   async agentEnable(): Promise<unknown> {

@@ -58,15 +58,59 @@ interface TrayMenuData {
  * Left-click is handled via tray 'click' event + popUpContextMenu.
  * Renderer pushes menu data updates; main process caches and rebuilds.
  */
+/**
+ * Agent runtime status — 與 electron/agent/AgentRuntime.ts AgentRuntimeStatus 對齊
+ * （重新定義避免循環 import + tray 不需要完整型別）。
+ */
+interface TrayAgentStatus {
+  state: 'disabled' | 'preloading' | 'standby' | 'active' | 'unloading' | 'error';
+  progress?: number;
+  phase?: string;
+  message?: string;
+}
+
+const STATUS_LABELS: Record<TrayAgentStatus['state'], string> = {
+  disabled: '[AI: 未啟用]',
+  preloading: '[AI: 載入中]',
+  standby: '[AI: 待命]',
+  active: '[AI: 推論中]',
+  unloading: '[AI: 釋放中]',
+  error: '[AI: 錯誤]',
+};
+
 export class SystemTray {
   private tray: Tray | null = null;
   private mainWindow: BrowserWindow;
   private cachedData: TrayMenuData | null = null;
   private currentMenu: Menu | null = null;
   private ipcHandler: ((_event: Electron.IpcMainEvent, data: TrayMenuData) => void) | null = null;
+  private agentStatus: TrayAgentStatus = { state: 'disabled' };
 
   constructor(mainWindow: BrowserWindow) {
     this.mainWindow = mainWindow;
+  }
+
+  /**
+   * 更新托盤顯示的 agent 狀態。由 main.ts 訂閱 AgentRuntime 'status' event 呼叫。
+   * 觸發 menu 重建以反映新狀態文字。
+   */
+  setAgentStatus(status: TrayAgentStatus): void {
+    this.agentStatus = status;
+    if (this.tray) {
+      // 更新 tooltip 顯示狀態（hover 可見）
+      this.tray.setToolTip(`Virtual Assistant Desktop — ${STATUS_LABELS[status.state]}`);
+      this.rebuildMenu();
+    }
+  }
+
+  /** menu item label：含進度百分比若 preloading */
+  private agentStatusLabel(): string {
+    const s = this.agentStatus;
+    if (s.state === 'preloading' && typeof s.progress === 'number') {
+      const pct = Math.round(s.progress * 100);
+      return `[AI: 載入中 ${pct}% / ${s.phase ?? ''}]`;
+    }
+    return STATUS_LABELS[s.state];
   }
 
   /** Create system tray icon and listen for menu data updates */
@@ -297,14 +341,26 @@ export class SystemTray {
 
     template.push({ type: 'separator' });
 
-    // Agent 對話（my-agent daemon 整合）
+    // Agent 整合（M-MASCOT-EMBED Phase 5b：in-process AgentRuntime）
+    // 狀態文字（read-only）放最上面，下面接動作項
+    template.push({
+      label: this.agentStatusLabel(),
+      enabled: false,
+    });
     template.push({
       label: 'Agent 對話',
       click: () => this.emitAction('agent_toggle_bubble'),
     });
     template.push({
-      label: 'Agent 重新連線',
-      click: () => this.emitAction('agent_reconnect'),
+      label: '重新載入 LLM',
+      click: () => this.emitAction('agent_reload_llm'),
+    });
+    template.push({
+      label: this.agentStatus.state === 'disabled' ? '啟用 AI 助理' : '停用 AI 助理',
+      click: () =>
+        this.emitAction(
+          this.agentStatus.state === 'disabled' ? 'agent_enable' : 'agent_disable',
+        ),
     });
 
     template.push({ type: 'separator' });

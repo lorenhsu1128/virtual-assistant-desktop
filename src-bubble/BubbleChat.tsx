@@ -39,6 +39,8 @@ export function BubbleChat(): React.ReactElement {
   }, []);
 
   const ready = info.status === 'online';
+  const isDisabled = info.status === 'disabled';
+  const isLoading = info.status === 'starting' || info.status === 'connecting';
 
   const handleSend = async (text: string): Promise<void> => {
     // 預先 push user message（即時 UI 反應）；inputId 由 daemon 在 turnStart 回，
@@ -52,11 +54,57 @@ export function BubbleChat(): React.ReactElement {
     window.close();
   };
 
+  const handleEnable = async (): Promise<void> => {
+    // M-MASCOT-EMBED Phase 5b：disabled 狀態下提供「直接啟用」按鈕
+    await ipc.agentEnable();
+  };
+
   return (
     <div className="bubble-shell">
       <Header status={info.status} onClose={handleClose} />
-      <MessageList />
+      {isDisabled ? (
+        <DisabledOverlay onEnable={handleEnable} />
+      ) : isLoading ? (
+        <LoadingOverlay message={info.message ?? 'AI 啟動中…'} />
+      ) : (
+        <MessageList />
+      )}
       <InputBar disabled={!ready} onSend={handleSend} />
+    </div>
+  );
+}
+
+interface DisabledOverlayProps {
+  onEnable: () => void;
+}
+function DisabledOverlay({ onEnable }: DisabledOverlayProps): React.ReactElement {
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+      <p className="text-sm text-muted-foreground">
+        AI 助理尚未啟用
+      </p>
+      <button
+        type="button"
+        onClick={onEnable}
+        className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+      >
+        立即啟用（載入 LLM）
+      </button>
+      <p className="text-[10px] text-muted-foreground">
+        需先在 設定 → Agent 指定 GGUF 模型路徑
+      </p>
+    </div>
+  );
+}
+
+interface LoadingOverlayProps {
+  message: string;
+}
+function LoadingOverlay({ message }: LoadingOverlayProps): React.ReactElement {
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
+      <div className="h-6 w-6 animate-spin rounded-full border-2 border-amber-400 border-t-transparent" />
+      <p className="text-sm text-amber-300">{message}</p>
     </div>
   );
 }

@@ -104,6 +104,18 @@ export function registerIpcHandlers(
     return result.filePaths[0];
   });
 
+  // M-MASCOT-EMBED Phase 5b\uff1aGGUF \u6a21\u578b\u6a94\u6848\u9078\u64c7\u5668\uff08\u7d66 AgentPage LLM section \u7528\uff09
+  ipcMain.handle('llm_pick_model_file', async (event) => {
+    const senderWindow = BrowserWindow.fromWebContents(event.sender) ?? mainWindow;
+    const result = await dialog.showOpenDialog(senderWindow, {
+      title: '\u9078\u64c7 GGUF \u672c\u5730 LLM \u6a21\u578b',
+      filters: [{ name: 'GGUF Model', extensions: ['gguf'] }],
+      properties: ['openFile'],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0];
+  });
+
   // ── VRM Picker Window ──
 
   ipcMain.handle('open_vrm_picker', () => {

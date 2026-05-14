@@ -694,6 +694,15 @@ async function initializeBehaviorSystem(
       case 'agent_reconnect':
         void ipc.agentReconnect();
         break;
+      case 'agent_enable':
+        void ipc.agentEnable();
+        break;
+      case 'agent_disable':
+        void ipc.agentDisable();
+        break;
+      case 'agent_reload_llm':
+        void ipc.agentReloadLlm();
+        break;
       default:
         // Dynamic action: move speed
         if (actionId.startsWith('move_speed_')) {

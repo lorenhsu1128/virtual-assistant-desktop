@@ -67,6 +67,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   agentReconnect: () => ipcRenderer.invoke('agent_reconnect'),
   agentApplyConfig: (config: unknown) => ipcRenderer.invoke('agent_apply_config', config),
   // M-MASCOT-EMBED Phase 5 新增 — master toggle + 精確 state machine
+  llmPickModelFile: () => ipcRenderer.invoke('llm_pick_model_file'),
   agentEnable: () => ipcRenderer.invoke('agent_enable'),
   agentDisable: () => ipcRenderer.invoke('agent_disable'),
   agentReloadLlm: () => ipcRenderer.invoke('agent_reload_llm'),
