@@ -65,22 +65,43 @@ export interface HeadTrackingConfig {
   smoothingRate: number;
 }
 
-/** my-agent daemon 整合設定 */
+/**
+ * my-agent 整合設定（與 electron/fileManager.ts AgentConfig 同步）。
+ *
+ * v0.4 起（M-MASCOT-EMBED）：in-process via AgentRuntime + vendor/my-agent/dist-embedded。
+ * 舊欄位（daemonMode / bunBinaryPath / myAgentCliPath）保留作平滑遷移用，
+ * AgentRuntime 不讀。
+ */
 export interface AgentConfig {
-  /** 是否啟用 agent 功能（預設 false，由首次啟動引導開啟） */
+  /** Master toggle — 啟用 my-agent 功能（會 preload LLM 進入 standby） */
   enabled: boolean;
-  /**
-   * Daemon 生命週期模式：
-   * - `auto`：桌寵自動 spawn / 監看 / 關閉 daemon
-   * - `external`：使用者自己 `./cli daemon start`，桌寵僅連線
-   */
-  daemonMode: 'auto' | 'external';
-  /** Bun runtime 執行檔路徑（null = 自動偵測） */
-  bunBinaryPath: string | null;
-  /** my-agent CLI 入口路徑（null = 自動偵測） */
-  myAgentCliPath: string | null;
-  /** Agent workspace cwd（null = 用預設隔離目錄） */
+  /** Agent workspace cwd（null = 用預設隔離目錄 ~/.virtual-assistant-desktop/agent-workspace） */
   workspaceCwd: string | null;
+  /** 本地 LLM 設定 */
+  llm: {
+    /** GGUF 模型絕對路徑；null 時 toggle ON 會 error */
+    modelPath: string | null;
+    /** Context window size；預設 4096 */
+    contextSize: number;
+    /** GPU layers；'auto' 由 node-llama-tcq 決定 */
+    gpuLayers: number | 'auto';
+    /** 替代方案：外部 llama.cpp HTTP endpoint */
+    externalUrl: string | null;
+  };
+  /** Opt-in daemon WS server（讓外部 my-agent CLI / 第二個 Electron window 連） */
+  daemon: {
+    enabled: boolean;
+    port: number;
+  };
+  /** Opt-in web UI HTTP server */
+  webUi: {
+    enabled: boolean;
+    port: number;
+  };
+  /** Legacy 欄位（v0.3.x agent，subprocess mode）— AgentRuntime 不讀 */
+  daemonMode?: 'auto' | 'external';
+  bunBinaryPath?: string | null;
+  myAgentCliPath?: string | null;
 }
 
 /** 2D 位置 */
@@ -117,10 +138,25 @@ export const DEFAULT_CONFIG: AppConfig = {
   mtoonOutlineEnabled: false,
   agent: {
     enabled: false,
+    workspaceCwd: null,
+    llm: {
+      modelPath: null,
+      contextSize: 4096,
+      gpuLayers: 'auto',
+      externalUrl: null,
+    },
+    daemon: {
+      enabled: false,
+      port: 0,
+    },
+    webUi: {
+      enabled: false,
+      port: 0,
+    },
+    // legacy 欄位（v0.3.x agent，subprocess mode）— AgentRuntime 不讀
     daemonMode: 'auto',
     bunBinaryPath: null,
     myAgentCliPath: null,
-    workspaceCwd: null,
   },
   headTracking: {
     enabled: true,

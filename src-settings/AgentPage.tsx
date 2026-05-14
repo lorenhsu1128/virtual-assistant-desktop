@@ -19,10 +19,25 @@ const statusBadge: Record<AgentDaemonStatus, { text: string; cls: string }> = {
 
 const DEFAULT_AGENT: AgentConfig = {
   enabled: false,
+  workspaceCwd: null,
+  llm: {
+    modelPath: null,
+    contextSize: 4096,
+    gpuLayers: 'auto',
+    externalUrl: null,
+  },
+  daemon: {
+    enabled: false,
+    port: 0,
+  },
+  webUi: {
+    enabled: false,
+    port: 0,
+  },
+  // legacy 欄位（v0.3.x agent，subprocess mode）— AgentRuntime 不讀
   daemonMode: 'auto',
   bunBinaryPath: null,
   myAgentCliPath: null,
-  workspaceCwd: null,
 };
 
 export function AgentPage(): React.ReactElement {

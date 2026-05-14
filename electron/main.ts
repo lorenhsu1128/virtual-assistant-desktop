@@ -13,16 +13,10 @@ import { WindowMonitor } from './windowMonitor.js';
 import { SystemTray } from './systemTray.js';
 import { ensureConfigDir, readConfig } from './fileManager.js';
 import { closePickerWindow } from './vrmPickerWindow.js';
-import { AgentDaemonManager } from './agent/AgentDaemonManager.js';
+import { AgentRuntime } from './agent/AgentRuntime.js';
 import { registerAgentIpcHandlers } from './agent/agentIpcHandlers.js';
 import { closeAgentBubbleWindow } from './agent/agentBubbleWindow.js';
 import { closeSettingsWindow } from './settingsWindow.js';
-import { MascotMcpServer } from './agent/MascotMcpServer.js';
-import {
-  registerMascotMcp,
-  unregisterMascotMcp,
-} from './agent/mcpRegistration.js';
-import { ensureAgentWorkspace } from './platform/index.js';
 import { BrowserWindow as ElectronBrowserWindow } from 'electron';
 import { startCursorTracker, stopCursorTracker } from './cursorTracker.js';
 import {
@@ -43,9 +37,7 @@ const isDev = process.env.NODE_ENV !== 'production' && !app.isPackaged;
 let mainWindow: BrowserWindow | null = null;
 let windowMonitor: WindowMonitor | null = null;
 let systemTray: SystemTray | null = null;
-let agentDaemon: AgentDaemonManager | null = null;
-let mascotMcp: MascotMcpServer | null = null;
-let mascotMcpWorkspace: string | null = null;
+let agentRuntime: AgentRuntime | null = null;
 
 /**
  * Single instance lock.
@@ -163,41 +155,27 @@ app.whenReady().then(async () => {
   // 啟動全螢幕游標輪詢（給 HeadTrackingController 使用）
   startCursorTracker(() => ElectronBrowserWindow.getAllWindows());
 
-  // Start my-agent daemon manager（依 config.agent.enabled 決定是否實際啟動）
+  // Start AgentRuntime（M-MASCOT-EMBED Phase 5：取代 AgentDaemonManager）
+  // - 不再 spawn cli daemon 子進程
+  // - 直接 import AgentEmbedded from vendor/my-agent/dist-embedded
+  // - master toggle ON 時立刻 preload LLM（標準 5-30s → standby 待命）
   try {
+    agentRuntime = new AgentRuntime();
+    registerAgentIpcHandlers(mainWindow, agentRuntime);
+
     const cfg = await readConfig();
-    const agentCfg = cfg.agent ?? {
-      enabled: false,
-      daemonMode: 'auto' as const,
-      bunBinaryPath: null,
-      myAgentCliPath: null,
-      workspaceCwd: null,
-    };
-
-    // P2：先起 MCP server + 註冊到 my-agent，daemon spawn 時就會看到工具
-    if (agentCfg.enabled) {
-      try {
-        mascotMcpWorkspace = await ensureAgentWorkspace(agentCfg.workspaceCwd);
-        mascotMcp = new MascotMcpServer(() => ElectronBrowserWindow.getAllWindows());
-        const mcpUrl = await mascotMcp.start();
-        if (mcpUrl) {
-          await registerMascotMcp(
-            'mascot',
-            mcpUrl,
-            mascotMcpWorkspace,
-            agentCfg.myAgentCliPath,
-          );
-        }
-      } catch (e) {
-        console.warn('[Main] MascotMcpServer setup failed:', e);
-      }
+    const agentCfg = cfg.agent;
+    if (
+      agentCfg?.enabled &&
+      (agentCfg.llm.modelPath || agentCfg.llm.externalUrl)
+    ) {
+      // 桌寵啟動時若上次 toggle 是 ON，立刻 preload（不等使用者開氣泡）
+      void agentRuntime.enable(agentCfg).catch((e) => {
+        console.warn('[Main] agent auto-preload failed:', e);
+      });
     }
-
-    agentDaemon = new AgentDaemonManager(agentCfg);
-    registerAgentIpcHandlers(mainWindow, agentDaemon);
-    void agentDaemon.start();
   } catch (e) {
-    console.warn('[Main] AgentDaemonManager init failed:', e);
+    console.warn('[Main] AgentRuntime init failed:', e);
   }
 
   // Debug: Ctrl+Arrow keys for manual character movement (global shortcuts)
@@ -223,29 +201,16 @@ app.whenReady().then(async () => {
   });
 });
 
-// 多平台 graceful shutdown：app quit 前確保 daemon 收到 SIGTERM
+// 多平台 graceful shutdown：app quit 前釋放 AgentRuntime（含 LLM context dispose）
 app.on('before-quit', async (event) => {
-  if (agentDaemon) {
-    const local = agentDaemon;
-    const localMcp = mascotMcp;
-    const cwd = mascotMcpWorkspace;
-    agentDaemon = null;
-    mascotMcp = null;
+  if (agentRuntime) {
+    const local = agentRuntime;
+    agentRuntime = null;
     event.preventDefault();
     try {
-      // 順序：先停 daemon（停止 LLM 呼叫工具）→ 取消 mcp 註冊 → 關 http server
-      await local.stop();
+      await local.disable(); // 釋放 LLM / session / MCP / DB
     } catch (e) {
-      console.warn('[Main] agentDaemon.stop() error:', e);
-    }
-    if (localMcp && cwd) {
-      try {
-        const cfg = await readConfig();
-        await unregisterMascotMcp('mascot', cwd, cfg.agent?.myAgentCliPath ?? null);
-        await localMcp.stop();
-      } catch (e) {
-        console.warn('[Main] mascotMcp cleanup error:', e);
-      }
+      console.warn('[Main] agentRuntime.disable() error:', e);
     }
     app.quit();
   }

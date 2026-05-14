@@ -66,6 +66,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   agentToggleBubble: () => ipcRenderer.invoke('agent_toggle_bubble'),
   agentReconnect: () => ipcRenderer.invoke('agent_reconnect'),
   agentApplyConfig: (config: unknown) => ipcRenderer.invoke('agent_apply_config', config),
+  // M-MASCOT-EMBED Phase 5 新增 — master toggle + 精確 state machine
+  agentEnable: () => ipcRenderer.invoke('agent_enable'),
+  agentDisable: () => ipcRenderer.invoke('agent_disable'),
+  agentReloadLlm: () => ipcRenderer.invoke('agent_reload_llm'),
+  agentAbort: () => ipcRenderer.invoke('agent_abort'),
+  agentGetRuntimeStatus: () => ipcRenderer.invoke('agent_get_runtime_status'),
+  onLlmStatusChanged: (callback: (status: unknown) => void) => {
+    const handler = (_event: unknown, status: unknown) => callback(status);
+    ipcRenderer.on('llm_status_changed', handler);
+    return () => ipcRenderer.removeListener('llm_status_changed', handler);
+  },
   onAgentStatus: (callback: (info: unknown) => void) => {
     const handler = (_event: unknown, info: unknown) => callback(info);
     ipcRenderer.on('agent_status', handler);

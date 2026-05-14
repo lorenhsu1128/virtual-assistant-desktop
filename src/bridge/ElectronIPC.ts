@@ -47,6 +47,13 @@ interface ElectronAPI {
   agentToggleBubble(): Promise<void>;
   agentReconnect(): Promise<void>;
   agentApplyConfig(config: AgentConfig): Promise<AgentDaemonInfo>;
+  // M-MASCOT-EMBED Phase 5 新增 — master toggle + 精確 state machine
+  agentEnable(): Promise<unknown>;
+  agentDisable(): Promise<unknown>;
+  agentReloadLlm(): Promise<unknown>;
+  agentAbort(): Promise<void>;
+  agentGetRuntimeStatus(): Promise<unknown>;
+  onLlmStatusChanged(callback: (status: unknown) => void): () => void;
   openSettingsWindow(): Promise<void>;
   onAgentStatus(callback: (info: AgentDaemonInfo) => void): () => void;
   onAgentSessionOpen(callback: () => void): () => void;
@@ -508,6 +515,62 @@ class ElectronIPC {
       console.warn('[ElectronIPC] agentApplyConfig failed:', e);
       return null;
     }
+  }
+
+  // ── M-MASCOT-EMBED Phase 5 新增 ──────────────────────────────────────
+
+  /** Master toggle ON — 載入 LLM 並進入 standby */
+  async agentEnable(): Promise<unknown> {
+    try {
+      return await window.electronAPI.agentEnable();
+    } catch (e) {
+      console.warn('[ElectronIPC] agentEnable failed:', e);
+      return null;
+    }
+  }
+
+  /** Master toggle OFF — 釋放 LLM / session / MCP / DB */
+  async agentDisable(): Promise<unknown> {
+    try {
+      return await window.electronAPI.agentDisable();
+    } catch (e) {
+      console.warn('[ElectronIPC] agentDisable failed:', e);
+      return null;
+    }
+  }
+
+  /** 重新載入 LLM（disable + enable）— 設定變更後呼叫 */
+  async agentReloadLlm(): Promise<unknown> {
+    try {
+      return await window.electronAPI.agentReloadLlm();
+    } catch (e) {
+      console.warn('[ElectronIPC] agentReloadLlm failed:', e);
+      return null;
+    }
+  }
+
+  /** 中斷當前 turn */
+  async agentAbort(): Promise<void> {
+    try {
+      await window.electronAPI.agentAbort();
+    } catch (e) {
+      console.warn('[ElectronIPC] agentAbort failed:', e);
+    }
+  }
+
+  /** 取得精確 AgentRuntimeStatus（新狀態機） */
+  async agentGetRuntimeStatus(): Promise<unknown> {
+    try {
+      return await window.electronAPI.agentGetRuntimeStatus();
+    } catch (e) {
+      console.warn('[ElectronIPC] agentGetRuntimeStatus failed:', e);
+      return { state: 'error', message: 'IPC failure' };
+    }
+  }
+
+  /** 訂閱 AgentRuntimeStatus 變化（新事件） */
+  onLlmStatusChanged(callback: (status: unknown) => void): () => void {
+    return window.electronAPI.onLlmStatusChanged(callback);
   }
 
   /** Open the settings BrowserWindow (no-op if already open) */

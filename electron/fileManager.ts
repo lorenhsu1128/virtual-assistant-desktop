@@ -35,13 +35,45 @@ export interface HeadTrackingConfig {
   smoothingRate: number;
 }
 
-/** my-agent daemon 整合設定（與 src/types/config.ts AgentConfig 同步） */
+/**
+ * my-agent 整合設定（與 src/types/config.ts AgentConfig 同步）。
+ *
+ * v0.4 之前：subprocess + ws（spawn `cli daemon` + AgentDaemonManager / AgentSessionClient）
+ * v0.4 起（M-MASCOT-EMBED Phase 5）：in-process via AgentRuntime + vendor/my-agent/dist-embedded
+ *
+ * 舊欄位（daemonMode / bunBinaryPath / myAgentCliPath）保留以利平滑遷移；
+ * AgentRuntime 不讀，預期 v0.5 完成後可刪除。
+ */
 export interface AgentConfig {
+  /** Master toggle — 啟用 my-agent 功能（會 preload LLM 進入 standby） */
   enabled: boolean;
-  daemonMode: 'auto' | 'external';
-  bunBinaryPath: string | null;
-  myAgentCliPath: string | null;
+  /** Workspace 目錄；預設 ~/.virtual-assistant-desktop/agent-workspace */
   workspaceCwd: string | null;
+  /** 本地 LLM 設定 */
+  llm: {
+    /** GGUF 模型絕對路徑；null 時 toggle ON 會 error */
+    modelPath: string | null;
+    /** Context window size；預設 4096 */
+    contextSize: number;
+    /** GPU layers；'auto' 由 node-llama-tcq 決定 */
+    gpuLayers: number | 'auto';
+    /** 替代方案：外部 llama.cpp HTTP endpoint（embedded 模式以外）*/
+    externalUrl: string | null;
+  };
+  /** Opt-in daemon WS server（讓外部 my-agent CLI / 第二個 Electron window 連） */
+  daemon: {
+    enabled: boolean;
+    port: number;
+  };
+  /** Opt-in web UI HTTP server */
+  webUi: {
+    enabled: boolean;
+    port: number;
+  };
+  /** Legacy 欄位（v0.3.x agent，subprocess mode）— AgentRuntime 不讀，預期 v0.5 移除 */
+  daemonMode?: 'auto' | 'external';
+  bunBinaryPath?: string | null;
+  myAgentCliPath?: string | null;
 }
 
 /** Animation entry metadata */
@@ -79,10 +111,25 @@ const DEFAULT_CONFIG: AppConfig = {
   mtoonOutlineEnabled: false,
   agent: {
     enabled: false,
+    workspaceCwd: null,
+    llm: {
+      modelPath: null,
+      contextSize: 4096,
+      gpuLayers: 'auto',
+      externalUrl: null,
+    },
+    daemon: {
+      enabled: false,
+      port: 0,
+    },
+    webUi: {
+      enabled: false,
+      port: 0,
+    },
+    // legacy 欄位保留（舊 config 反向相容；新版 AgentRuntime 不讀）
     daemonMode: 'auto',
     bunBinaryPath: null,
     myAgentCliPath: null,
-    workspaceCwd: null,
   },
   headTracking: {
     enabled: true,
@@ -128,10 +175,20 @@ export async function readConfig(): Promise<AppConfig> {
   try {
     const content = await fsp.readFile(configPath, 'utf-8');
     const parsed = JSON.parse(content) as Partial<AppConfig>;
+    // 深合併 agent 內巢狀欄位（llm / daemon / webUi），舊 schema 的 config 自動補齊缺欄位
+    const defaultAgent = DEFAULT_CONFIG.agent!;
+    const parsedAgent: Partial<AgentConfig> = parsed.agent ?? {};
+    const mergedAgent: AgentConfig = {
+      ...defaultAgent,
+      ...parsedAgent,
+      llm: { ...defaultAgent.llm, ...(parsedAgent.llm ?? {}) },
+      daemon: { ...defaultAgent.daemon, ...(parsedAgent.daemon ?? {}) },
+      webUi: { ...defaultAgent.webUi, ...(parsedAgent.webUi ?? {}) },
+    };
     return {
       ...DEFAULT_CONFIG,
       ...parsed,
-      agent: { ...DEFAULT_CONFIG.agent!, ...(parsed.agent ?? {}) },
+      agent: mergedAgent,
       headTracking: { ...DEFAULT_CONFIG.headTracking!, ...(parsed.headTracking ?? {}) },
     };
   } catch (e) {
