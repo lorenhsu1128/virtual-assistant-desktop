@@ -85,6 +85,9 @@ export class SystemTray {
   private currentMenu: Menu | null = null;
   private ipcHandler: ((_event: Electron.IpcMainEvent, data: TrayMenuData) => void) | null = null;
   private agentStatus: TrayAgentStatus = { state: 'disabled' };
+  /** Throttle tray menu rebuild — preloading progress 高頻更新時避免 spam（reviewer M5） */
+  private agentStatusRebuildTimer: NodeJS.Timeout | null = null;
+  private static readonly STATUS_REBUILD_THROTTLE_MS = 250;
 
   constructor(mainWindow: BrowserWindow) {
     this.mainWindow = mainWindow;
@@ -92,14 +95,30 @@ export class SystemTray {
 
   /**
    * 更新托盤顯示的 agent 狀態。由 main.ts 訂閱 AgentRuntime 'status' event 呼叫。
-   * 觸發 menu 重建以反映新狀態文字。
+   * Throttle 250ms 避免 preloading 高頻 progress 更新導致 menu 每幀 rebuild。
+   * phase 變化 / state 變化即時觸發；progress 變化才走 throttle。
    */
   setAgentStatus(status: TrayAgentStatus): void {
+    const prev = this.agentStatus;
+    const phaseChanged = prev.state !== status.state || prev.phase !== status.phase;
     this.agentStatus = status;
-    if (this.tray) {
-      // 更新 tooltip 顯示狀態（hover 可見）
-      this.tray.setToolTip(`Virtual Assistant Desktop — ${STATUS_LABELS[status.state]}`);
+    if (!this.tray) return;
+
+    this.tray.setToolTip(`Virtual Assistant Desktop — ${STATUS_LABELS[status.state]}`);
+
+    if (phaseChanged) {
+      // 重要變化（state / phase 轉換）— 立即 rebuild + 清掉 pending
+      if (this.agentStatusRebuildTimer) {
+        clearTimeout(this.agentStatusRebuildTimer);
+        this.agentStatusRebuildTimer = null;
+      }
       this.rebuildMenu();
+    } else if (!this.agentStatusRebuildTimer) {
+      // progress 變化 → 排 throttle
+      this.agentStatusRebuildTimer = setTimeout(() => {
+        this.agentStatusRebuildTimer = null;
+        this.rebuildMenu();
+      }, SystemTray.STATUS_REBUILD_THROTTLE_MS);
     }
   }
 

@@ -31,6 +31,15 @@ export function registerAgentIpcHandlers(
   mainWindow: BrowserWindow,
   runtime: AgentRuntime,
 ): void {
+  // reviewer M3：先 removeHandler 確保重複呼叫不 throw（hot-reload / multi-window）
+  for (const ch of [
+    'agent_get_status', 'agent_get_runtime_status', 'agent_enable', 'agent_disable',
+    'agent_send_input', 'agent_abort', 'agent_toggle_bubble',
+    'agent_reload_llm', 'agent_apply_config',
+  ]) {
+    try { ipcMain.removeHandler(ch); } catch { /* ignore */ }
+  }
+
   // ── Commands（renderer → main） ──
 
   /**
@@ -47,18 +56,33 @@ export function registerAgentIpcHandlers(
 
   /**
    * 啟用 agent — 載入 LLM 並進入 standby（master toggle ON）。
-   * 讀當前 config，並寫回 enabled = true。
+   * 讀當前 config，並寫回 enabled = true。失敗時回滾（reviewer S3：
+   * 避免下次桌寵啟動 auto-preload 同份壞 config 進無限 error 迴圈）。
    */
   ipcMain.handle('agent_enable', async (): Promise<AgentRuntimeStatus> => {
     const cfg = await readConfig();
     if (!cfg.agent) {
       return { state: 'error', message: 'agent config 不存在' };
     }
+    const wasEnabled = cfg.agent.enabled;
     if (!cfg.agent.enabled) {
       cfg.agent.enabled = true;
       await writeConfig(cfg);
     }
-    return runtime.enable(cfg.agent);
+    const status = await runtime.enable(cfg.agent);
+    // 若 enable 失敗（進 error 狀態）→ 回滾 config.enabled，避免 auto-preload loop
+    if (status.state === 'error' && !wasEnabled) {
+      try {
+        const cfg2 = await readConfig();
+        if (cfg2.agent) {
+          cfg2.agent.enabled = false;
+          await writeConfig(cfg2);
+        }
+      } catch (e) {
+        console.warn('[agentIpc] rollback config.enabled failed:', e);
+      }
+    }
+    return status;
   });
 
   /**

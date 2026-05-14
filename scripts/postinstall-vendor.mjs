@@ -35,26 +35,43 @@ if (!existsSync(vendorPkg)) {
   process.exit(0)
 }
 
-function run(cmd, args, cwd) {
+import { rmSync } from 'node:fs'
+
+function run(cmd, args, cwd, cleanupOnFail) {
   console.log(`[postinstall-vendor] (cwd=${cwd}) ${cmd} ${args.join(' ')}`)
   try {
     execSync(`${cmd} ${args.join(' ')}`, { cwd, stdio: 'inherit' })
+    return true
   } catch (e) {
     console.warn(
       `[postinstall-vendor] ${cmd} failed (${e.message}) — 桌寵會降級為「無 AI 模式」`,
     )
-    process.exit(0) // 不 fail 主 install
+    // reviewer M7：失敗時清掉半 populated state，下次 bun install 才會重試
+    if (cleanupOnFail) {
+      try {
+        rmSync(cleanupOnFail, { recursive: true, force: true })
+        console.log(`[postinstall-vendor] cleaned ${cleanupOnFail} (允許下次重試)`)
+      } catch {
+        /* ignore */
+      }
+    }
+    return false
   }
 }
 
 const vendorNodeModules = join(vendorDir, 'node_modules')
 if (!existsSync(vendorNodeModules)) {
-  run('bun', ['install'], vendorDir)
+  if (!run('bun', ['install'], vendorDir, vendorNodeModules)) {
+    process.exit(0)
+  }
 }
 
-const vendorDist = join(vendorDir, 'dist-embedded', 'index.js')
+const vendorDistDir = join(vendorDir, 'dist-embedded')
+const vendorDist = join(vendorDistDir, 'index.js')
 if (!existsSync(vendorDist)) {
-  run('bun', ['run', 'build:embedded'], vendorDir)
+  if (!run('bun', ['run', 'build:embedded'], vendorDir, vendorDistDir)) {
+    process.exit(0)
+  }
 }
 
 console.log('[postinstall-vendor] ok — vendor/my-agent/dist-embedded ready')

@@ -68,9 +68,15 @@ const STATUS_DISABLED: AgentRuntimeStatus = { state: 'disabled' };
 export class AgentRuntime extends EventEmitter {
   private agent: AgentEmbedded | null = null;
   private session: AgentSession | null = null;
+  /** Session 'frame' listener reference — disable 時 off 以免 listener leak（reviewer S1） */
+  private sessionFrameListener: ((frame: Frame) => void) | null = null;
+  /** Session 'error' listener reference */
+  private sessionErrorListener: ((err: Error) => void) | null = null;
   private status: AgentRuntimeStatus = STATUS_DISABLED;
   private inFlightTransition = false;
   private currentConfig: AgentConfig | null = null;
+  /** active 狀態 disable 時的 force-shutdown timeout (ms)（reviewer S5） */
+  private static readonly DISABLE_FORCE_TIMEOUT_MS = 5000;
 
   getStatus(): AgentRuntimeStatus {
     return this.status;
@@ -161,7 +167,7 @@ export class AgentRuntime extends EventEmitter {
     }
 
     this.inFlightTransition = true;
-    this.currentConfig = config;
+    // 注意：currentConfig 只在 standby 成功才賦值（reviewer S2）— 失敗不污染
     try {
       this.setStatus({
         state: 'preloading',
@@ -178,16 +184,22 @@ export class AgentRuntime extends EventEmitter {
         this.dispatchMascotAction(action);
       });
 
+      // LLM 來源策略（reviewer I4 — 修正 modelPath 沒實際 wired 的問題）：
+      // - 有 modelPath → set MY_AGENT_LLAMACPP_EMBEDDED=1，my-agent 走
+      //   llamacpp-embedded-adapter（node-llama-tcq in-process）並讀
+      //   llamacpp.jsonc 取 modelPath（桌寵應預先把該值寫進 configDir 的 llamacpp.jsonc）
+      // - 有 externalUrl → 不設 env var，my-agent 預設走 llamacpp-fetch-adapter
+      //   連到 llamacpp.jsonc 內的 baseUrl
+      // 兩者皆設定時 modelPath 優先（在 llamacpp.jsonc seed 階段桌寵應只寫一條）
+      if (config.llm.modelPath) {
+        process.env.MY_AGENT_LLAMACPP_EMBEDDED = '1';
+      } else {
+        delete process.env.MY_AGENT_LLAMACPP_EMBEDDED;
+      }
+
       this.agent = await AgentEmbedded.create({
         cwd: workspaceCwd,
         configDir,
-        // P5a 暫只支援 fetch mode（外部 llama.cpp HTTP server）；
-        // embedded mode 需 AgentEmbedded 內部支援 modelPath 注入，
-        // 目前 my-agent llamacpp-embedded-adapter 走 env var / config，
-        // 後續 P5b 串接
-        ...(config.llm.modelPath
-          ? { /* embedded 模式：P5b 補完 LLM provider 注入 */ }
-          : {}),
         extraTools: mascotTools as unknown as Tool[],
         skipMcp: false,
         onPreloadProgress: (p: PreloadProgress) => {
@@ -202,26 +214,30 @@ export class AgentRuntime extends EventEmitter {
 
       // 建立 session — frame 直接廣播給 src-bubble
       this.session = this.agent.createSession({ source: 'mascot' });
-      this.session.on('frame', (frame: Frame) => {
-        this.broadcastFrame(frame);
 
-        // 簡化的 active/standby 追蹤（細節 P5b 再補）
+      // 保留 listener reference（reviewer S1：disable 時 off 以免 leak）
+      this.sessionFrameListener = (frame: Frame) => {
+        this.broadcastFrame(frame);
         if (frame.type === 'turnStart') {
           this.setStatus({ state: 'active', turnId: frame.inputId });
         } else if (frame.type === 'turnEnd') {
           this.setStatus({ state: 'standby' });
         }
-      });
-      this.session.on('error', (err: Error) => {
+      };
+      this.sessionErrorListener = (err: Error) => {
         console.warn('[AgentRuntime] session error:', err);
-      });
+      };
+      this.session.on('frame', this.sessionFrameListener);
+      this.session.on('error', this.sessionErrorListener);
 
+      this.currentConfig = config; // 只在成功時才賦值（reviewer S2）
       this.setStatus({ state: 'standby' });
       return this.status;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.warn('[AgentRuntime] enable failed:', msg);
       await this.cleanupOnError();
+      this.currentConfig = null;
       this.setStatus({ state: 'error', message: msg });
       return this.status;
     } finally {
@@ -240,24 +256,55 @@ export class AgentRuntime extends EventEmitter {
     if (this.status.state === 'disabled') {
       return this.status;
     }
+    const wasActive = this.status.state === 'active';
     this.inFlightTransition = true;
     try {
       this.setStatus({ state: 'unloading' });
-      if (this.status.state === 'active') {
+      // 先 abort session（中斷 LLM stream / tool execution）
+      if (wasActive) {
         this.session?.abort();
       }
-      try {
-        await this.session?.close();
-      } catch (e) {
-        console.warn('[AgentRuntime] session close error:', e);
+
+      // 解掉 listener 防 leak（reviewer S1）；vendor session.abort 目前 no-op
+      // 因此 frame 可能仍會 emit — listener 解掉避免 broadcast 到「已 disable」
+      // 狀態下還觸發 mascot_action
+      if (this.session && this.sessionFrameListener) {
+        this.session.off('frame', this.sessionFrameListener);
       }
-      try {
-        await this.agent?.shutdown();
-      } catch (e) {
-        console.warn('[AgentRuntime] agent shutdown error:', e);
+      if (this.session && this.sessionErrorListener) {
+        this.session.off('error', this.sessionErrorListener);
       }
+      this.sessionFrameListener = null;
+      this.sessionErrorListener = null;
+
+      // 等 session.close + agent.shutdown，加 timeout 避免 hang（reviewer S5）
+      // active 狀態下 abort 是 no-op，runner 可能繼續跑數十秒
+      const closeWithTimeout = async (): Promise<void> => {
+        const session = this.session;
+        const agent = this.agent;
+        if (!session && !agent) return;
+        await Promise.race([
+          (async () => {
+            try { await session?.close(); } catch (e) { console.warn('[AgentRuntime] session close error:', e); }
+            try { await agent?.shutdown(); } catch (e) { console.warn('[AgentRuntime] agent shutdown error:', e); }
+          })(),
+          new Promise<void>((resolve) =>
+            setTimeout(() => {
+              if (wasActive) {
+                console.warn(
+                  `[AgentRuntime] disable timeout ${AgentRuntime.DISABLE_FORCE_TIMEOUT_MS}ms — force-detaching session`,
+                );
+              }
+              resolve();
+            }, AgentRuntime.DISABLE_FORCE_TIMEOUT_MS),
+          ),
+        ]);
+      };
+      await closeWithTimeout();
+
       this.session = null;
       this.agent = null;
+      this.currentConfig = null;
       this.setStatus(STATUS_DISABLED);
       return this.status;
     } finally {
@@ -339,6 +386,15 @@ export class AgentRuntime extends EventEmitter {
   }
 
   private async cleanupOnError(): Promise<void> {
+    // 解掉 listener 防 leak（reviewer S1）
+    if (this.session && this.sessionFrameListener) {
+      try { this.session.off('frame', this.sessionFrameListener); } catch { /* ignore */ }
+    }
+    if (this.session && this.sessionErrorListener) {
+      try { this.session.off('error', this.sessionErrorListener); } catch { /* ignore */ }
+    }
+    this.sessionFrameListener = null;
+    this.sessionErrorListener = null;
     try {
       await this.session?.close();
     } catch {

@@ -150,10 +150,18 @@ export function AgentPage(): React.ReactElement {
       if (next) {
         const rs = (await ipc.agentEnable()) as RuntimeStatus | null;
         if (rs) setStatus(rs);
+        // reviewer M8：enable 失敗 → 回滾 enabled checkbox 與 main 端 config（IPC handler 已回滾）
+        if (rs?.state === 'error') {
+          setAgent((prev) => ({ ...prev, enabled: false }));
+        }
       } else {
         const rs = (await ipc.agentDisable()) as RuntimeStatus | null;
         if (rs) setStatus(rs);
       }
+    } catch (e) {
+      console.warn('[AgentPage] toggle failed:', e);
+      // 例外時也回滾 toggle
+      setAgent((prev) => ({ ...prev, enabled: !next }));
     } finally {
       setBusy(false);
     }
