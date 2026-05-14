@@ -14,14 +14,18 @@
 | systemTray.ts | 系統托盤選單（含重置回正中央） | ✅ 正常 |
 | vrmPickerWindow.ts | VRM 模型瀏覽對話框 BrowserWindow 管理 | ✅ 正常 |
 | settingsWindow.ts | 桌寵設定 BrowserWindow（沿用 picker 模板） | ✅ 正常 |
-| agent/AgentDaemonManager.ts | my-agent daemon 生命週期（auto/external 雙模式 + cli daemon stop graceful） | ✅ 正常 |
-| agent/AgentSessionClient.ts | ws://127.0.0.1:port/sessions client + NDJSON | ✅ 正常 |
+| agent/AgentRuntime.ts | M-MASCOT-EMBED：in-process AgentEmbedded lifecycle + state machine（disabled / preloading / standby / active / unloading / error） | ✅ 正常（v0.4） |
+| agent/mascotTools.ts | 4 mascot tool 定義（my-agent Tool 格式注入 extraTools） | ✅ 正常（v0.4） |
+| agent/MascotMcpServer.ts | HTTP MCP server — 給 opt-in daemon 模式用（外部 my-agent CLI 連入時走此） | 🟡 條件啟用（Phase 5c+） |
+| agent/mcpRegistration.ts | `cli mcp add --scope user` 把 MascotMcpServer 註冊到 my-agent — opt-in daemon 才需要 | 🟡 條件啟用（Phase 5c+） |
 | agent/agentBubbleWindow.ts | 對話氣泡 BrowserWindow（透明，沿用 picker 模板） | ✅ 正常 |
-| agent/agentIpcHandlers.ts | agent_* IPC commands + frame 廣播 | ✅ 正常 |
+| agent/agentIpcHandlers.ts | agent_* IPC commands + frame 廣播 + llm_status_changed 事件 | ✅ 正常 |
+| ~~agent/AgentDaemonManager.ts~~ | _（v0.4 已刪除：被 AgentRuntime 取代；commits 230ea42→15edaf8）_ | ❌ 已刪 |
+| ~~agent/AgentSessionClient.ts~~ | _（v0.4 已刪除：in-process EventEmitter 取代 ws client）_ | ❌ 已刪 |
 | platform/index.ts | `isWindows` / `isMac` 旗標 + 統一匯出 | ✅ 正常 |
 | platform/windowConfig.ts | 各平台 BrowserWindow 參數與建立後設定（主視窗 / picker / agent bubble） | ✅ 正常 |
 | platform/protocolHelper.ts | local-file 協定路徑解析（兩平台行為不同） | ✅ 正常 |
-| platform/agentPaths.ts | bun / my-agent CLI / ~/.my-agent / workspace 跨平台路徑 | ✅ 正常 |
+| platform/agentPaths.ts | workspace 路徑 + （opt-in daemon 模式才用）my-agent CLI 路徑 | 🟡 部分使用（embedded 模式僅用 ensureAgentWorkspace） |
 
 ## IPC Handler 模板
 

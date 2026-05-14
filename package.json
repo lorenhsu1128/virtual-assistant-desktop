@@ -19,7 +19,9 @@
     "lint:fix": "eslint src/ tests/ --ext .ts,.tsx --fix",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\" \"electron/**/*.ts\"",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.electron.json --noEmit",
-    "scan:expressions": "node scripts/scan-vrm-expressions.mjs"
+    "scan:expressions": "node scripts/scan-vrm-expressions.mjs",
+    "build:vendor": "cd vendor/my-agent && bun install && bun run build:embedded",
+    "postinstall": "node scripts/postinstall-vendor.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

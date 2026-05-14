@@ -34,7 +34,8 @@
 | v0.2 | ✅ 完成 | 自主移動狀態機 + 拖曳 + 軌道攝影機 + 視窗碰撞/吸附/遮擋（Windows-only） |
 | v0.3 | ✅ 完成 | 表情系統（自動+手動）+ 系統托盤 + Debug overlay |
 | v0.3.x | ✅ 完成 | VRM Picker 預覽對話框 + 動作 / 表情過渡平順化（cubic transition + hip 平滑 + SpringBone 保護） |
-| v0.3.x agent | ✅ 完成 | my-agent daemon 整合 — P0 lifecycle ✅ / P0.5 graceful shutdown ✅ / P1 ws + 對話氣泡 ✅ / P1.5 React + Tailwind 移植 my-agent web chat 元件 ✅ / P2 MCP server 表演控制 ✅ / P3 設定視窗 ✅（首次啟動引導扣接 v0.4） |
+| v0.3.x agent | ✅ 完成 | my-agent daemon 整合（v0.3 sidecar 模式）— P0-P3 全完成（已被 v0.4 embedded 模式取代） |
+| v0.4 | 🟡 進行中 | M-MASCOT-EMBED：my-agent 內嵌成 Node library（Phase 1-5 完成）— vendor/my-agent submodule + AgentEmbedded library entry + esbuild bundle + Node ws+http transport + 桌寵 AgentRuntime + UI master toggle + 托盤狀態 + 對話氣泡入口 |
 | 平台支援 | 🟡 進行中 | Windows 完整 / macOS 渲染+動畫+表情+自主移動，視窗感知功能停用 |
 | v0.4+ | 未開始 | — |
 
@@ -61,18 +62,40 @@
 - DwmGetWindowAttribute(DWMWA_CLOAKED) 過濾 Windows 11 系統 UI
 - src-tauri/ 保留作參考，不再編譯
 
-### my-agent daemon 整合（v0.3.x agent，進行中）
+### my-agent 整合（v0.4 M-MASCOT-EMBED，Phase 5 完成）
 
-- **目標**：把 my-agent（Bun + Claude Code 風格 CLI agent）作為桌寵的 AI 大腦，使用者透過對話氣泡與 agent 對話，未來由 agent 直接呼叫 MCP tool 控制 VRM 表演（P2）
-- **整合層次**：
-  - 桌寵 main process spawn `cli.exe daemon start --port 0`，用 pid.json 取得 port + heartbeat 監看
-  - 透過 `ws://127.0.0.1:port/sessions?source=mascot&cwd=<workspace>&token=<token>` 連線
-  - 所有對話訊息（NDJSON Anthropic streaming events）透過 `agent_session_frame` IPC 廣播給氣泡視窗
-  - 氣泡視窗（src-bubble/）為獨立 BrowserWindow + React app，與主視窗完全隔離；訊息渲染採用移植自 my-agent web 的 chat 元件（MessageItem / ToolCallCard / ThinkingBlock 等），讓對話流程與 my-agent TUI / web 一致
-  - 反向控制：桌寵啟動時起 HTTP MCP server，註冊到 my-agent 為 `mascot` server。LLM 透過 4 個 tool（set_expression / play_animation / say / look_at_screen）控制 VRM 表演。LLM tool call → main process MCP handler → IPC `mascot_action` → renderer MascotActionDispatcher → ExpressionManager / AnimationManager
-- **詳細藍圖**：見 [AGENT_INTEGRATION_PLAN.md](AGENT_INTEGRATION_PLAN.md)
-- **my-agent 端依賴**：need `feat(daemon): support 'mascot' client source` commit（已合）
-- **降級策略**：bun / cli 偵測不到、daemon spawn 失敗時，桌寵以「無 AI 模式」運作，所有 v0.3 既有功能不受影響
+- **目標**：my-agent 作為桌寵 AI 大腦，獨立 master toggle 切換啟用 / 停用；
+  啟用時立即載入 LLM 進入待命（5-30s），第一句對話無延遲
+- **架構演進**（從 v0.3.x sidecar → v0.4 embedded）：
+  - **v0.3.x sidecar（已淘汰）**：桌寵 spawn `cli.exe daemon start` 子進程
+    → ws://127.0.0.1:port/sessions 對話 → HTTP MCP 反向控制
+  - **v0.4 embedded（現行）**：vendor/my-agent git submodule pin 在
+    `virtual-assistant-desktop-embbed` 分支，bun run build:embedded 產出
+    `dist-embedded/index.js`（ESM, target=node）。桌寵 Electron main process
+    直接 `import { AgentEmbedded } from '../vendor/my-agent/dist-embedded/index.js'`
+- **In-process 流程**：
+  - **Lifecycle**：`electron/agent/AgentRuntime.ts`（state machine：disabled
+    → preloading → standby → active → unloading → error）
+  - **Master toggle**：撥動立即觸發 enable/disable IPC；桌寵啟動時若上次是
+    ON 自動 preload。`inFlightTransition` flag 防快速 toggle 競態
+  - **對話**：AgentEmbedded.createSession({source:'mascot'}) → in-process
+    EventEmitter → IPC `agent_session_frame` → src-bubble React UI（frame
+    schema 與 daemon WS NDJSON 完全相同，bubble 端零修改）
+  - **反向控制**：4 個 mascot tools（set_expression / play_animation / say /
+    look_at_screen）以 my-agent Tool 格式注入 `AgentEmbedded.create({extraTools})`，
+    LLM 呼叫時直接 dispatch `mascot_action` IPC，**不再走 HTTP MCP server**
+- **保留所有 my-agent 功能**：46+ 內建 tools / 6 個 built-in subagent /
+  Fork subagent / MCP client / SQLite & NDJSON session / cron / 87 個 slash
+  commands / TCQ KV cache — 全部沿用
+- **Opt-in daemon WS server**：使用者可在設定頁啟用，讓外部 my-agent CLI /
+  第二個 Electron window / Discord adapter 連入共用同個 in-process daemon。
+  Bun.serve → Node ws+http transport runtime 自動切換（src/server/
+  nodeDirectConnectServer.ts）。MascotMcpServer + mcpRegistration 在此模式
+  下重新串接（Phase 5c+）
+- **降級策略**：vendor/my-agent/dist-embedded 不存在 / LLM 載入失敗 →
+  AgentRuntime 進 'error' 狀態，桌寵其他功能不受影響
+- **第一次 clone 後執行**：`git submodule update --init --recursive` →
+  `bun install`（postinstall 自動跑 vendor build）→ `bun run dev`
 
 ## 關鍵目錄結構
 
@@ -110,22 +133,25 @@ electron/           → Electron 主程序（main process）
   vrmPickerWindow.ts → VRM 模型瀏覽對話框 BrowserWindow 管理
   settingsWindow.ts → 桌寵設定 BrowserWindow（獨立 React app，沿用
                       vrmPickerWindow 模板；P3）
-  agent/            → my-agent daemon 整合（P0–P2）
-    AgentDaemonManager.ts → daemon 生命週期（auto/external 雙模式 + cli daemon stop graceful）
-    AgentSessionClient.ts → ws://127.0.0.1:port/sessions client + NDJSON
+  agent/            → my-agent 整合（v0.4 embedded 模式，M-MASCOT-EMBED Phase 5 完成）
+    AgentRuntime.ts       → in-process AgentEmbedded lifecycle + state machine
+                            （disabled / preloading / standby / active / unloading / error）
+    mascotTools.ts        → 4 mascot tool 定義（my-agent Tool 格式注入 extraTools）
     agentBubbleWindow.ts  → 對話氣泡 BrowserWindow（透明，沿用 picker 模板）
-    agentIpcHandlers.ts   → agent_* IPC commands + frame 廣播
-    MascotMcpServer.ts    → 桌寵 HTTP MCP server（per-request stateless），
-                            暴露 set_expression / play_animation / say /
-                            look_at_screen 4 個 tool 給 LLM 呼叫
-    mcpRegistration.ts    → 透過 cli mcp add --scope user 把 mascot 註冊
-                            到 my-agent 全域 mcpServers，idempotent
+    agentIpcHandlers.ts   → agent_* IPC commands + frame / llm_status_changed 廣播
+    MascotMcpServer.ts    → HTTP MCP server（per-request stateless）— 給 opt-in
+                            daemon 模式用，外部 my-agent CLI 連入時走此路徑
+    mcpRegistration.ts    → cli mcp add --scope user 註冊 MascotMcpServer 到
+                            my-agent 全域 mcpServers — opt-in daemon 才需要
   platform/         → 跨平台抽象層（Windows / macOS 差異集中於此）
     index.ts        → isWindows / isMac 旗標 + 統一匯出
     windowConfig.ts → 各平台 BrowserWindow 參數（主視窗 / picker / agent bubble）
     protocolHelper.ts → local-file 協定路徑解析
     macWindowMonitor.ts → macOS 側視窗列舉（空實作 / 降級）
-    agentPaths.ts   → bun / my-agent CLI / ~/.my-agent / workspace 跨平台路徑
+    agentPaths.ts   → workspace 路徑 + （opt-in daemon 模式才用）my-agent CLI 路徑
+vendor/my-agent/  → my-agent submodule（git pin 在 virtual-assistant-desktop-embbed 分支）
+                    dist-embedded/index.js 為 ESM bundle（gitignored，postinstall 自動 build）
+                    src/embedded/ — AgentEmbedded library entry（被桌寵 import）
 src-tauri/          → [已棄用] 舊 Rust 後端（保留作參考）
 src-settings/       → 桌寵設定視窗 renderer（React + Tailwind + shadcn，
                       P3 v1 僅 Agent 頁；未來補 Display / Animation /

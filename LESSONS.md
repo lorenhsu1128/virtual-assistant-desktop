@@ -198,6 +198,15 @@
 
 ## my-agent 整合
 
+> **v0.4 M-MASCOT-EMBED 轉場備註（2026-05-14）**：以下標 [2026-05-09] 的教訓
+> 都來自 v0.3.x **daemon subprocess 模式**（spawn `cli daemon start` + ws + HTTP
+> MCP）。v0.4 改為 in-process embedded（AgentRuntime + AgentEmbedded），
+> AgentDaemonManager / AgentSessionClient 已刪除。但教訓本身仍對 **opt-in
+> daemon WS server 模式**（使用者在設定頁啟用 daemon 給外部工具連）有效，
+> 也可能在 v2 重新啟用 sidecar fallback 時用到。保留歷史不刪除。
+>
+> v0.4 embedded 模式專屬的新教訓接在這一節最下方。
+
 ### [2026-05-09] `[跨平台]` — bun-compiled standalone binary 不可再透過 bun 執行
 
 - **錯誤**：AgentDaemonManager 第一版用 `spawn(bunBinary, [cli, 'daemon', 'start', ...])` 啟動 my-agent CLI。實測 daemon 立刻 exit code=1，agent 日誌顯示 bun 嘗試把 PE 檔（`MZ` header）當 JS 解析：`error: Expected ";" but found " " at C:\...\cli.exe:1:4`
@@ -279,6 +288,48 @@
 - **受影響檔案**：整個 `src-bubble/`（vanilla TS 全刪重寫）、`tailwind.config.ts`、`postcss.config.js`、`vite.config.ts`（加 react plugin）、`tsconfig.json`（加 jsx）
 - **依賴版本提醒**：`@vitejs/plugin-react@5+` 需要 vite 7；專案 vite 6 必須裝 `^4`
 - **根因記憶**：要與其他工具達到「協定一致 + UI 一致」時，永遠先看上游有沒有現成元件可以 fork。my-agent 上下游關係夠近、type 與訊息格式一致，移植成本遠低於重寫成本。預估前先跑 Explore agent 盤點 components / hooks / store / shadcn primitives，逐項列出「複製 / 改編 / 丟棄」清單再動工
+
+---
+
+> **以下是 v0.4 M-MASCOT-EMBED（embedded library 模式）專屬教訓。**
+
+### [2026-05-14] `[跨平台]` — Bun bundle target=node 預設 conditions 缺 `import` 走到 UMD wrapper
+
+- **錯誤**：esbuild embedded bundle 後 `node dist-embedded/index.js` import 失敗：`Cannot find module './impl/format'`。bundle 內有 jsonc-parser 的 UMD wrapper（`define([...require...])` 模式），UMD 內部 `require('./impl/format')` 在 Node ESM 環境壞掉
+- **根因**：build script 指定 `conditions: ['node']` 缺了 `'import'`。Bun bundler 對 jsonc-parser 預設走 `main` 欄位（UMD 路徑）而非 `module` 欄位（ESM 路徑）。一旦多個 transitive 依賴用 CJS require()，UMD wrapper 就被拉進 bundle
+- **正確做法**：(1) 明確設 `conditions: ['import', 'node', 'default']`（2) 為已知問題套件加 BunPlugin onResolve 強制走 ESM 路徑（`vendor/my-agent/scripts/build-embedded.ts` 的 `jsoncParserEsmPlugin`）
+- **受影響檔案**：`vendor/my-agent/scripts/build-embedded.ts`
+- **根因記憶**：Bun bundle programmatic API 的 conditions 比 CLI `--conditions` 更要明確指定完整清單。任何時候打包後在 Node 環境 import 失敗，第一個檢查 conditions 順序
+
+### [2026-05-14] `[跨平台]` — `bun:sqlite` 作為 external 會讓 Node ESM loader 拒載整個 bundle
+
+- **錯誤**：embedded bundle 設 `external: ['bun:sqlite']`，bundle 順利產出，但 `node` 跑 import 立刻 `Error [ERR_UNSUPPORTED_ESM_URL_SCHEME]: Only URLs with a scheme in: file, data, and node are supported`
+- **根因**：external 意思是「保留 `import 'bun:sqlite'` 字串在 bundle」。Node ESM loader 看到 `bun:` scheme 就拒絕整個 module graph 載入 — 不只是該 import，而是整個 entry。對 dev/test 都看不到。
+- **正確做法**：寫 stub 檔（`scripts/stubs/bun-sqlite-stub.ts`，runtime 真實使用才 throw）+ BunPlugin onResolve 把 `bun:sqlite` alias 到 stub 路徑。如此 bundle 內看到的是 `import './stub'` 一般 ESM 路徑，Node 載得起來；只有真的 `new Database()` 才 throw（embedded mascot 主路徑不會碰到）
+- **受影響檔案**：`vendor/my-agent/scripts/build-embedded.ts`、`vendor/my-agent/scripts/stubs/bun-sqlite-stub.ts`
+- **根因記憶**：bundle external 只對 Node 認得的 scheme（`node:` / 一般 npm package name）有效。任何 runtime-specific scheme（`bun:` / `deno:` / `node:internal/*`）必須 alias 到 stub 不能 external
+
+### [2026-05-14] `[跨平台]` — typeof Bun guard 必須包整個 expression，不只 if condition
+
+- **錯誤**：原本想 `if (config.argv0) { const proc = Bun.spawn(...) }`，但 bundle 在 Node 跑時 V8 即便不進入 if branch 也可能 ReferenceError（取決於 V8 hoisting / parse 模式）
+- **正確做法**：條件改為 `if (config.argv0 && typeof Bun !== 'undefined')`，把 `typeof Bun` 放最前面短路。`typeof Bun` 是唯一能在「`Bun` 不存在」時不 throw 的語法
+- **受影響檔案**：`vendor/my-agent/src/utils/ripgrep.ts`
+- **根因記憶**：在跨 runtime bundle 中對全域變數的 reference 都要用 `typeof X !== 'undefined'` 而非直接 `X`。即便包在 if() 內也要保險，因為 JIT 可能 eager-evaluate
+
+### [2026-05-14] `[跨平台]` — vendor submodule dist 產物不入版控，需 postinstall script 自動 build
+
+- **錯誤**：vendor/my-agent/dist-embedded/index.js（20MB ESM bundle）加 .gitignore 後，新 clone 桌寵 repo 第一次 `bun run dev` 啟動失敗：`Cannot find module '../vendor/my-agent/dist-embedded/index.js'`
+- **根因**：dist artifact 太大不適合入版控（每次 my-agent 改動就 binary diff 一份新 bundle），但桌寵 import 路徑硬編碼需要這個檔
+- **正確做法**：寫 `scripts/postinstall-vendor.mjs` 由 npm/bun lifecycle 自動觸發：(1) 偵測 vendor/my-agent/package.json 存在 (2) vendor 內 node_modules 缺就 `bun install` (3) dist-embedded/index.js 缺就 `bun run build:embedded`。失敗不 fail 主 install（log warning，桌寵降級無 AI 模式）
+- **受影響檔案**：`scripts/postinstall-vendor.mjs`、`package.json`（postinstall + build:vendor scripts）
+- **根因記憶**：vendor submodule + 大 binary 產物的標準模式：產物 gitignore + postinstall 自動 build + 失敗降級。CI 環境用 `CI=true` env var 跳過（CI 通常有獨立 build step）
+
+### [2026-05-14] `[跨平台]` — 多套 daemon-style status type 需要 backward-compat mapping，不能直接換型別
+
+- **錯誤**：Phase 5a 想把 AgentRuntimeStatus（state union: disabled/preloading/standby/active/...）直接取代 AgentDaemonStatus（'disabled'|'online'|'starting'|...），結果 src-bubble Header / src-settings AgentPage 立刻 compile 錯（依賴舊 union 字面值）
+- **正確做法**：AgentRuntime 提供 `getInfo()` 把新 state mapping 回舊 daemon-style info（preloading→starting、standby→online、unloading→connecting 等）。IPC channel name `agent_status` 保留發舊型別，新增 `llm_status_changed` 發新型別。renderer 端逐步遷移
+- **受影響檔案**：`electron/agent/AgentRuntime.ts` (`getInfo()`)、`electron/agent/agentIpcHandlers.ts`（dual broadcast）
+- **根因記憶**：refactor 跨多 BrowserWindow 的 IPC event payload 時，**先疊加新事件 + 保留舊事件並 mapping**，不要直接替換型別。等所有 consumer 都遷移過去（個別 BrowserWindow 各自 verify）才能刪舊事件
 
 ## 如何新增教訓
 
