@@ -189,6 +189,9 @@ function makeMinimalTool<Input>(def: MinimalToolDef<Input>): Tool {
     name: def.name,
     inputSchema: def.inputSchema,
     description: async () => def.description(),
+    // my-agent Tool 介面要求 prompt() 回傳給 LLM 的 system prompt 內 tool 描述
+    // （見 vendor/my-agent/src/Tool.ts:518）。description 與 prompt 內容相同即可。
+    prompt: async () => def.description(),
     isEnabled: () => true,
     isConcurrencySafe: () => false,
     isReadOnly: () => true,
