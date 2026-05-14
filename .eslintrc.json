@@ -16,5 +16,5 @@
     "@typescript-eslint/no-unused-vars": ["error", { "argsIgnorePattern": "^_" }],
     "no-console": ["warn", { "allow": ["warn", "error"] }]
   },
-  "ignorePatterns": ["node_modules", "dist", "src-tauri"]
+  "ignorePatterns": ["node_modules", "dist", "src-tauri", "vendor"]
 }

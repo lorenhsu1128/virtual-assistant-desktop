@@ -28,5 +28,5 @@
     "src-settings/**/*.ts",
     "src-settings/**/*.tsx"
   ],
-  "exclude": ["node_modules", "src-tauri", "tests"]
+  "exclude": ["node_modules", "src-tauri", "tests", "vendor"]
 }

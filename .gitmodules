@@ -1,0 +1,4 @@
+[submodule "vendor/my-agent"]
+	path = vendor/my-agent
+	url = https://github.com/lorenhsu1128/my-agent.git
+	branch = virtual-assistant-desktop-embbed
