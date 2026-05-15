@@ -63,6 +63,11 @@ const DEFAULT_AGENT: AgentConfig = {
   webUi: {
     enabled: false,
     port: 0,
+    bindHost: '127.0.0.1',
+    devProxyUrl: null,
+  },
+  discord: {
+    enabled: false,
   },
   daemonMode: 'auto',
   bunBinaryPath: null,

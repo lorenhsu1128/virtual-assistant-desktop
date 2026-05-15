@@ -20,8 +20,8 @@
  * - Event `agent_session_frame` — frame schema 完全相同（與 daemon WS NDJSON 一致）
  */
 
-import { BrowserWindow, ipcMain } from 'electron';
-import type { AgentRuntime, AgentRuntimeStatus } from './AgentRuntime.js';
+import { BrowserWindow, ipcMain, shell } from 'electron';
+import type { AgentRuntime, AgentRuntimeStatus, AgentServicesStatus } from './AgentRuntime.js';
 import type { Frame } from '../../vendor/my-agent/dist-embedded/index.js';
 import { toggleAgentBubbleWindow } from './agentBubbleWindow.js';
 import { readConfig, writeConfig, type AgentConfig } from '../fileManager.js';
@@ -36,6 +36,12 @@ export function registerAgentIpcHandlers(
     'agent_get_status', 'agent_get_runtime_status', 'agent_enable', 'agent_disable',
     'agent_send_input', 'agent_abort', 'agent_toggle_bubble',
     'agent_reload_llm', 'agent_apply_config',
+    // G7 Phase B — opt-in 三服務
+    'agent_get_services_status',
+    'agent_start_daemon_server', 'agent_stop_daemon_server',
+    'agent_start_discord_bot', 'agent_stop_discord_bot',
+    'agent_start_web_ui', 'agent_stop_web_ui',
+    'web_ui_open_in_browser',
   ]) {
     try { ipcMain.removeHandler(ch); } catch { /* ignore */ }
   }
@@ -139,6 +145,150 @@ export function registerAgentIpcHandlers(
       return runtime.disable();
     },
   );
+
+  // ── G7 Phase B — opt-in 三服務 IPC ──
+
+  /**
+   * 取得三個 opt-in 服務當前狀態（給設定 UI 初次載入用）。
+   * 後續變化透過 'agent_services_changed' event 訂閱。
+   */
+  ipcMain.handle('agent_get_services_status', (): AgentServicesStatus => {
+    return runtime.getServicesStatus();
+  });
+
+  ipcMain.handle(
+    'agent_start_daemon_server',
+    async (
+      _event,
+      opts?: { port?: number; host?: string },
+    ): Promise<AgentServicesStatus['daemon']> => {
+      const result = await runtime.startDaemonServer(opts);
+      // 同步寫回 config.agent.daemon（重啟桌寵後自動恢復）
+      try {
+        const cfg = await readConfig();
+        if (cfg.agent) {
+          cfg.agent.daemon.enabled = true;
+          if (opts?.port !== undefined) cfg.agent.daemon.port = opts.port;
+          await writeConfig(cfg);
+        }
+      } catch (e) {
+        console.warn('[agentIpc] write daemon config failed:', e);
+      }
+      return result;
+    },
+  );
+
+  ipcMain.handle(
+    'agent_stop_daemon_server',
+    async (): Promise<AgentServicesStatus['daemon']> => {
+      const result = await runtime.stopDaemonServer();
+      try {
+        const cfg = await readConfig();
+        if (cfg.agent) {
+          cfg.agent.daemon.enabled = false;
+          cfg.agent.discord.enabled = false;
+          cfg.agent.webUi.enabled = false;
+          await writeConfig(cfg);
+        }
+      } catch (e) {
+        console.warn('[agentIpc] write daemon config failed:', e);
+      }
+      return result;
+    },
+  );
+
+  ipcMain.handle(
+    'agent_start_discord_bot',
+    async (
+      _event,
+      opts?: { tokenOverride?: string; forceEnabled?: boolean },
+    ): Promise<AgentServicesStatus['discord']> => {
+      const result = await runtime.startDiscordBot(opts);
+      try {
+        const cfg = await readConfig();
+        if (cfg.agent && result.running) {
+          cfg.agent.discord.enabled = true;
+          await writeConfig(cfg);
+        }
+      } catch (e) {
+        console.warn('[agentIpc] write discord config failed:', e);
+      }
+      return result;
+    },
+  );
+
+  ipcMain.handle(
+    'agent_stop_discord_bot',
+    async (): Promise<AgentServicesStatus['discord']> => {
+      const result = await runtime.stopDiscordBot();
+      try {
+        const cfg = await readConfig();
+        if (cfg.agent) {
+          cfg.agent.discord.enabled = false;
+          await writeConfig(cfg);
+        }
+      } catch (e) {
+        console.warn('[agentIpc] write discord config failed:', e);
+      }
+      return result;
+    },
+  );
+
+  ipcMain.handle(
+    'agent_start_web_ui',
+    async (
+      _event,
+      opts?: { port?: number; bindHost?: string; devProxyUrl?: string },
+    ): Promise<AgentServicesStatus['webUi']> => {
+      const result = await runtime.startWebUi(opts);
+      try {
+        const cfg = await readConfig();
+        if (cfg.agent) {
+          cfg.agent.webUi.enabled = true;
+          if (opts?.port !== undefined) cfg.agent.webUi.port = opts.port;
+          if (opts?.bindHost !== undefined) cfg.agent.webUi.bindHost = opts.bindHost;
+          if (opts?.devProxyUrl !== undefined) cfg.agent.webUi.devProxyUrl = opts.devProxyUrl;
+          await writeConfig(cfg);
+        }
+      } catch (e) {
+        console.warn('[agentIpc] write webUi config failed:', e);
+      }
+      return result;
+    },
+  );
+
+  ipcMain.handle(
+    'agent_stop_web_ui',
+    async (): Promise<AgentServicesStatus['webUi']> => {
+      const result = await runtime.stopWebUi();
+      try {
+        const cfg = await readConfig();
+        if (cfg.agent) {
+          cfg.agent.webUi.enabled = false;
+          await writeConfig(cfg);
+        }
+      } catch (e) {
+        console.warn('[agentIpc] write webUi config failed:', e);
+      }
+      return result;
+    },
+  );
+
+  /**
+   * 用預設瀏覽器開啟 Web UI URL（設定頁「在瀏覽器開啟」按鈕）。
+   * 只允許 http(s) loopback / LAN URL，拒絕 file:// 等其他 scheme。
+   */
+  ipcMain.handle('web_ui_open_in_browser', async (_event, url: string): Promise<boolean> => {
+    if (typeof url !== 'string') return false;
+    if (!/^https?:\/\//i.test(url)) return false;
+    try {
+      await shell.openExternal(url);
+      return true;
+    } catch (e) {
+      console.warn('[agentIpc] openExternal failed:', e);
+      return false;
+    }
+  });
 
   // ── Events（main → renderer） — frame 與 status 廣播 ──
   // AgentRuntime 內部已 `webContents.send(...)` 廣播到所有 BrowserWindow，

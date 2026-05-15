@@ -73,6 +73,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
   agentReloadLlm: () => ipcRenderer.invoke('agent_reload_llm'),
   agentAbort: () => ipcRenderer.invoke('agent_abort'),
   agentGetRuntimeStatus: () => ipcRenderer.invoke('agent_get_runtime_status'),
+  // G7 Phase B — opt-in 三服務
+  agentGetServicesStatus: () => ipcRenderer.invoke('agent_get_services_status'),
+  agentStartDaemonServer: (opts?: { port?: number; host?: string }) =>
+    ipcRenderer.invoke('agent_start_daemon_server', opts),
+  agentStopDaemonServer: () => ipcRenderer.invoke('agent_stop_daemon_server'),
+  agentStartDiscordBot: (opts?: { tokenOverride?: string; forceEnabled?: boolean }) =>
+    ipcRenderer.invoke('agent_start_discord_bot', opts),
+  agentStopDiscordBot: () => ipcRenderer.invoke('agent_stop_discord_bot'),
+  agentStartWebUi: (opts?: { port?: number; bindHost?: string; devProxyUrl?: string }) =>
+    ipcRenderer.invoke('agent_start_web_ui', opts),
+  agentStopWebUi: () => ipcRenderer.invoke('agent_stop_web_ui'),
+  webUiOpenInBrowser: (url: string) => ipcRenderer.invoke('web_ui_open_in_browser', url),
+  onAgentServicesChanged: (callback: (status: unknown) => void) => {
+    const handler = (_event: unknown, status: unknown) => callback(status);
+    ipcRenderer.on('agent_services_changed', handler);
+    return () => ipcRenderer.removeListener('agent_services_changed', handler);
+  },
   onLlmStatusChanged: (callback: (status: unknown) => void) => {
     const handler = (_event: unknown, status: unknown) => callback(status);
     ipcRenderer.on('llm_status_changed', handler);

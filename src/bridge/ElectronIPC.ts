@@ -54,6 +54,16 @@ interface ElectronAPI {
   agentReloadLlm(): Promise<unknown>;
   agentAbort(): Promise<void>;
   agentGetRuntimeStatus(): Promise<unknown>;
+  // G7 Phase B — opt-in 三服務
+  agentGetServicesStatus(): Promise<unknown>;
+  agentStartDaemonServer(opts?: { port?: number; host?: string }): Promise<unknown>;
+  agentStopDaemonServer(): Promise<unknown>;
+  agentStartDiscordBot(opts?: { tokenOverride?: string; forceEnabled?: boolean }): Promise<unknown>;
+  agentStopDiscordBot(): Promise<unknown>;
+  agentStartWebUi(opts?: { port?: number; bindHost?: string; devProxyUrl?: string }): Promise<unknown>;
+  agentStopWebUi(): Promise<unknown>;
+  webUiOpenInBrowser(url: string): Promise<boolean>;
+  onAgentServicesChanged(callback: (status: unknown) => void): () => void;
   onLlmStatusChanged(callback: (status: unknown) => void): () => void;
   openSettingsWindow(): Promise<void>;
   onAgentStatus(callback: (info: AgentDaemonInfo) => void): () => void;
@@ -582,6 +592,84 @@ class ElectronIPC {
   /** 訂閱 AgentRuntimeStatus 變化（新事件） */
   onLlmStatusChanged(callback: (status: unknown) => void): () => void {
     return window.electronAPI.onLlmStatusChanged(callback);
+  }
+
+  // ── G7 Phase B — opt-in 三服務 ──
+
+  async agentGetServicesStatus(): Promise<unknown> {
+    try {
+      return await window.electronAPI.agentGetServicesStatus();
+    } catch (e) {
+      console.warn('[ElectronIPC] agentGetServicesStatus failed:', e);
+      return null;
+    }
+  }
+
+  async agentStartDaemonServer(opts?: { port?: number; host?: string }): Promise<unknown> {
+    try {
+      return await window.electronAPI.agentStartDaemonServer(opts);
+    } catch (e) {
+      console.warn('[ElectronIPC] agentStartDaemonServer failed:', e);
+      return null;
+    }
+  }
+
+  async agentStopDaemonServer(): Promise<unknown> {
+    try {
+      return await window.electronAPI.agentStopDaemonServer();
+    } catch (e) {
+      console.warn('[ElectronIPC] agentStopDaemonServer failed:', e);
+      return null;
+    }
+  }
+
+  async agentStartDiscordBot(opts?: { tokenOverride?: string; forceEnabled?: boolean }): Promise<unknown> {
+    try {
+      return await window.electronAPI.agentStartDiscordBot(opts);
+    } catch (e) {
+      console.warn('[ElectronIPC] agentStartDiscordBot failed:', e);
+      return null;
+    }
+  }
+
+  async agentStopDiscordBot(): Promise<unknown> {
+    try {
+      return await window.electronAPI.agentStopDiscordBot();
+    } catch (e) {
+      console.warn('[ElectronIPC] agentStopDiscordBot failed:', e);
+      return null;
+    }
+  }
+
+  async agentStartWebUi(opts?: { port?: number; bindHost?: string; devProxyUrl?: string }): Promise<unknown> {
+    try {
+      return await window.electronAPI.agentStartWebUi(opts);
+    } catch (e) {
+      console.warn('[ElectronIPC] agentStartWebUi failed:', e);
+      return null;
+    }
+  }
+
+  async agentStopWebUi(): Promise<unknown> {
+    try {
+      return await window.electronAPI.agentStopWebUi();
+    } catch (e) {
+      console.warn('[ElectronIPC] agentStopWebUi failed:', e);
+      return null;
+    }
+  }
+
+  async webUiOpenInBrowser(url: string): Promise<boolean> {
+    try {
+      return await window.electronAPI.webUiOpenInBrowser(url);
+    } catch (e) {
+      console.warn('[ElectronIPC] webUiOpenInBrowser failed:', e);
+      return false;
+    }
+  }
+
+  onAgentServicesChanged(callback: (status: unknown) => void): () => void {
+    return window.electronAPI.onAgentServicesChanged(callback);
   }
 
   /** Open the settings BrowserWindow (no-op if already open) */
