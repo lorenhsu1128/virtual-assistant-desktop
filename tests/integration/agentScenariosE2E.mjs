@@ -35,14 +35,14 @@ process.env.MY_AGENT_LLAMACPP_EMBEDDED = '1'
 const llamacppJsonc = `{
   "baseUrl": "http://127.0.0.1:8081/v1",
   "model": "qwen3.5-9b",
-  "contextSize": 65536,
+  "contextSize": 131072,
   "autoCompactBufferTokens": 4000,
   "debug": false,
   "modelAliases": ["qwen3.5-9b"],
   "server": {
     "host": "127.0.0.1",
     "port": 8081,
-    "ctxSize": 65536,
+    "ctxSize": 131072,
     "gpuLayers": 99,
     "modelPath": ${JSON.stringify(MODEL_ABS)},
     "alias": "qwen3.5-9b",

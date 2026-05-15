@@ -33,12 +33,12 @@ writeFileSync(
   `{
     "baseUrl": "http://127.0.0.1:8081/v1",
     "model": "qwen3.5-9b",
-    "contextSize": 8192,
+    "contextSize": 131072,
     "autoCompactBufferTokens": 4000,
     "debug": false,
     "modelAliases": ["qwen3.5-9b"],
     "server": {
-      "host": "127.0.0.1", "port": 8081, "ctxSize": 8192, "gpuLayers": 99,
+      "host": "127.0.0.1", "port": 8081, "ctxSize": 131072, "gpuLayers": 99,
       "modelPath": ${JSON.stringify(MODEL_ABS)}, "alias": "qwen3.5-9b",
       "binaryPath": ${JSON.stringify(resolve(MY_AGENT_REPO, 'buun-llama-cpp/build/bin/Release/llama-server.exe'))},
       "extraArgs": [
