@@ -168,4 +168,6 @@ console.log(`T4 WS hello frame:    ${t4Ok ? 'PASS' : 'FAIL'}`)
 
 const pass = t1Ok && t2Ok && t3Ok && t4Ok
 console.log(`\nVerdict: ${pass ? 'PASS' : 'FAIL'}\n`)
-process.exit(pass ? 0 : 1)
+// Windows libuv 在 ws + http 同時關閉時偶會觸發 UV_HANDLE_CLOSING assertion
+// 延遲 process.exit 讓 event loop drain 完畢
+setTimeout(() => process.exit(pass ? 0 : 1), 200)

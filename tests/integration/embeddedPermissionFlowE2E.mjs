@@ -51,12 +51,14 @@ const agent = await AgentEmbedded.create({
   configDir: TEMP,
   extraTools: [setExprTool],
   skipMcp: true,
-  canUseTool: async (name, _input) => {
+  canUseTool: async (tool, input) => {
     canUseToolCalled++
-    if (name === 'set_expression') {
+    // tool 是 Tool 物件，name 在 .name property
+    const toolName = tool?.name ?? String(tool)
+    if (toolName === 'set_expression') {
       return { behavior: 'deny', message: 'Mascot expressions are user-controlled; please ask the user.' }
     }
-    return { behavior: 'allow', updatedInput: _input }
+    return { behavior: 'allow', updatedInput: input }
   },
   onPreloadProgress: () => {},
 })

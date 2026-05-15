@@ -35,7 +35,7 @@ let textChunks = 0
 let totalTextLen = 0
 
 const ws = new WebSocket(wsUrl)
-await new Promise(r => ws.on('open', () => r()))
+// 先註冊 message handler 才 await open — 避免 hello 在 open 與 register 之間丟掉
 ws.on('message', (raw) => {
   for (const line of raw.toString('utf-8').split('\n').filter(s => s.trim())) {
     try {
@@ -56,10 +56,22 @@ ws.on('message', (raw) => {
   }
 })
 
-// 等 hello
+// 等 open
+await new Promise(r => ws.on('open', () => r()))
+
+// 等 hello（最多 5s）
+const tHello = Date.now()
 await new Promise(r => {
-  const t = setInterval(() => { if (hello || Date.now() - Date.now() > 5000) { clearInterval(t); r() } }, 50)
+  const t = setInterval(() => {
+    if (hello || Date.now() - tHello > 5000) { clearInterval(t); r() }
+  }, 50)
 })
+if (!hello) {
+  console.error('[ws-conv] FAIL: 5s 內沒收到 hello')
+  try { ws.close() } catch {}
+  try { await agent.shutdown?.() } catch {}
+  process.exit(1)
+}
 
 // 送 input frame（NDJSON 結尾要換行）
 ws.send(JSON.stringify({ type: 'input', text: '只回「hi」一個字就好，別多說' }) + '\n')

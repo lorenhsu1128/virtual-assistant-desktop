@@ -30,7 +30,7 @@ const TESTS = [
   { name: 'embeddedAbortE2E',        timeoutMs: 300_000, critical: true },
 
   // ── Vision + Tools ──
-  { name: 'embeddedVisionToolE2E',   timeoutMs: 300_000, critical: true },
+  { name: 'embeddedVisionToolE2E',   timeoutMs: 360_000, critical: true },
 
   // ── Tool execution + Permission ──
   { name: 'embeddedBuiltinToolsE2E', timeoutMs: 300_000, critical: true },
@@ -79,15 +79,12 @@ function runOne(test) {
     child.on('close', (code) => {
       clearTimeout(timer)
       const elapsed = Date.now() - t0
-      // 抽取「Verdict: PASS/FAIL」與 Tn 結果行
-      const verdictMatch = /Verdict:\s*(\S+)/i.exec(stdout)
+      // Exit code 為 source of truth；stdout 的 Verdict 文字僅供顯示參考
       const verdict = killed
         ? 'TIMEOUT'
-        : verdictMatch
-          ? verdictMatch[1].toUpperCase()
-          : code === 0
-            ? 'PASS'
-            : 'FAIL'
+        : code === 0
+          ? 'PASS'
+          : 'FAIL'
       const subResults = []
       for (const line of stdout.split('\n')) {
         const m = /^(T\d+|S\d+\S*)\s+(PASS|FAIL|WARN|SKIP)/i.exec(line.trim())

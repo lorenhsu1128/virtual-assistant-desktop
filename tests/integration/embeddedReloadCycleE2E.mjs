@@ -32,6 +32,9 @@ async function runOnceAndShutdown(label) {
   // 也起 daemon WS 驗證服務也能重啟
   const daemon = await agent.startDaemonServer({ port: 0, host: '127.0.0.1' })
   const webUi = await agent.startWebUi({ port: 0, bindHost: '127.0.0.1' })
+  // 立刻 snapshot port — webUi.port 是 getter，shutdown 後會回 null
+  const daemonPort = daemon.port
+  const webPort = webUi.port
 
   // 一個快速對話
   const session = agent.createSession({ source: 'mascot' })
@@ -60,8 +63,8 @@ async function runOnceAndShutdown(label) {
   try { await agent.shutdown?.() } catch {}
   const shutdownMs = Date.now() - tShutdown
 
-  console.log(`[reload] ${label}: load=${loadMs}ms turn=${turnMs}ms(${turnOk ? 'done' : turnEnd?.reason ?? 'NONE'}) shutdown=${shutdownMs}ms daemon=${daemon.port} web=${webUi.port}`)
-  return { loadMs, turnMs, turnOk, shutdownMs, daemonPort: daemon.port, webPort: webUi.port }
+  console.log(`[reload] ${label}: load=${loadMs}ms turn=${turnMs}ms(${turnOk ? 'done' : turnEnd?.reason ?? 'NONE'}) shutdown=${shutdownMs}ms daemon=${daemonPort} web=${webPort}`)
+  return { loadMs, turnMs, turnOk, shutdownMs, daemonPort, webPort }
 }
 
 console.log('[reload] === Cycle 1: 第一次啟動 ===')
