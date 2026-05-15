@@ -93,10 +93,19 @@ export interface AgentConfig {
     enabled: boolean;
     port: number;
   };
-  /** Opt-in web UI HTTP server */
+  /** Opt-in web UI HTTP server（瀏覽器 chat client） */
   webUi: {
     enabled: boolean;
     port: number;
+    /** 綁定 host；預設 127.0.0.1（loopback only）；'0.0.0.0' 公開到 LAN */
+    bindHost: string;
+    /** Dev proxy URL（指向 vite dev server，例 http://127.0.0.1:5173） */
+    devProxyUrl: string | null;
+  };
+  /** Opt-in Discord bot */
+  discord: {
+    /** Master ON 時是否自動啟動 Discord bot */
+    enabled: boolean;
   };
   /** Legacy 欄位（v0.3.x agent，subprocess mode）— AgentRuntime 不讀 */
   daemonMode?: 'auto' | 'external';
@@ -152,6 +161,11 @@ export const DEFAULT_CONFIG: AppConfig = {
     webUi: {
       enabled: false,
       port: 0,
+      bindHost: '127.0.0.1',
+      devProxyUrl: null,
+    },
+    discord: {
+      enabled: false,
     },
     // legacy 欄位（v0.3.x agent，subprocess mode）— AgentRuntime 不讀
     daemonMode: 'auto',

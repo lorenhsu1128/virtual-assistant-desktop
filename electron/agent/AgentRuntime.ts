@@ -32,6 +32,9 @@ import {
   type Frame,
   type Tool,
   type PreloadProgress,
+  type EmbeddedDaemonServerHandle,
+  type DiscordBotHandle,
+  type WebUiHandle,
 } from '../../vendor/my-agent/dist-embedded/index.js';
 
 import type { AgentConfig } from '../fileManager.js';
@@ -61,6 +64,37 @@ export type AgentRuntimeStatus =
 const STATUS_DISABLED: AgentRuntimeStatus = { state: 'disabled' };
 
 /**
+ * 三個 opt-in 服務的狀態快照（給設定 UI / 托盤即時顯示用）。
+ * 不 running 時 url/port 等都是 null/undefined；error 欄位記錄最近一次失敗訊息。
+ */
+export interface AgentServicesStatus {
+  daemon: {
+    running: boolean;
+    url: string | null;
+    token: string | null;
+    port: number | null;
+    connectedClients: number;
+    lastError?: string;
+  };
+  discord: {
+    running: boolean;
+    tokenSource: 'env' | 'config' | 'override' | null;
+    channelBindingCount: number;
+    lastError?: string;
+  };
+  webUi: {
+    running: boolean;
+    url: string | null;
+    port: number | null;
+    bindHost: string | null;
+    urls: readonly string[];
+    connectedClients: number;
+    lastError?: string;
+  };
+}
+
+
+/**
  * AgentRuntime — 桌寵側對 AgentEmbedded 的 lifecycle wrapper。
  *
  * Events:
@@ -80,6 +114,17 @@ export class AgentRuntime extends EventEmitter {
   private currentConfig: AgentConfig | null = null;
   /** active 狀態 disable 時的 force-shutdown timeout (ms)（reviewer S5） */
   private static readonly DISABLE_FORCE_TIMEOUT_MS = 5000;
+
+  // ── 三個 opt-in 服務 handle（master ON 時可有，OFF 時自動清掉） ──
+  private daemonHandle: EmbeddedDaemonServerHandle | null = null;
+  private discordHandle: DiscordBotHandle | null = null;
+  private webUiHandle: WebUiHandle | null = null;
+  /** 最近一次服務 start/stop 的錯誤訊息（給 UI 顯示用） */
+  private servicesErrors: {
+    daemon?: string;
+    discord?: string;
+    webUi?: string;
+  } = {};
 
   getStatus(): AgentRuntimeStatus {
     return this.status;
@@ -242,6 +287,14 @@ export class AgentRuntime extends EventEmitter {
 
       this.currentConfig = config; // 只在成功時才賦值（reviewer S2）
       this.setStatus({ state: 'standby' });
+
+      // 依 config 自動啟動 opt-in 服務（失敗不阻擋 master enable）
+      try {
+        await this.autoStartServices(config);
+      } catch (e) {
+        console.warn('[AgentRuntime] autoStartServices error:', e);
+      }
+
       return this.status;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -270,6 +323,11 @@ export class AgentRuntime extends EventEmitter {
     this.inFlightTransition = true;
     try {
       this.setStatus({ state: 'unloading' });
+
+      // 先停所有 opt-in 服務（避免外部 client 在 shutdown 期間還送 input）
+      await this.stopAllServices();
+      this.broadcastServicesStatus();
+
       // 先 abort session（中斷 LLM stream / tool execution）
       if (wasActive) {
         this.session?.abort();
@@ -359,6 +417,250 @@ export class AgentRuntime extends EventEmitter {
     return this.enable(config);
   }
 
+  // ───────────────────────── opt-in 服務 ─────────────────────────
+
+  /**
+   * 取得三個 opt-in 服務當前狀態快照。
+   * 給設定 UI / 托盤即時顯示用；UI 透過 `agent_services_changed` event 訂閱變化。
+   */
+  getServicesStatus(): AgentServicesStatus {
+    const daemon = this.daemonHandle;
+    const discord = this.discordHandle;
+    const web = this.webUiHandle;
+    return {
+      daemon: {
+        running: daemon != null,
+        url: daemon?.url ?? null,
+        token: daemon?.token ?? null,
+        port: daemon?.port ?? null,
+        // EmbeddedDaemonServerHandle 暴露的 daemonHandle.server.registry 可查
+        // 但 nodeDirectConnectServer 的 registry size 介面我們不直接暴露；
+        // 預留欄位，未來補
+        connectedClients: 0,
+        lastError: this.servicesErrors.daemon,
+      },
+      discord: {
+        running: discord?.isRunning ?? false,
+        tokenSource: null, // 啟動時記下 tokenSource；目前 handle 不存取此資訊
+        channelBindingCount: discord?.config?.channelBindings
+          ? Object.keys(discord.config.channelBindings).length
+          : 0,
+        lastError: this.servicesErrors.discord,
+      },
+      webUi: {
+        running: web?.isRunning ?? false,
+        url: web?.url ?? null,
+        port: web?.port ?? null,
+        bindHost: web?.bindHost ?? null,
+        urls: web?.urls ?? [],
+        connectedClients: web?.connectedClients ?? 0,
+        lastError: this.servicesErrors.webUi,
+      },
+    };
+  }
+
+  /**
+   * 啟動 daemon WS server。
+   * 要求：master toggle ON（standby/active）。
+   */
+  async startDaemonServer(opts?: {
+    port?: number;
+    host?: string;
+  }): Promise<AgentServicesStatus['daemon']> {
+    if (!this.agent) {
+      this.servicesErrors.daemon = 'master toggle 未啟用（請先啟動 AI 助理）';
+      this.broadcastServicesStatus();
+      return this.getServicesStatus().daemon;
+    }
+    if (this.daemonHandle) {
+      return this.getServicesStatus().daemon;
+    }
+    try {
+      this.daemonHandle = await this.agent.startDaemonServer({
+        port: opts?.port ?? 0,
+        host: opts?.host ?? '127.0.0.1',
+      });
+      this.servicesErrors.daemon = undefined;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn('[AgentRuntime] startDaemonServer failed:', msg);
+      this.servicesErrors.daemon = msg;
+      this.daemonHandle = null;
+    }
+    this.broadcastServicesStatus();
+    return this.getServicesStatus().daemon;
+  }
+
+  async stopDaemonServer(): Promise<AgentServicesStatus['daemon']> {
+    if (!this.daemonHandle) return this.getServicesStatus().daemon;
+    // 停 daemon 前先停依賴它的服務（discord / web）
+    if (this.discordHandle) await this.stopDiscordBot();
+    if (this.webUiHandle) await this.stopWebUi();
+    try {
+      await this.daemonHandle.stop();
+      this.servicesErrors.daemon = undefined;
+    } catch (err) {
+      console.warn('[AgentRuntime] stopDaemonServer error:', err);
+    }
+    this.daemonHandle = null;
+    this.broadcastServicesStatus();
+    return this.getServicesStatus().daemon;
+  }
+
+  /**
+   * 啟動 Discord bot。需先 startDaemonServer。
+   */
+  async startDiscordBot(opts?: {
+    tokenOverride?: string;
+    forceEnabled?: boolean;
+  }): Promise<AgentServicesStatus['discord']> {
+    if (!this.agent) {
+      this.servicesErrors.discord = 'master toggle 未啟用';
+      this.broadcastServicesStatus();
+      return this.getServicesStatus().discord;
+    }
+    if (!this.daemonHandle) {
+      this.servicesErrors.discord = '需先啟動 daemon WS server';
+      this.broadcastServicesStatus();
+      return this.getServicesStatus().discord;
+    }
+    if (this.discordHandle?.isRunning) {
+      return this.getServicesStatus().discord;
+    }
+    try {
+      this.discordHandle = await this.agent.startDiscordBot({
+        tokenOverride: opts?.tokenOverride,
+        forceEnabled: opts?.forceEnabled ?? true,
+      });
+      this.servicesErrors.discord = undefined;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn('[AgentRuntime] startDiscordBot failed:', msg);
+      this.servicesErrors.discord = msg;
+      this.discordHandle = null;
+    }
+    this.broadcastServicesStatus();
+    return this.getServicesStatus().discord;
+  }
+
+  async stopDiscordBot(): Promise<AgentServicesStatus['discord']> {
+    if (!this.discordHandle) return this.getServicesStatus().discord;
+    try {
+      await this.discordHandle.stop();
+      this.servicesErrors.discord = undefined;
+    } catch (err) {
+      console.warn('[AgentRuntime] stopDiscordBot error:', err);
+    }
+    this.discordHandle = null;
+    this.broadcastServicesStatus();
+    return this.getServicesStatus().discord;
+  }
+
+  /**
+   * 啟動 Web UI HTTP server。需先 startDaemonServer。
+   */
+  async startWebUi(opts?: {
+    port?: number;
+    bindHost?: string;
+    devProxyUrl?: string;
+  }): Promise<AgentServicesStatus['webUi']> {
+    if (!this.agent) {
+      this.servicesErrors.webUi = 'master toggle 未啟用';
+      this.broadcastServicesStatus();
+      return this.getServicesStatus().webUi;
+    }
+    if (!this.daemonHandle) {
+      this.servicesErrors.webUi = '需先啟動 daemon WS server';
+      this.broadcastServicesStatus();
+      return this.getServicesStatus().webUi;
+    }
+    if (this.webUiHandle?.isRunning) {
+      return this.getServicesStatus().webUi;
+    }
+    try {
+      this.webUiHandle = await this.agent.startWebUi({
+        port: opts?.port ?? 0,
+        bindHost: opts?.bindHost ?? '127.0.0.1',
+        devProxyUrl: opts?.devProxyUrl,
+      });
+      this.servicesErrors.webUi = undefined;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn('[AgentRuntime] startWebUi failed:', msg);
+      this.servicesErrors.webUi = msg;
+      this.webUiHandle = null;
+    }
+    this.broadcastServicesStatus();
+    return this.getServicesStatus().webUi;
+  }
+
+  async stopWebUi(): Promise<AgentServicesStatus['webUi']> {
+    if (!this.webUiHandle) return this.getServicesStatus().webUi;
+    try {
+      await this.webUiHandle.stop();
+      this.servicesErrors.webUi = undefined;
+    } catch (err) {
+      console.warn('[AgentRuntime] stopWebUi error:', err);
+    }
+    this.webUiHandle = null;
+    this.broadcastServicesStatus();
+    return this.getServicesStatus().webUi;
+  }
+
+  /**
+   * 依 config 自動啟動該啟動的服務（master enable 成功進 standby 後呼叫）。
+   * 啟動失敗 → log warning，不阻擋 enable 完成。
+   */
+  private async autoStartServices(config: AgentConfig): Promise<void> {
+    // 順序：daemon → discord / web（後兩者依賴 daemon）
+    if (config.daemon.enabled) {
+      await this.startDaemonServer({ port: config.daemon.port });
+    }
+    if (config.discord.enabled && this.daemonHandle) {
+      await this.startDiscordBot({ forceEnabled: true });
+    }
+    if (config.webUi.enabled && this.daemonHandle) {
+      await this.startWebUi({
+        port: config.webUi.port,
+        bindHost: config.webUi.bindHost,
+        devProxyUrl: config.webUi.devProxyUrl ?? undefined,
+      });
+    }
+  }
+
+  /**
+   * Master disable 前停掉所有服務（順序：依賴反向）。
+   */
+  private async stopAllServices(): Promise<void> {
+    if (this.webUiHandle) {
+      try { await this.webUiHandle.stop(); } catch (e) { console.warn('[AgentRuntime] stopWebUi:', e); }
+      this.webUiHandle = null;
+    }
+    if (this.discordHandle) {
+      try { await this.discordHandle.stop(); } catch (e) { console.warn('[AgentRuntime] stopDiscord:', e); }
+      this.discordHandle = null;
+    }
+    if (this.daemonHandle) {
+      try { await this.daemonHandle.stop(); } catch (e) { console.warn('[AgentRuntime] stopDaemon:', e); }
+      this.daemonHandle = null;
+    }
+    this.servicesErrors = {};
+  }
+
+  /**
+   * 廣播服務狀態變化給所有 BrowserWindow（給設定 UI / 托盤訂閱）。
+   */
+  private broadcastServicesStatus(): void {
+    const snap = this.getServicesStatus();
+    this.emit('servicesChanged', snap);
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (win.isDestroyed()) continue;
+      win.webContents.send('agent_services_changed', snap);
+    }
+  }
+
+  // ───────────────────────────────────────────────────────────────
+
   private setStatus(s: AgentRuntimeStatus): void {
     this.status = s;
     this.emit('status', s);
@@ -396,6 +698,9 @@ export class AgentRuntime extends EventEmitter {
   }
 
   private async cleanupOnError(): Promise<void> {
+    // 服務也一併釋放（enable 過程出錯時可能已部分啟動）
+    await this.stopAllServices();
+
     // 解掉 listener 防 leak（reviewer S1）
     if (this.session && this.sessionFrameListener) {
       try { this.session.off('frame', this.sessionFrameListener); } catch { /* ignore */ }
