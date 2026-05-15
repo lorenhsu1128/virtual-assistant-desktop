@@ -1,4 +1,4 @@
-import { Tray, Menu, BrowserWindow, nativeImage, app, ipcMain } from 'electron';
+import { Tray, Menu, BrowserWindow, nativeImage, app, ipcMain, clipboard, shell } from 'electron';
 
 /** Scale options for the menu */
 const SCALE_OPTIONS = [
@@ -69,6 +69,16 @@ interface TrayAgentStatus {
   message?: string;
 }
 
+/**
+ * G7 Phase D：三個 opt-in 服務狀態（簡化版，給 tray 顯示用）。
+ * 與 electron/agent/AgentRuntime.ts AgentServicesStatus 結構對齊。
+ */
+interface TrayServicesStatus {
+  daemon: { running: boolean; url: string | null; port: number | null; connectedClients: number };
+  discord: { running: boolean; channelBindingCount: number };
+  webUi: { running: boolean; url: string | null; port: number | null; connectedClients: number };
+}
+
 const STATUS_LABELS: Record<TrayAgentStatus['state'], string> = {
   disabled: '[AI: 未啟用]',
   preloading: '[AI: 載入中]',
@@ -85,6 +95,11 @@ export class SystemTray {
   private currentMenu: Menu | null = null;
   private ipcHandler: ((_event: Electron.IpcMainEvent, data: TrayMenuData) => void) | null = null;
   private agentStatus: TrayAgentStatus = { state: 'disabled' };
+  private servicesStatus: TrayServicesStatus = {
+    daemon: { running: false, url: null, port: null, connectedClients: 0 },
+    discord: { running: false, channelBindingCount: 0 },
+    webUi: { running: false, url: null, port: null, connectedClients: 0 },
+  };
   /** Throttle tray menu rebuild — preloading progress 高頻更新時避免 spam（reviewer M5） */
   private agentStatusRebuildTimer: NodeJS.Timeout | null = null;
   private static readonly STATUS_REBUILD_THROTTLE_MS = 250;
@@ -120,6 +135,16 @@ export class SystemTray {
         this.rebuildMenu();
       }, SystemTray.STATUS_REBUILD_THROTTLE_MS);
     }
+  }
+
+  /**
+   * 更新三個 opt-in 服務狀態（main.ts 訂閱 AgentRuntime 'servicesChanged' event 呼叫）。
+   * 服務狀態變化頻率低 → 直接 rebuild，不走 throttle。
+   */
+  setServicesStatus(status: TrayServicesStatus): void {
+    this.servicesStatus = status;
+    if (!this.tray) return;
+    this.rebuildMenu();
   }
 
   /** menu item label：含進度百分比若 preloading */
@@ -381,6 +406,57 @@ export class SystemTray {
           this.agentStatus.state === 'disabled' ? 'agent_enable' : 'agent_disable',
         ),
     });
+
+    // G7 Phase D：opt-in 服務狀態（master ON 時才顯示）
+    const services = this.servicesStatus;
+    const anyServiceRunning =
+      services.daemon.running || services.discord.running || services.webUi.running;
+    const masterOn =
+      this.agentStatus.state === 'standby' || this.agentStatus.state === 'active';
+    if (masterOn || anyServiceRunning) {
+      template.push({ type: 'separator' });
+
+      if (services.daemon.running && services.daemon.url) {
+        const url = services.daemon.url;
+        const clientHint = services.daemon.connectedClients > 0
+          ? ` (${services.daemon.connectedClients} clients)`
+          : '';
+        template.push({
+          label: `WS: ${url}${clientHint}`,
+          click: () => {
+            clipboard.writeText(url);
+          },
+          toolTip: '點擊複製 WS URL',
+        });
+      } else if (masterOn) {
+        template.push({ label: 'WS server: 未啟動', enabled: false });
+      }
+
+      if (services.discord.running) {
+        template.push({
+          label: `Discord: 已上線 (${services.discord.channelBindingCount} channels)`,
+          enabled: false,
+        });
+      } else if (masterOn) {
+        template.push({ label: 'Discord: 未啟動', enabled: false });
+      }
+
+      if (services.webUi.running && services.webUi.url) {
+        const url = services.webUi.url;
+        const clientHint = services.webUi.connectedClients > 0
+          ? ` (${services.webUi.connectedClients} tabs)`
+          : '';
+        template.push({
+          label: `Web UI: ${url}${clientHint}`,
+          click: () => {
+            void shell.openExternal(url);
+          },
+          toolTip: '點擊以預設瀏覽器開啟',
+        });
+      } else if (masterOn) {
+        template.push({ label: 'Web UI: 未啟動', enabled: false });
+      }
+    }
 
     template.push({ type: 'separator' });
 

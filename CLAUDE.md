@@ -35,7 +35,7 @@
 | v0.3 | ✅ 完成 | 表情系統（自動+手動）+ 系統托盤 + Debug overlay |
 | v0.3.x | ✅ 完成 | VRM Picker 預覽對話框 + 動作 / 表情過渡平順化（cubic transition + hip 平滑 + SpringBone 保護） |
 | v0.3.x agent | ✅ 完成 | my-agent daemon 整合（v0.3 sidecar 模式）— P0-P3 全完成（已被 v0.4 embedded 模式取代） |
-| v0.4 | 🟡 進行中 | M-MASCOT-EMBED：my-agent 內嵌成 Node library（Phase 1-5 完成）— vendor/my-agent submodule + AgentEmbedded library entry + esbuild bundle + Node ws+http transport + 桌寵 AgentRuntime + UI master toggle + 托盤狀態 + 對話氣泡入口 |
+| v0.4 | 🟡 進行中 | M-MASCOT-EMBED：my-agent 內嵌成 Node library（Phase 1-5 + G7 opt-in 三服務 UI 完成）— vendor/my-agent submodule + AgentEmbedded library entry + esbuild bundle + Node ws+http transport + 桌寵 AgentRuntime + UI master toggle + opt-in daemon WS / Discord bot / Web UI 三服務 + 托盤狀態（含三服務 URL/連線數） + 對話氣泡入口 |
 | 平台支援 | 🟡 進行中 | Windows 完整 / macOS 渲染+動畫+表情+自主移動，視窗感知功能停用 |
 | v0.4+ | 未開始 | — |
 

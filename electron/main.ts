@@ -164,11 +164,14 @@ app.whenReady().then(async () => {
     registerAgentIpcHandlers(mainWindow, agentRuntime);
 
     // Phase 5b：把 AgentRuntime status 推給 tray 更新 menu 狀態文字
+    // G7 Phase D：服務狀態 (daemon/discord/webUi) 也同步給 tray
     if (systemTray) {
       const local = systemTray;
       agentRuntime.on('status', (s) => local.setAgentStatus(s));
+      agentRuntime.on('servicesChanged', (s) => local.setServicesStatus(s));
       // 初始狀態同步一次（disabled）
       local.setAgentStatus(agentRuntime.getStatus());
+      local.setServicesStatus(agentRuntime.getServicesStatus());
     }
 
     const cfg = await readConfig();

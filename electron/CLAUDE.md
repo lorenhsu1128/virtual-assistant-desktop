@@ -14,7 +14,7 @@
 | systemTray.ts | 系統托盤選單（含重置回正中央） | ✅ 正常 |
 | vrmPickerWindow.ts | VRM 模型瀏覽對話框 BrowserWindow 管理 | ✅ 正常 |
 | settingsWindow.ts | 桌寵設定 BrowserWindow（沿用 picker 模板） | ✅ 正常 |
-| agent/AgentRuntime.ts | M-MASCOT-EMBED：in-process AgentEmbedded lifecycle + state machine（disabled / preloading / standby / active / unloading / error） | ✅ 正常（v0.4） |
+| agent/AgentRuntime.ts | M-MASCOT-EMBED：in-process AgentEmbedded lifecycle + state machine（disabled / preloading / standby / active / unloading / error）+ G7 三 opt-in 服務 handle（daemonHandle / discordHandle / webUiHandle）+ autoStartServices / stopAllServices + 'servicesChanged' event 廣播 | ✅ 正常（v0.4 + G7） |
 | agent/mascotTools.ts | 4 mascot tool 定義（my-agent Tool 格式注入 extraTools） | ✅ 正常（v0.4） |
 | agent/MascotMcpServer.ts | HTTP MCP server — 給 opt-in daemon 模式用（外部 my-agent CLI 連入時走此） | 🟡 條件啟用（Phase 5c+） |
 | agent/mcpRegistration.ts | `cli mcp add --scope user` 把 MascotMcpServer 註冊到 my-agent — opt-in daemon 才需要 | 🟡 條件啟用（Phase 5c+） |
