@@ -76,14 +76,48 @@ const DEFAULT_AGENT: AgentConfig = {
 
 const INITIAL_STATUS: RuntimeStatus = { state: 'disabled' };
 
+// ── G7 Phase C：三個 opt-in 服務狀態（與 electron/agent/AgentRuntime.ts AgentServicesStatus 對齊） ──
+interface ServicesStatus {
+  daemon: {
+    running: boolean;
+    url: string | null;
+    token: string | null;
+    port: number | null;
+    connectedClients: number;
+    lastError?: string;
+  };
+  discord: {
+    running: boolean;
+    tokenSource: 'env' | 'config' | 'override' | null;
+    channelBindingCount: number;
+    lastError?: string;
+  };
+  webUi: {
+    running: boolean;
+    url: string | null;
+    port: number | null;
+    bindHost: string | null;
+    urls: readonly string[];
+    connectedClients: number;
+    lastError?: string;
+  };
+}
+
+const INITIAL_SERVICES: ServicesStatus = {
+  daemon: { running: false, url: null, token: null, port: null, connectedClients: 0 },
+  discord: { running: false, tokenSource: null, channelBindingCount: 0 },
+  webUi: { running: false, url: null, port: null, bindHost: null, urls: [], connectedClients: 0 },
+};
+
 export function AgentPage(): React.ReactElement {
   const [agent, setAgent] = useState<AgentConfig>(DEFAULT_AGENT);
   const [status, setStatus] = useState<RuntimeStatus>(INITIAL_STATUS);
+  const [services, setServices] = useState<ServicesStatus>(INITIAL_SERVICES);
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
-  // 初次載入 + 訂閱 runtime status 更新
+  // 初次載入 + 訂閱 runtime status / services 更新
   useEffect(() => {
     let mounted = true;
     void (async () => {
@@ -91,14 +125,20 @@ export function AgentPage(): React.ReactElement {
       if (cfg && mounted) setAgent(cfg.agent ?? DEFAULT_AGENT);
       const rs = (await ipc.agentGetRuntimeStatus()) as RuntimeStatus | null;
       if (mounted && rs) setStatus(rs);
+      const svc = (await ipc.agentGetServicesStatus()) as ServicesStatus | null;
+      if (mounted && svc) setServices(svc);
       if (mounted) setLoaded(true);
     })();
-    const off = ipc.onLlmStatusChanged((next) => {
+    const offStatus = ipc.onLlmStatusChanged((next) => {
       if (mounted) setStatus(next as RuntimeStatus);
+    });
+    const offServices = ipc.onAgentServicesChanged((next) => {
+      if (mounted) setServices(next as ServicesStatus);
     });
     return () => {
       mounted = false;
-      off();
+      offStatus();
+      offServices();
     };
   }, []);
 
@@ -247,11 +287,27 @@ export function AgentPage(): React.ReactElement {
       <DaemonOptInSection
         daemon={agent.daemon}
         updateDaemon={updateDaemon}
+        services={services.daemon}
+        masterReady={status.state === 'standby' || status.state === 'active'}
+      />
+
+      <DiscordSection
+        discord={agent.discord}
+        updateDiscord={(key, value) => {
+          setAgent((prev) => ({ ...prev, discord: { ...prev.discord, [key]: value } }));
+          setDirty(true);
+        }}
+        services={services.discord}
+        daemonRunning={services.daemon.running}
+        masterReady={status.state === 'standby' || status.state === 'active'}
       />
 
       <WebUiOptInSection
         webUi={agent.webUi}
         updateWebUi={updateWebUi}
+        services={services.webUi}
+        daemonRunning={services.daemon.running}
+        masterReady={status.state === 'standby' || status.state === 'active'}
       />
 
       <WorkspaceSection
@@ -481,45 +537,228 @@ interface DaemonOptInProps {
     key: K,
     value: AgentConfig['daemon'][K],
   ) => void;
+  services: ServicesStatus['daemon'];
+  masterReady: boolean;
 }
 function DaemonOptInSection({
   daemon,
   updateDaemon,
+  services,
+  masterReady,
 }: DaemonOptInProps): React.ReactElement {
+  const [busy, setBusy] = useState(false);
+  const disabled = !masterReady || busy;
+
+  const onToggle = async (next: boolean): Promise<void> => {
+    if (disabled) return;
+    setBusy(true);
+    updateDaemon('enabled', next);
+    try {
+      if (next) {
+        await ipc.agentStartDaemonServer({ port: daemon.port });
+      } else {
+        await ipc.agentStopDaemonServer();
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const copyUrl = (): void => {
+    if (services.url) void navigator.clipboard.writeText(services.url);
+  };
+  const copyToken = (): void => {
+    if (services.token) void navigator.clipboard.writeText(services.token);
+  };
+
   return (
-    <section className="rounded-lg border border-border bg-card p-4">
+    <section className={cn('rounded-lg border border-border bg-card p-4', !masterReady && 'opacity-60')}>
       <div className="flex items-center justify-between gap-4">
         <div>
           <Label htmlFor="daemon-opt-in" className="text-sm">
             啟動 daemon WS server（opt-in）
           </Label>
           <p className="text-xs text-muted-foreground">
-            開啟後其他工具（my-agent CLI、第二個 Electron 視窗、未來 Discord bot
-            等）可透過 ws 連入共用同個 in-process daemon。Phase 5c 完整串接。
+            開啟後其他工具（my-agent CLI、第二個 Electron 視窗、Discord bot、Web UI）
+            可透過 ws 連入共用同個 in-process daemon。
+            {!masterReady && '（需先啟用 AI 助理）'}
           </p>
         </div>
         <Switch
           id="daemon-opt-in"
-          checked={daemon.enabled}
-          onCheckedChange={(v) => updateDaemon('enabled', v)}
+          checked={services.running}
+          disabled={disabled}
+          onCheckedChange={(v) => void onToggle(v)}
         />
       </div>
-      {daemon.enabled && (
+
+      {services.lastError && (
+        <div className="mt-3 rounded-md border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
+          {services.lastError}
+        </div>
+      )}
+
+      {(daemon.enabled || services.running) && (
+        <div className="mt-3 flex flex-col gap-2">
+          <div className="flex flex-col gap-1">
+            <Label className="text-xs text-muted-foreground">
+              Port（0 = OS 自動指派；變更後重新撥動 toggle 套用）
+            </Label>
+            <Input
+              type="number"
+              min={0}
+              max={65535}
+              value={daemon.port}
+              disabled={services.running}
+              onChange={(e) => {
+                const v = parseInt(e.target.value, 10);
+                if (!isNaN(v) && v >= 0) updateDaemon('port', v);
+              }}
+              className="w-32"
+            />
+          </div>
+
+          {services.running && services.url && (
+            <>
+              <div className="flex flex-col gap-1">
+                <Label className="text-xs text-muted-foreground">WS URL</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="text"
+                    readOnly
+                    value={services.url}
+                    className="font-mono text-xs"
+                  />
+                  <Button variant="outline" size="sm" onClick={copyUrl}>
+                    複製
+                  </Button>
+                </div>
+              </div>
+              <div className="flex flex-col gap-1">
+                <Label className="text-xs text-muted-foreground">
+                  Auth token（連線時帶 ?token=... 或 Authorization: Bearer ...）
+                </Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="password"
+                    readOnly
+                    value={services.token ?? ''}
+                    className="font-mono text-xs"
+                  />
+                  <Button variant="outline" size="sm" onClick={copyToken}>
+                    複製
+                  </Button>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                目前實際 port: <code className="font-mono">{services.port}</code>
+                {services.connectedClients > 0 && (
+                  <> · {services.connectedClients} 個 client 已連線</>
+                )}
+              </p>
+            </>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ───────────────────── Discord Section（新） ─────────────────────
+
+interface DiscordSectionProps {
+  discord: AgentConfig['discord'];
+  updateDiscord: <K extends keyof AgentConfig['discord']>(
+    key: K,
+    value: AgentConfig['discord'][K],
+  ) => void;
+  services: ServicesStatus['discord'];
+  daemonRunning: boolean;
+  masterReady: boolean;
+}
+function DiscordSection({
+  updateDiscord,
+  services,
+  daemonRunning,
+  masterReady,
+}: DiscordSectionProps): React.ReactElement {
+  const [token, setToken] = useState('');
+  const [busy, setBusy] = useState(false);
+  const blocked = !masterReady || !daemonRunning;
+  const disabled = blocked || busy;
+
+  const onToggle = async (next: boolean): Promise<void> => {
+    if (disabled) return;
+    setBusy(true);
+    try {
+      if (next) {
+        // tokenOverride 為空字串時讓 supervisor 走 env / config 路徑
+        const opts = token.trim() ? { tokenOverride: token.trim() } : undefined;
+        await ipc.agentStartDiscordBot(opts);
+        updateDiscord('enabled', true);
+      } else {
+        await ipc.agentStopDiscordBot();
+        updateDiscord('enabled', false);
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className={cn('rounded-lg border border-border bg-card p-4', blocked && 'opacity-60')}>
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <Label htmlFor="discord-opt-in" className="text-sm">
+            啟動 Discord bot（opt-in）
+          </Label>
+          <p className="text-xs text-muted-foreground">
+            桌寵接管 Discord 訊息 — DM bot 對話、頻道綁定後 mention 觸發。
+            {!masterReady && '（需先啟用 AI 助理）'}
+            {masterReady && !daemonRunning && '（需先啟動 daemon WS server）'}
+          </p>
+        </div>
+        <Switch
+          id="discord-opt-in"
+          checked={services.running}
+          disabled={disabled}
+          onCheckedChange={(v) => void onToggle(v)}
+        />
+      </div>
+
+      {!services.running && (
         <div className="mt-3 flex flex-col gap-1">
           <Label className="text-xs text-muted-foreground">
-            Port（0 = OS 自動指派）
+            Bot token（留空使用 DISCORD_BOT_TOKEN env 或 discord.jsonc 內 botToken）
           </Label>
           <Input
-            type="number"
-            min={0}
-            max={65535}
-            value={daemon.port}
-            onChange={(e) => {
-              const v = parseInt(e.target.value, 10);
-              if (!isNaN(v) && v >= 0) updateDaemon('port', v);
-            }}
-            className="w-32"
+            type="password"
+            placeholder="MTxxxxxxxxxxxxxxxxxxxx.YYYYYY.ZZZZZZZ..."
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+            disabled={disabled}
+            className="font-mono text-xs"
           />
+          <p className="text-xs text-muted-foreground">
+            ⚠️ Token 不會 persist 到 disk；重啟桌寵需重新貼上（避免明文存放）
+          </p>
+        </div>
+      )}
+
+      {services.lastError && (
+        <div className="mt-3 rounded-md border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
+          {services.lastError}
+        </div>
+      )}
+
+      {services.running && (
+        <div className="mt-3 flex flex-col gap-1 text-xs text-muted-foreground">
+          <p>Bot 上線中{services.tokenSource && <>（token: {services.tokenSource}）</>}</p>
+          <p>
+            已綁定 {services.channelBindingCount} 個 channel；channel/whitelist 等
+            進階設定請編輯 <code className="font-mono">~/.virtual-assistant-desktop/discord.jsonc</code>
+            ，編輯後使用 reload 或 restart 套用
+          </p>
         </div>
       )}
     </section>
@@ -532,30 +771,155 @@ interface WebUiOptInProps {
     key: K,
     value: AgentConfig['webUi'][K],
   ) => void;
+  services: ServicesStatus['webUi'];
+  daemonRunning: boolean;
+  masterReady: boolean;
 }
 function WebUiOptInSection({
   webUi,
   updateWebUi,
+  services,
+  daemonRunning,
+  masterReady,
 }: WebUiOptInProps): React.ReactElement {
+  const [busy, setBusy] = useState(false);
+  const blocked = !masterReady || !daemonRunning;
+  const disabled = blocked || busy;
+  const publicToLan = webUi.bindHost === '0.0.0.0';
+
+  const onToggle = async (next: boolean): Promise<void> => {
+    if (disabled) return;
+    setBusy(true);
+    try {
+      if (next) {
+        await ipc.agentStartWebUi({
+          port: webUi.port,
+          bindHost: webUi.bindHost,
+          devProxyUrl: webUi.devProxyUrl ?? undefined,
+        });
+        updateWebUi('enabled', true);
+      } else {
+        await ipc.agentStopWebUi();
+        updateWebUi('enabled', false);
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const copyUrl = (): void => {
+    if (services.url) void navigator.clipboard.writeText(services.url);
+  };
+  const openInBrowser = (): void => {
+    if (services.url) void ipc.webUiOpenInBrowser(services.url);
+  };
+
   return (
-    <section className="rounded-lg border border-border bg-card p-4 opacity-60">
+    <section className={cn('rounded-lg border border-border bg-card p-4', blocked && 'opacity-60')}>
       <div className="flex items-center justify-between gap-4">
         <div>
           <Label htmlFor="webui-opt-in" className="text-sm">
-            啟動 Web UI（瀏覽器存取，Phase 4b 補完）
+            啟動 Web UI（瀏覽器 chat client）
           </Label>
           <p className="text-xs text-muted-foreground">
-            未來可在瀏覽器開 chat UI 與桌寵共用同個 daemon。embedded 模式下
-            Node http 對等實作尚未完成（Phase 4b TODO）。
+            在瀏覽器開 chat UI 與桌寵共用同個 daemon。
+            {!masterReady && '（需先啟用 AI 助理）'}
+            {masterReady && !daemonRunning && '（需先啟動 daemon WS server）'}
           </p>
         </div>
         <Switch
           id="webui-opt-in"
-          checked={webUi.enabled}
-          disabled
-          onCheckedChange={(v) => updateWebUi('enabled', v)}
+          checked={services.running}
+          disabled={disabled}
+          onCheckedChange={(v) => void onToggle(v)}
         />
       </div>
+
+      {!services.running && (
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <div className="flex flex-col gap-1">
+            <Label className="text-xs text-muted-foreground">Port（0 = OS 自動）</Label>
+            <Input
+              type="number"
+              min={0}
+              max={65535}
+              value={webUi.port}
+              disabled={disabled}
+              onChange={(e) => {
+                const v = parseInt(e.target.value, 10);
+                if (!isNaN(v) && v >= 0) updateWebUi('port', v);
+              }}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label className="text-xs text-muted-foreground">Bind host</Label>
+            <div className="flex items-center gap-2 pt-2">
+              <Switch
+                id="webui-lan"
+                checked={publicToLan}
+                disabled={disabled}
+                onCheckedChange={(v) =>
+                  updateWebUi('bindHost', v ? '0.0.0.0' : '127.0.0.1')
+                }
+              />
+              <Label htmlFor="webui-lan" className="text-xs">
+                公開到 LAN（{webUi.bindHost}）
+              </Label>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {services.lastError && (
+        <div className="mt-3 rounded-md border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
+          {services.lastError}
+        </div>
+      )}
+
+      {services.running && services.url && (
+        <div className="mt-3 flex flex-col gap-2">
+          <div className="flex flex-col gap-1">
+            <Label className="text-xs text-muted-foreground">URL</Label>
+            <div className="flex gap-2">
+              <Input
+                type="text"
+                readOnly
+                value={services.url}
+                className="font-mono text-xs"
+              />
+              <Button variant="outline" size="sm" onClick={copyUrl}>
+                複製
+              </Button>
+              <Button variant="outline" size="sm" onClick={openInBrowser}>
+                開啟
+              </Button>
+            </div>
+          </div>
+          {services.urls.length > 1 && (
+            <div className="text-xs text-muted-foreground">
+              其他可用 URL：
+              <ul className="ml-3 mt-1 list-disc">
+                {services.urls
+                  .filter((u) => u !== services.url)
+                  .map((u) => (
+                    <li key={u} className="font-mono">
+                      {u}
+                    </li>
+                  ))}
+              </ul>
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground">
+            目前實際 port: <code className="font-mono">{services.port}</code>
+            {services.connectedClients > 0 && (
+              <> · {services.connectedClients} 個 browser tab 已連線</>
+            )}
+          </p>
+          <p className="text-xs text-amber-400">
+            ⚠️ 若 URL 顯示「web UI 尚未 build」提示：需 <code className="font-mono">cd vendor/my-agent && bun run build:web</code> 後重啟
+          </p>
+        </div>
+      )}
     </section>
   );
 }
